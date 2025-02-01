@@ -1,0 +1,98 @@
+# 🛠️ SQL Query Assistant
+
+A natural language to SQL query interface powered by **LangChain** and **OpenAI**, with an interactive **Streamlit frontend** for intuitive SQL generation.
+
+---
+
+## 🌟 Features
+
+**Natural Language Querying**: Convert plain English into SQL queries  
+**Interactive Query Builder**: Pre-built query templates for easy selection  
+**Real-Time Execution**: Run queries instantly and view results  
+**Custom Query Parameters**:
+   - Sort order (ASC/DESC)
+   - Result limits
+   - Time-based filtering  
+**Results Visualization**: View in **tables** and export to **CSV**  
+**Smart Error Handling**: Detects and corrects SQL errors  
+
+---
+
+
+## 🔧 Prerequisites
+
+- Python 3.13+
+- SQL Server with ODBC Driver 17
+- OpenAI API key
+
+## 📦 Installation
+
+1. Clone the repository
+2. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Set up your environment variables:
+
+```bash
+OPENAI_API_KEY=your_api_key_here
+DATABASE_SERVER=your_server_name
+DATABASE_NAME=your_database_name
+OPENAI_MODEL=gpt-4-turbo-preview
+```
+
+## 🚀 Usage
+
+1. Start the application:
+
+```bash
+streamlit run app/streamlit_app.py
+```
+
+2. Select a query category or create a custom query
+3. Customize query parameters (sort order, result limit, time filter)
+4. Click "Generate Query" to execute
+
+## 🏗️ Project Structure
+
+```graph
+app/
+├── streamlit_app.py       # Main Streamlit application
+├── agent/
+│   ├── analyze_schema.py   # Schema retrieval & analysis
+│   ├── correct_query.py    # SQL error handling & correction
+│   ├── create_agent.py     # LangChain agent setup
+│   ├── execute_query.py    # Query execution logic
+│   ├── generate_query.py   # SQL query generation from natural language
+│   ├── query_database.py   # Manages full query pipeline
+│   └── state.py            # Tracks state & workflow
+```
+
+## 🔍 Sample Queries
+
+The application includes pre-built queries for various categories:
+- User and Activity Analysis
+- Company and Asset Management
+- Vulnerability and Patch Management
+- Hardware and Peripheral Tracking
+- Application and Security Monitoring
+- Network Configuration
+- System Scanning
+
+## 🛠️ Technical Details
+
+### Architecture
+- Uses LangGraph for workflow management
+- Implements a state machine pattern for query processing
+- Leverages OpenAI's language models for query generation
+- Uses Streamlit for the user interface
+- Connects to SQL Server via ODBC
+
+### Query Pipeline
+1. Schema Analysis
+2. Query Generation
+3. Query Execution
+4. Error Handling & Correction
+5. Result Formatting
