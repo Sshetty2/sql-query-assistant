@@ -12,24 +12,27 @@ def handle_tool_error(state) -> dict:
     error_message = state["messages"][-1].content
     original_query = state["query"]
     schema = state["schema"]
+    error_history = state.get("error_history", [])
 
-    prompt = f"""The following SQL query generated an error:
-    {original_query}
+    print("original_query", original_query)
+    print("error_history", error_history)
 
-    Error message:
-    {error_message}
-
+    prompt = f"""The following SQL query generated an error; please analyze the error closely and try not to repeat the issue:
     Database schema:
     {schema}
 
-    Please analyze the error and suggest a corrected query. Return ONLY the corrected SQL query without any explanation or formatting.
+    Original query:
+    {original_query}
+
+    Error history:
+    {chr(10).join(error_history)}
+
+    Please analyze the error and previous attempts, then suggest a corrected query. Return ONLY the corrected SQL query without any explanation or formatting.
     The query should still include 'FOR JSON AUTO' and be wrapped in a select statement that returns json.
-    
+
     Important: Return ONLY the raw SQL query without any markdown formatting, quotes, or code blocks.
-    For example, instead of:
-    ```sql
-    SELECT * FROM table
-    ```
+    For example, instead of:    ```sql
+    SELECT * FROM table    ```
     Just return:
     SELECT * FROM table
     """
@@ -45,5 +48,7 @@ def handle_tool_error(state) -> dict:
         "sort_order": state["sort_order"],
         "result_limit": state["result_limit"],
         "time_filter": state["time_filter"],
-        "current_step": "Correcting Query"
+        "current_step": "Correcting Query",
+        "retry_count": state.get("retry_count", 0),
+        "error_history": error_history
     }

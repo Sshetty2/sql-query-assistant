@@ -70,16 +70,40 @@ app/
 │   └── state.py            # Tracks state & workflow
 ```
 
-## 🔍 Sample Queries
+## Running API Locally with Uvicorn
 
-The application includes pre-built queries for various categories:
-- User and Activity Analysis
-- Company and Asset Management
-- Vulnerability and Patch Management
-- Hardware and Peripheral Tracking
-- Application and Security Monitoring
-- Network Configuration
-- System Scanning
+```bash
+uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+Test the API at:
+
+```bash
+http://localhost:8000/docs
+```
+
+## Running The Application in a Docker Container
+
+1. Set up the environment variables in the .env file 
+
+   Important: 
+   -- (DATABASE_SERVER should be "host.docker.internal")
+   -- (DATABASE_USER and DATABASE_PASSWORD must be set to the credentials of an authorized database user)
+
+```bash
+OPENAI_API_KEY=your_api_key_here
+DATABASE_SERVER=host.docker.internal
+DATABASE_NAME=your_database_name
+DATABASE_USER=your_database_user
+DATABASE_PASSWORD=your_database_password
+```
+
+2. Build and run the Docker container
+
+```bash
+docker build -t sql-query-assistant .
+docker run -d --env-file .env -p 8000:8000 sql-query-assistant
+```
 
 ## 🛠️ Technical Details
 

@@ -2,8 +2,11 @@ import streamlit as st
 import pandas as pd
 from langchain_community.utilities import SQLDatabase
 from agent.query_database import query_database
-from dotenv import load_dotenv
 import json
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 SAMPLE_QUERIES = {
     "User and Activity Queries": [
@@ -45,12 +48,22 @@ SAMPLE_QUERIES = {
 
 def init_database():
     load_dotenv()
-    connection_string = (
-        "DRIVER={ODBC Driver 17 for SQL Server};"
-        "SERVER=localhost;"
-        "DATABASE=SAASDB;"
-        "Trusted_Connection=yes;"
-    )
+    connection_params = [
+        "DRIVER={ODBC Driver 17 for SQL Server}",
+        f"SERVER={os.getenv('DATABASE_SERVER')}",
+        f"DATABASE={os.getenv('DATABASE_NAME')}",
+    ]
+    
+    if os.getenv('DATABASE_USER') and os.getenv('DATABASE_PASSWORD'):
+        connection_params.extend([
+            f"UID={os.getenv('DATABASE_USER')}",
+            f"PWD={os.getenv('DATABASE_PASSWORD')}"
+        ])
+    else:
+        connection_params.append("Trusted_Connection=yes")
+    
+    # Join all parameters with semicolons
+    connection_string = ";".join(connection_params)
     return SQLDatabase.from_uri(f"mssql+pyodbc:///?odbc_connect={connection_string}")
 
 def format_results(result):
@@ -148,6 +161,8 @@ def main():
                 
                 if "corrected_query" in output and output["corrected_query"]:
                     with st.expander("Query Correction Details", icon="🚨"):
+                        st.write("Retry count:", output["retry_count"])
+                        st.write("Error history:", output["error_history"])
                         st.write("Original query that generated an error:")
                         st.code(output["corrected_query"], language="sql")
                         st.write("Corrected and executed query:")
@@ -155,6 +170,12 @@ def main():
 
                 tab1, tab2 = st.tabs(["Table View", "Raw Data"])
                 
+
+                if type(output["result"]) == str:
+                    status.update(label="No results found", state="error")
+                    st.warning("Query returned no results.")
+                    return 
+
                 with tab1:
                     df = format_results(output["result"])
 

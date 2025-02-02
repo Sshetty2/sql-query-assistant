@@ -11,3 +11,6 @@ class State(TypedDict):
     time_filter: str  # Holds time filter preference
     current_step: str  # Holds current step in the workflow
     corrected_query: Optional[str]  # Holds the corrected query if error occurred
+    retry_count: int  # Add this new field
+    error_history: list[str]  # Add this new field
+    last_attempt_time: Optional[str]  # Add this new field

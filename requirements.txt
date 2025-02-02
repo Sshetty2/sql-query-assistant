@@ -5,3 +5,5 @@ langgraph
 python-dotenv
 pyodbc
 streamlit
+fastapi
+uvicorn

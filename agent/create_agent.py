@@ -14,20 +14,30 @@ from typing import Literal
 
 load_dotenv()
 
-connection_string = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    f"SERVER={os.getenv('DATABASE_SERVER')};"
-    f"DATABASE={os.getenv('DATABASE_NAME')};"
-    "Trusted_Connection=yes;"
-)
+connection_params = [
+    "DRIVER={ODBC Driver 17 for SQL Server}",
+    f"SERVER={os.getenv('DATABASE_SERVER')}",
+    f"DATABASE={os.getenv('DATABASE_NAME')}",
+]
+
+if os.getenv('DATABASE_USER') and os.getenv('DATABASE_PASSWORD'):
+    connection_params.extend([
+        f"UID={os.getenv('DATABASE_USER')}",
+        f"PWD={os.getenv('DATABASE_PASSWORD')}"
+    ])
+else:
+    connection_params.append("Trusted_Connection=yes")
+
+# Join all parameters with semicolons
+connection_string = ";".join(connection_params)
 
 def debug_node(state: State):
     """Debug node to print current state and update status"""
     current_step = state["current_step"]
     
-    if 'status' in st.session_state:
-        status = st.session_state.status
-        status.update(label=current_step, state="running")
+    # if 'status' in st.session_state:
+    #     status = st.session_state.status
+    #     status.update(label=current_step, state="running")
     
     return {
         "messages": [AIMessage(content=f"Step completed: {current_step}")],
@@ -38,8 +48,16 @@ def should_continue(state: State) -> Literal[END, "debug_execute", "handle_error
     """Determine the next step based on the current state."""
     messages = state["messages"]
     last_message = messages[-1]
+    retry_count = state.get("retry_count", 0)
     
-
+    # Stop if we've tried 3 times
+    if retry_count >= 3:
+        return END
+    
+    # If we hit rate limit, end the process
+    if "Rate limit timeout" in last_message.content:
+        return END
+    
     if hasattr(state, 'corrected_query'):
         return "debug_execute"
     if "Error" in last_message.content:
