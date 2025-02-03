@@ -28,13 +28,22 @@ def handle_tool_error(state) -> dict:
     {chr(10).join(error_history)}
 
     Please analyze the error and previous attempts, then suggest a corrected query. Return ONLY the corrected SQL query without any explanation or formatting.
-    The query should still include 'FOR JSON AUTO' and be wrapped in a select statement that returns json.
 
-    Important: Return ONLY the raw SQL query without any markdown formatting, quotes, or code blocks.
-    For example, instead of:    ```sql
-    SELECT * FROM table    ```
+    Important: 
+    Return ONLY the raw SQL query without any markdown formatting, quotes, or code blocks.
+    For example, instead of:    
+    ```sql
+    SELECT * FROM table
+    ```
     Just return:
     SELECT * FROM table
+
+    Also, please append 'FOR JSON AUTO' to the query to format the result as JSON
+    and wrap the query in another select statement that returns json:
+
+    select (
+        <query> FOR JSON AUTO
+    ) as json
     """
 
     llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL"), temperature=.3)

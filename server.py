@@ -78,14 +78,14 @@ class QueryRequest(BaseModel):
 def init_database():
     connection_params = [
         "DRIVER={ODBC Driver 17 for SQL Server}",
-        f"SERVER={os.getenv('DATABASE_SERVER')}",
-        f"DATABASE={os.getenv('DATABASE_NAME')}",
+        f"SERVER={os.getenv('DB_SERVER')}",
+        f"DATABASE={os.getenv('DB_NAME')}",
     ]
     
-    if os.getenv('DATABASE_USER') and os.getenv('DATABASE_PASSWORD'):
+    if os.getenv('DB_USER') and os.getenv('DB_PASSWORD'):
         connection_params.extend([
-            f"UID={os.getenv('DATABASE_USER')}",
-            f"PWD={os.getenv('DATABASE_PASSWORD')}"
+            f"UID={os.getenv('DB_USER')}",
+            f"PWD={os.getenv('DB_PASSWORD')}"
         ])
     else:
         connection_params.append("Trusted_Connection=yes")

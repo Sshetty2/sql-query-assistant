@@ -8,6 +8,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+st.set_page_config(
+    page_title="SQL Query Assistant",
+    layout="wide",
+    initial_sidebar_state="auto"
+)
+
+st.title("SQL Query Assistant")
+
 SAMPLE_QUERIES = {
     "User and Activity Queries": [
         "Show me all users in the system.",
@@ -50,14 +58,14 @@ def init_database():
     load_dotenv()
     connection_params = [
         "DRIVER={ODBC Driver 17 for SQL Server}",
-        f"SERVER={os.getenv('DATABASE_SERVER')}",
-        f"DATABASE={os.getenv('DATABASE_NAME')}",
+        f"SERVER={os.getenv('DB_SERVER')}",
+        f"DATABASE={os.getenv('DB_NAME')}",
     ]
     
-    if os.getenv('DATABASE_USER') and os.getenv('DATABASE_PASSWORD'):
+    if os.getenv('DB_USER') and os.getenv('DB_PASSWORD'):
         connection_params.extend([
-            f"UID={os.getenv('DATABASE_USER')}",
-            f"PWD={os.getenv('DATABASE_PASSWORD')}"
+            f"UID={os.getenv('DB_USER')}",
+            f"PWD={os.getenv('DB_PASSWORD')}"
         ])
     else:
         connection_params.append("Trusted_Connection=yes")
@@ -83,12 +91,6 @@ def format_results(result):
         return pd.DataFrame()
 
 def main():
-    st.set_page_config(
-        page_title="SQL Query Assistant",
-        layout="wide",
-        initial_sidebar_state="auto"
-    )
-
     db = init_database()
     
     col1, col2 = st.columns([2, 2])

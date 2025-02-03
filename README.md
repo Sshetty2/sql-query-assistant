@@ -38,8 +38,10 @@ pip install -r requirements.txt
 
 ```bash
 OPENAI_API_KEY=your_api_key_here
-DATABASE_SERVER=your_server_name
-DATABASE_NAME=your_database_name
+DB_SERVER=your_server_name
+DB_NAME=your_database_name
+DB_USER=your_database_user
+DB_PASSWORD=your_database_password
 OPENAI_MODEL=gpt-4-turbo-preview
 ```
 
@@ -59,15 +61,15 @@ streamlit run app/streamlit_app.py
 
 ```graph
 app/
-├── streamlit_app.py       # Main Streamlit application
+├── streamlit_app.py            # Main Streamlit application
 ├── agent/
-│   ├── analyze_schema.py   # Schema retrieval & analysis
-│   ├── correct_query.py    # SQL error handling & correction
-│   ├── create_agent.py     # LangChain agent setup
-│   ├── execute_query.py    # Query execution logic
-│   ├── generate_query.py   # SQL query generation from natural language
-│   ├── query_database.py   # Manages full query pipeline
-│   └── state.py            # Tracks state & workflow
+│   ├── analyze_schema.py       # Schema retrieval & analysis
+│   ├── handle_tool_error.py    # SQL error handling & correction
+│   ├── create_agent.py         # LangChain agent setup
+│   ├── execute_query.py        # Query execution logic
+│   ├── generate_query.py       # SQL query generation from natural language
+│   ├── query_database.py       # Manages full query pipeline
+│   └── state.py                # Tracks state & workflow
 ```
 
 ## Running API Locally with Uvicorn
@@ -87,15 +89,15 @@ http://localhost:8000/docs
 1. Set up the environment variables in the .env file 
 
    Important: 
-   -- (DATABASE_SERVER should be "host.docker.internal")
-   -- (DATABASE_USER and DATABASE_PASSWORD must be set to the credentials of an authorized database user)
+   -- (DB_SERVER should be "host.docker.internal")
+   -- (DB_USER and DB_PASSWORD must be set to the credentials of an authorized database user)
 
 ```bash
 OPENAI_API_KEY=your_api_key_here
-DATABASE_SERVER=host.docker.internal
-DATABASE_NAME=your_database_name
-DATABASE_USER=your_database_user
-DATABASE_PASSWORD=your_database_password
+DB_SERVER=host.docker.internal
+DB_NAME=your_DB_NAME
+DB_USER=your_DB_USER
+DB_PASSWORD=your_DB_PASSWORD
 ```
 
 2. Build and run the Docker container

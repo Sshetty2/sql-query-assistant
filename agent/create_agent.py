@@ -5,7 +5,7 @@ from agent.generate_query import generate_query
 from agent.execute_query import execute_query
 from agent.create_sql_tools import create_sql_tools
 from langchain.schema import AIMessage
-from agent.correct_query import handle_tool_error
+from agent.handle_tool_error import handle_tool_error
 import streamlit as st
 import pyodbc
 import os
@@ -16,14 +16,14 @@ load_dotenv()
 
 connection_params = [
     "DRIVER={ODBC Driver 17 for SQL Server}",
-    f"SERVER={os.getenv('DATABASE_SERVER')}",
-    f"DATABASE={os.getenv('DATABASE_NAME')}",
+    f"SERVER={os.getenv('DB_SERVER')}",
+    f"DATABASE={os.getenv('DB_NAME')}",
 ]
 
-if os.getenv('DATABASE_USER') and os.getenv('DATABASE_PASSWORD'):
+if os.getenv('DB_USER') and os.getenv('DB_PASSWORD'):
     connection_params.extend([
-        f"UID={os.getenv('DATABASE_USER')}",
-        f"PWD={os.getenv('DATABASE_PASSWORD')}"
+        f"UID={os.getenv('DB_USER')}",
+        f"PWD={os.getenv('DB_PASSWORD')}"
     ])
 else:
     connection_params.append("Trusted_Connection=yes")
@@ -56,9 +56,8 @@ def should_continue(state: State) -> Literal[END, "debug_execute", "handle_error
     
     # If we hit rate limit, end the process
     if "Rate limit timeout" in last_message.content:
-        return END
-    
-    if hasattr(state, 'corrected_query'):
+        return END  
+    if "corrected_query" in state and state["corrected_query"]:
         return "debug_execute"
     if "Error" in last_message.content:
         return "handle_error"
