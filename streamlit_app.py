@@ -9,6 +9,24 @@ from database.connection import get_db_connection
 
 load_dotenv()
 
+def load_sample_queries():
+    """Load sample queries based on database type."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Determine which file to load based on USE_TEST_DB
+    filename = "test-db-queries.json" if os.getenv('USE_TEST_DB', '').lower() == 'true' else "cwp-sample-queries.json"
+    file_path = os.path.join(current_dir, filename)
+    
+    try:
+        with open(file_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading sample queries: {e}")
+        return {}
+
+# Replace the hardcoded SAMPLE_QUERIES with the loaded queries
+SAMPLE_QUERIES = load_sample_queries()
+
 st.set_page_config(
     page_title="SQL Query Assistant",
     layout="wide",
@@ -16,44 +34,6 @@ st.set_page_config(
 )
 
 st.title("SQL Query Assistant")
-
-SAMPLE_QUERIES = {
-    "User and Activity Queries": [
-        "Show me all users in the system.",
-        "List the last 10 user login attempts.",
-        "How many users are in the system?",
-        "Who are the top 5 users with the most logins?"
-    ],
-    "Company and Asset Queries": [
-        "List all companies and their associated assets.",
-        "Show all computers along with their processor details.",
-        "List all installed applications on each computer."
-    ],
-    "Vulnerability and Patch Queries": [
-        "List all vulnerabilities found in the last 30 days.",
-        "Show all computers with pending patches.",
-        "Which computers have the most critical CVEs?"
-    ],
-    "Hardware and Peripheral Queries": [
-        "Show all disk drives installed on computers.",
-        "List all USB devices connected to computers.",
-        "How many computers have printers attached?"
-    ],
-    "Tagging and Application Tracking": [
-        "List all applications tagged with security risk.",
-        "Which companies have applications with critical vulnerabilities?"
-    ],
-    "Network and Configuration Queries": [
-        "Show all network domains in the database.",
-        "List computers and their associated network domains.",
-        "How many computers are there per network domain?"
-    ],
-    "System and Scan Queries": [
-        "When was the last scan performed for each asset?",
-        "List all scheduled scans in the system.",
-        "Which scans detected the most vulnerabilities?"
-    ]
-}
 
 def format_results(result):
     """Convert query results into a pandas DataFrame."""
