@@ -1,9 +1,9 @@
 from langchain_openai import ChatOpenAI
 from langchain.schema import AIMessage
 from typing import Any
+from agent.generate_query import get_json_format_instructions
 from dotenv import load_dotenv
 import os
-
 
 load_dotenv()
 
@@ -13,9 +13,7 @@ def handle_tool_error(state) -> dict:
     original_query = state["query"]
     schema = state["schema"]
     error_history = state.get("error_history", [])
-
-    print("original_query", original_query)
-    print("error_history", error_history)
+    json_instructions = get_json_format_instructions()
 
     prompt = f"""The following SQL query generated an error; please analyze the error closely and try not to repeat the issue:
     Database schema:
@@ -38,12 +36,7 @@ def handle_tool_error(state) -> dict:
     Just return:
     SELECT * FROM table
 
-    Also, please append 'FOR JSON AUTO' to the query to format the result as JSON
-    and wrap the query in another select statement that returns json:
-
-    select (
-        <query> FOR JSON AUTO
-    ) as json
+    {json_instructions}
     """
 
     llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL"), temperature=.3)

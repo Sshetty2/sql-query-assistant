@@ -5,6 +5,34 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
+def get_json_format_instructions():
+    """Get database-specific JSON formatting instructions."""
+    if os.getenv('USE_TEST_DB', '').lower() == 'true':
+        return """
+        The Database is SQLite.
+        Format the results as JSON using SQLite's json functions:
+        SELECT json_group_array(
+            json_object(
+                'column1', column1,
+                'column2', column2
+            )
+        ) AS json_result
+        FROM (
+            <your query here>
+        );
+        """
+    else:
+        return """
+        The Database is SQL Server.
+        Also, please append 'FOR JSON AUTO' to the query to format the result as JSON
+        and wrap the query in another select statement that returns json.
+
+        select (
+            <query> FOR JSON AUTO
+        ) as json
+        """
+
 def generate_query(state: State):
     """Generate SQL query based on the question and schema."""
     try:
@@ -39,10 +67,12 @@ def generate_query(state: State):
 
         modifications_text = "\n".join([f"- {mod}" for mod in query_modifications])
         
+        json_instructions = get_json_format_instructions()
+        
         prompt = f"""Given this database schema:
         {schema}
 
-        Generate a SQL Server query to answer this question: {question}
+        Generate a SQL query to answer this question: {question}
 
         Important: Return ONLY the raw SQL query without any markdown formatting, quotes, or code blocks.
         For example, instead of:
@@ -55,12 +85,7 @@ def generate_query(state: State):
         Additional requirements:
         {modifications_text if modifications_text else ""}
 
-        Also, please append 'FOR JSON AUTO' to the query to format the result as JSON
-        and wrap the query in another select statement that returns json.
-
-        select (
-            <query> FOR JSON AUTO
-        ) as json
+        {json_instructions}
         """
 
         llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL"), temperature=0)
