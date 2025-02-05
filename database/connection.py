@@ -11,12 +11,9 @@ def build_connection_string():
     """Build and return the connection string based on environment variables."""
     load_dotenv()
     
-    # Check if we should use the test SQLite database
     if os.getenv('USE_TEST_DB', '').lower() == 'true':
-        # For SQLite, we'll return just the path since we're using sqlite3 directly
         return sample_db_path
     
-    # Default SQL Server connection string building
     connection_params = [
         "DRIVER={ODBC Driver 17 for SQL Server}",
         f"SERVER={os.getenv('DB_SERVER')}",
