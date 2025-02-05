@@ -6,7 +6,6 @@ from agent.execute_query import execute_query
 from agent.create_sql_tools import create_sql_tools
 from langchain.schema import AIMessage
 from agent.handle_tool_error import handle_tool_error
-import streamlit as st
 import pyodbc
 import os
 from dotenv import load_dotenv
@@ -20,9 +19,7 @@ def debug_node(state: State):
     """Debug node to print current state and update status"""
     current_step = state["current_step"]
     
-    # if 'status' in st.session_state:
-    #     status = st.session_state.status
-    #     status.update(label=current_step, state="running")
+    print(f"Step completed: {current_step}")
     
     return {
         "messages": [AIMessage(content=f"Step completed: {current_step}")],
