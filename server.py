@@ -74,27 +74,6 @@ class QueryRequest(BaseModel):
             }
         }
 
-# Initialize Database Connection
-def init_database():
-    connection_params = [
-        "DRIVER={ODBC Driver 17 for SQL Server}",
-        f"SERVER={os.getenv('DB_SERVER')}",
-        f"DATABASE={os.getenv('DB_NAME')}",
-    ]
-    
-    if os.getenv('DB_USER') and os.getenv('DB_PASSWORD'):
-        connection_params.extend([
-            f"UID={os.getenv('DB_USER')}",
-            f"PWD={os.getenv('DB_PASSWORD')}"
-        ])
-    else:
-        connection_params.append("Trusted_Connection=yes")
-    
-    # Join all parameters with semicolons
-    connection_string = ";".join(connection_params)
-    
-    return SQLDatabase.from_uri(f"mssql+pyodbc:///?odbc_connect={connection_string}")
-
 @app.post("/query", summary="Generate SQL Query from Natural Language", description="""
     Converts a **natural language question** into an **executable SQL query**.
     
@@ -123,10 +102,8 @@ def init_database():
 async def process_query(request: QueryRequest):
     """Process a natural language query and return SQL query."""
     try:
-        db = init_database()
         result = query_database(
             request.prompt,
-            db,
             sort_order=request.sort_order,
             result_limit=request.result_limit,
             time_filter=request.time_filter

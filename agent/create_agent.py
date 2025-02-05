@@ -11,25 +11,10 @@ import pyodbc
 import os
 from dotenv import load_dotenv
 from typing import Literal
+from database.connection import get_pyodbc_connection
+from database.connection import init_database
 
 load_dotenv()
-
-connection_params = [
-    "DRIVER={ODBC Driver 17 for SQL Server}",
-    f"SERVER={os.getenv('DB_SERVER')}",
-    f"DATABASE={os.getenv('DB_NAME')}",
-]
-
-if os.getenv('DB_USER') and os.getenv('DB_PASSWORD'):
-    connection_params.extend([
-        f"UID={os.getenv('DB_USER')}",
-        f"PWD={os.getenv('DB_PASSWORD')}"
-    ])
-else:
-    connection_params.append("Trusted_Connection=yes")
-
-# Join all parameters with semicolons
-connection_string = ";".join(connection_params)
 
 def debug_node(state: State):
     """Debug node to print current state and update status"""
@@ -65,10 +50,14 @@ def should_continue(state: State) -> Literal[END, "debug_execute", "handle_error
         return "debug_execute"
     return END
 
-def create_sql_agent(db):
+def create_sql_agent():
     workflow = StateGraph(State)
-    
-    db_connection = pyodbc.connect(connection_string)
+
+    ## Need DB Instance for sql tools    
+    db = init_database()
+
+    ## Need DB PYODBC connection for regular sql queries
+    db_connection = get_pyodbc_connection()
     
     tools = create_sql_tools(db)
 

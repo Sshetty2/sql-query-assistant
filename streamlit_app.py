@@ -5,6 +5,7 @@ from agent.query_database import query_database
 import json
 import os
 from dotenv import load_dotenv
+from database.connection import get_db_connection
 
 load_dotenv()
 
@@ -54,26 +55,6 @@ SAMPLE_QUERIES = {
     ]
 }
 
-def init_database():
-    load_dotenv()
-    connection_params = [
-        "DRIVER={ODBC Driver 17 for SQL Server}",
-        f"SERVER={os.getenv('DB_SERVER')}",
-        f"DATABASE={os.getenv('DB_NAME')}",
-    ]
-    
-    if os.getenv('DB_USER') and os.getenv('DB_PASSWORD'):
-        connection_params.extend([
-            f"UID={os.getenv('DB_USER')}",
-            f"PWD={os.getenv('DB_PASSWORD')}"
-        ])
-    else:
-        connection_params.append("Trusted_Connection=yes")
-    
-    # Join all parameters with semicolons
-    connection_string = ";".join(connection_params)
-    return SQLDatabase.from_uri(f"mssql+pyodbc:///?odbc_connect={connection_string}")
-
 def format_results(result):
     """Convert query results into a pandas DataFrame."""
     try:
@@ -91,8 +72,6 @@ def format_results(result):
         return pd.DataFrame()
 
 def main():
-    db = init_database()
-    
     col1, col2 = st.columns([2, 2])
     
     with col1:
@@ -148,7 +127,6 @@ def main():
             try:
                 output = query_database(
                     user_question, 
-                    db,
                     sort_order=sort_order,
                     result_limit=result_limit,
                     time_filter=time_filter
