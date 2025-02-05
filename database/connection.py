@@ -13,13 +13,8 @@ def build_connection_string():
     
     # Check if we should use the test SQLite database
     if os.getenv('USE_TEST_DB', '').lower() == 'true':
-        # Assuming the SQLite database is in a 'data' directory at the project root
-        db_path = sample_db_path
-        connection_params = [
-            "DRIVER=SQLite3 ODBC Driver",
-            f"Database={db_path}"
-        ]
-        return ";".join(connection_params)
+        # For SQLite, we'll return just the path since we're using sqlite3 directly
+        return sample_db_path
     
     # Default SQL Server connection string building
     connection_params = [
@@ -40,16 +35,18 @@ def build_connection_string():
 
 def get_db_connection():
     """Get a SQLDatabase instance using the appropriate connection string."""
-    connection_string = build_connection_string()
-    
     if os.getenv('USE_TEST_DB', '').lower() == 'true':
         return SQLDatabase.from_uri(f"sqlite:///{sample_db_path}")
     
+    connection_string = build_connection_string()
     return SQLDatabase.from_uri(f"mssql+pyodbc:///?odbc_connect={connection_string}")
 
 def get_pyodbc_connection():
     """Get a raw database connection using the appropriate connection string."""
     connection_string = build_connection_string()
+    if os.getenv('USE_TEST_DB', '').lower() == 'true':
+        import sqlite3
+        return sqlite3.connect(connection_string)
     return pyodbc.connect(connection_string)
 
 def init_database():
