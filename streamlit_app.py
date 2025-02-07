@@ -128,7 +128,7 @@ def main():
                                 st.write("Retry count:", output["retry_count"])
                                 for i, query in enumerate(output["corrected_queries"], 1):
                                     st.write(f"Attempt {i}:")
-                                    st.write(f"Error: {output["error_history"][i-1]}")
+                                    st.write(f"Error: {output['error_history'][i-1]}")
                                     st.code(query, language="sql")
                         
                         with col2:
