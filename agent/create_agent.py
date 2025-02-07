@@ -15,6 +15,27 @@ from database.connection import init_database
 from agent.refine_query import refine_query
 
 load_dotenv()
+use_test_db = os.getenv("USE_TEST_DB").lower() == "true"
+
+def is_none_result(result):
+    noneResult = False
+    
+    ## SQL-lite specific syntax
+    if use_test_db:
+        if result is None:
+            return True
+        if isinstance(result, list) and len(result) > 0:
+            first_entry = result[0]
+            if len(first_entry) > 0:
+                noneResult = first_entry[0] == '[]'
+        return noneResult
+
+    ## SQL-Server specific syntax
+    if isinstance(result, list) and len(result) > 0:
+        first_entry = result[0]
+        if len(first_entry) > 0:
+            noneResult = first_entry[0] is None
+    return noneResult
 
 
 def should_continue(state: State) -> Literal["handle_error", "refine_query", "cleanup"]:
@@ -28,12 +49,7 @@ def should_continue(state: State) -> Literal["handle_error", "refine_query", "cl
 
     env_retry_count = int(os.getenv("RETRY_COUNT")) if os.getenv("RETRY_COUNT") else 3
     env_refine_count = int(os.getenv("REFINE_COUNT")) if os.getenv("REFINE_COUNT") else 2
-    noneResult = False
-
-    if isinstance(result, list) and len(result) > 0:
-        first_entry = result[0]
-        if len(first_entry) > 0:
-            noneResult = first_entry[0] is None
+    noneResult = is_none_result(result)
 
     # Handle errors
     if "Error" in last_message.content and retry_count < env_retry_count:
