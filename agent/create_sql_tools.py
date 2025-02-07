@@ -7,5 +7,5 @@ load_dotenv()
 
 def create_sql_tools(db):
     """Initialize SQL tools for interacting with the database."""
-    toolkit = SQLDatabaseToolkit(db=db, llm=ChatOpenAI(model=os.getenv("OPENAI_MODEL")))
+    toolkit = SQLDatabaseToolkit(db=db, llm=ChatOpenAI(model=os.getenv("AI_MODEL")))
     return toolkit.get_tools()

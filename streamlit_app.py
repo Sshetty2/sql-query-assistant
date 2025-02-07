@@ -1,10 +1,10 @@
+import os
+from dotenv import load_dotenv
 import streamlit as st
 import pandas as pd
 from langchain_community.utilities import SQLDatabase
 from agent.query_database import query_database
 import json
-import os
-from dotenv import load_dotenv
 from database.connection import get_db_connection
 
 load_dotenv()
@@ -13,7 +13,6 @@ def load_sample_queries():
     """Load sample queries based on database type."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # Determine which file to load based on USE_TEST_DB
     filename = "test-db-queries.json" if os.getenv('USE_TEST_DB', '').lower() == 'true' else "cwp-sample-queries.json"
     file_path = os.path.join(current_dir, filename)
     
@@ -103,7 +102,7 @@ def main():
     
     if st.button("Generate Query", type="primary"):
         if user_question:
-            status = st.status("Analyzing database schema...")
+            status = st.status("Querying database...")
             try:
                 output = query_database(
                     user_question, 
@@ -117,28 +116,36 @@ def main():
                     st.error("Query error.")
                     return
 
-                st.code(output["query"], language="sql")
-                
-                if "corrected_query" in output and output["corrected_query"]:
-                    with st.expander("Query Correction Details", icon="🚨"):
-                        st.write("Retry count:", output["retry_count"])
-                        st.write("Error history:", output["error_history"])
-                        st.write("Original query that generated an error:")
-                        st.code(output["corrected_query"], language="sql")
-                        st.write("Corrected and executed query:")
-                        st.code(output["query"], language="sql")
+                if output.get("corrected_queries") or output.get("refined_queries"):
+                    with st.expander("Query History", icon="📜"):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            if output["retry_count"] > 0:       
+                                st.subheader("Error Corrections")
+                                st.write("Retry count:", output["retry_count"])
+                                st.write("Error history:", output["error_history"])
+                                for i, query in enumerate(output["corrected_queries"], 1):
+                                    st.write(f"Attempt {i}:")
+                                    st.code(query, language="sql")
+                        
+                        with col2:
+                            if output["refined_count"] > 0:
+                                st.subheader("Query Refinements")
+                                for i, query in enumerate(output["refined_queries"], 1):
+                                    st.write(f"Refinement {i}:")
+                                    st.code(query, language="sql")
 
                 tab1, tab2 = st.tabs(["Table View", "Raw Data"])
-                
 
                 if type(output["result"]) == str:
                     status.update(label="No results found", state="error")
                     st.warning("Query returned no results.")
                     return 
 
-                with tab1:
-                    df = format_results(output["result"])
+                df = format_results(output["result"])
 
+                with tab1:
                     if not df.empty:
                         status.update(label="Query executed successfully!", state="complete")
                         

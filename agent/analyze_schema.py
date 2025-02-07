@@ -66,18 +66,18 @@ def fetch_lean_schema(connection):
 
 def analyze_schema(state: State, tools, db_connection):
     """Retrieve schema information for the database."""
+
     try:
         schema = fetch_lean_schema(db_connection)
         return {
+            **state,
             "messages": [AIMessage(content="Schema information gathered.")],
             "schema": schema,
-            "sort_order": state["sort_order"],
-            "result_limit": state["result_limit"],
-            "time_filter": state["time_filter"],
-            "current_step": "Analyzing Schema"
+            "last_step": "analyze_schema",
         }
     except Exception as e:
         return {
+            **state,
             "messages": [AIMessage(content=f"Error retrieving schema: {e}")],
-            "current_step": "Error in Schema Analysis"
+            "last_step": "analyze_schema",
         }

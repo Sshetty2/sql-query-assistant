@@ -5,8 +5,6 @@ from dotenv import load_dotenv
 
 sample_db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'sample-db.db')
 
-print(sample_db_path)
-
 def build_connection_string():
     """Build and return the connection string based on environment variables."""
     load_dotenv()
