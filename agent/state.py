@@ -16,5 +16,5 @@ class State(TypedDict):
     retry_count: int  # Number of retries
     refined_count: int  # Number of times the query has been refined
     error_history: list[str]  # List of errors encountered
+    refined_reasoning: list[str]  # List of reasoning for each refinement
     last_attempt_time: Optional[str]  # Last time the query was attempted
-
