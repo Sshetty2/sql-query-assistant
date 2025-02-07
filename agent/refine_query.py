@@ -1,4 +1,5 @@
 from typing import Dict, Any
+from pydantic import BaseModel, Field
 from agent.state import State
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
@@ -7,6 +8,10 @@ from dotenv import load_dotenv
 from agent.generate_query import get_json_format_instructions, get_sql_return_instructions
 
 load_dotenv()
+
+class QueryRefinement(BaseModel):
+    reasoning: str = Field(description="Explanation of how and why the query was refined")
+    sql_query: str = Field(description="The refined SQL query")
 
 def refine_query(state: State) -> Dict[str, Any]:
     """
@@ -26,6 +31,8 @@ def refine_query(state: State) -> Dict[str, Any]:
             previous_attempts += f"{i}. {query}\n"
 
     model = ChatOpenAI(model=os.getenv("AI_MODEL_REFINE"), temperature=0.7)
+    structured_model = model.with_structured_output(QueryRefinement)
+
     json_instructions = get_json_format_instructions()
     sql_return_instructions = get_sql_return_instructions()
 
@@ -49,14 +56,14 @@ def refine_query(state: State) -> Dict[str, Any]:
     {sql_return_instructions}
     """
 
-    response = model.invoke(prompt)
-    refined_query = response.content.strip()
+    response = structured_model.invoke(prompt)
 
     return {
         **state,
         "messages": [AIMessage(content=f"Query refined for broader results")],
-        "query": refined_query,
+        "query": response.sql_query,
         "last_step": "refine_query",
         "refined_queries": state["refined_queries"] + [original_query],
+        "refined_reasoning": state["refined_reasoning"] + [response.reasoning],
         "refined_count": state["refined_count"] + 1,
     } 

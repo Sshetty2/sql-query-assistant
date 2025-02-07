@@ -20,6 +20,7 @@ def query_database(question: str, sort_order="Default", result_limit=0, time_fil
         "error_history": [],
         "last_attempt_time": None,
         "refined_queries": [],
+        "refined_reasoning": [],
         "corrected_queries": [],
     }
 
