@@ -7,7 +7,7 @@ def query_database(question: str, sort_order="Default", result_limit=0, time_fil
     
     initial_state = {
         "messages": [HumanMessage(content=question)],
-        "schema": "",
+        "schema": [],
         "query": "",
         "result": "",
         "sort_order": sort_order,

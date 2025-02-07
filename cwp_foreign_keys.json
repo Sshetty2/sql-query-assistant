@@ -1,0 +1,645 @@
+[
+    {
+        "table_name": "tb_ApplicationTagMap",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            },
+            {
+                "foreign_key": "APPID",
+                "primary_key_table": "tb_SaasComputerInstalledApps"
+            },
+            {
+                "foreign_key": "TagID",
+                "primary_key_table": "tb_ApplicationTagMap"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_AssetTagMap",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            },
+            {
+                "foreign_key": "APPID",
+                "primary_key_table": "tb_SaasComputerInstalledApps"
+            },
+            {
+                "foreign_key": "TagID",
+                "primary_key_table": "tb_ApplicationTagMap"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_CDAConfigurationMap",
+        "foreign_keys": [
+            {
+                "foreign_key": "CDAID",
+                "primary_key_table": ""
+            },
+            {
+                "foreign_key": "CPEConfigurationID",
+                "primary_key_table": "tb_CPEConfiguration"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_CPEConfiguration",
+        "foreign_keys": []
+    },
+    {
+        "table_name": "tb_CVE",
+        "foreign_keys": []
+    },
+    {
+        "table_name": "tb_CVECDACVSSScoreMap",
+        "foreign_keys": [
+            {
+                "foreign_key": "CVEID",
+                "primary_key_table": "tb_CVE"
+            },
+            {
+                "foreign_key": "CDAID",
+                "primary_key_table": ""
+            }
+        ]
+    },
+    {
+        "table_name": "tb_CVEConfiguration",
+        "foreign_keys": [
+            {
+                "foreign_key": "CPEConfigurationID",
+                "primary_key_table": "tb_CPEConfiguration"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_CVEConfigurationMap",
+        "foreign_keys": [
+            {
+                "foreign_key": "CVEID",
+                "primary_key_table": "tb_CVE"
+            },
+            {
+                "foreign_key": "CVEConfigurationID",
+                "primary_key_table": "tb_CVEConfiguration"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_CVEParentChildMap",
+        "foreign_keys": []
+    },
+    {
+        "table_name": "tb_CVEReferencesMap",
+        "foreign_keys": [
+            {
+                "foreign_key": "CVEID",
+                "primary_key_table": "tb_CVE"
+            },
+            {
+                "foreign_key": "ReferencesID",
+                "primary_key_table": "tb_References"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_CVEVectorMap",
+        "foreign_keys": [
+            {
+                "foreign_key": "CVEID",
+                "primary_key_table": "tb_CVE"
+            },
+            {
+                "foreign_key": "VectorID",
+                "primary_key_table": "tb_VectorMaster"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_CVE_PatchDownload",
+        "foreign_keys": [
+            {
+                "foreign_key": "ProductID",
+                "primary_key_table": "tb_SaasInstalledAppsTemp"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_CVE_PatchImpact",
+        "foreign_keys": [
+            {
+                "foreign_key": "ProductID",
+                "primary_key_table": "tb_SaasInstalledAppsTemp"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_CVE_PatchProduct",
+        "foreign_keys": [
+            {
+                "foreign_key": "ProductID",
+                "primary_key_table": "tb_SaasInstalledAppsTemp"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_Company",
+        "foreign_keys": []
+    },
+    {
+        "table_name": "tb_NessusCVEMap",
+        "foreign_keys": []
+    },
+    {
+        "table_name": "tb_NessusScanned_Folders",
+        "foreign_keys": [
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_NonLandingZoneDetails",
+        "foreign_keys": []
+    },
+    {
+        "table_name": "tb_References",
+        "foreign_keys": []
+    },
+    {
+        "table_name": "tb_SaasComputerCVEMap",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            },
+            {
+                "foreign_key": "NetworkID",
+                "primary_key_table": "tb_SaasNetworkDomain"
+            },
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            },
+            {
+                "foreign_key": "InstalledAppID",
+                "primary_key_table": "tb_SaasInstalledAppsTemp"
+            },
+            {
+                "foreign_key": "CVEConfigurationMapID",
+                "primary_key_table": "tb_CVEConfigurationMap"
+            },
+            {
+                "foreign_key": "CVEID",
+                "primary_key_table": "tb_CVE"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerDiskDriveDetails",
+        "foreign_keys": [
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerInstalledApps",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            },
+            {
+                "foreign_key": "NetworkID",
+                "primary_key_table": "tb_SaasNetworkDomain"
+            },
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerInstalledAppsCategory",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerKeyboardDetails",
+        "foreign_keys": [
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerLogicalDiskDetails",
+        "foreign_keys": [
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerMonitorDetails",
+        "foreign_keys": [
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerOsDetails",
+        "foreign_keys": [
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerPnPEntityDetails",
+        "foreign_keys": [
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerPointingDeviceDetails",
+        "foreign_keys": [
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerPorts",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            },
+            {
+                "foreign_key": "NetworkID",
+                "primary_key_table": "tb_SaasNetworkDomain"
+            },
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerPrinterDetails",
+        "foreign_keys": [
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerProcessorDetails",
+        "foreign_keys": [
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerServices",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            },
+            {
+                "foreign_key": "NetworkID",
+                "primary_key_table": "tb_SaasNetworkDomain"
+            },
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerSoundDeviceDetails",
+        "foreign_keys": [
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputerUSBDeviceDetails",
+        "foreign_keys": [
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasComputers",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            },
+            {
+                "foreign_key": "NetworkID",
+                "primary_key_table": "tb_SaasNetworkDomain"
+            },
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasInstalledAppsTemp",
+        "foreign_keys": [
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasMasterInstalledApps",
+        "foreign_keys": [
+            {
+                "foreign_key": "CVEID",
+                "primary_key_table": "tb_CVE"
+            },
+            {
+                "foreign_key": "CVEConfigurationID",
+                "primary_key_table": "tb_CVEConfiguration"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasNetworkDomain",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasPendingPatch",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            },
+            {
+                "foreign_key": "NetworkID",
+                "primary_key_table": "tb_SaasNetworkDomain"
+            },
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            },
+            {
+                "foreign_key": "PatchID",
+                "primary_key_table": "tb_CVE_PatchImpact"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasScan",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SaasScanCDAMap",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            },
+            {
+                "foreign_key": "NetworkID",
+                "primary_key_table": "tb_SaasNetworkDomain"
+            },
+            {
+                "foreign_key": "SaasScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "CDAID",
+                "primary_key_table": ""
+            }
+        ]
+    },
+    {
+        "table_name": "tb_Schedules",
+        "foreign_keys": []
+    },
+    {
+        "table_name": "tb_ScreenFilterPreset",
+        "foreign_keys": [
+            {
+                "foreign_key": "PresetID",
+                "primary_key_table": ""
+            },
+            {
+                "foreign_key": "UserID",
+                "primary_key_table": "tb_Users"
+            },
+            {
+                "foreign_key": "ScreenID",
+                "primary_key_table": ""
+            },
+            {
+                "foreign_key": "FilterID",
+                "primary_key_table": ""
+            }
+        ]
+    },
+    {
+        "table_name": "tb_SoftwareTagsAndColors",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_TagsAndColors",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_UserLoginInfo",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            },
+            {
+                "foreign_key": "UserID",
+                "primary_key_table": "tb_Users"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_UserLogs",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            },
+            {
+                "foreign_key": "UserID",
+                "primary_key_table": "tb_Users"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_Users",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_Vector",
+        "foreign_keys": []
+    },
+    {
+        "table_name": "tb_VectorMaster",
+        "foreign_keys": []
+    },
+    {
+        "table_name": "tb_WindowsUpdates",
+        "foreign_keys": [
+            {
+                "foreign_key": "CompanyID",
+                "primary_key_table": "tb_Company"
+            },
+            {
+                "foreign_key": "NetworkID",
+                "primary_key_table": "tb_SaasNetworkDomain"
+            },
+            {
+                "foreign_key": "ScanID",
+                "primary_key_table": "tb_SaasScan"
+            },
+            {
+                "foreign_key": "ComputerID",
+                "primary_key_table": "tb_SaasComputers"
+            }
+        ]
+    },
+    {
+        "table_name": "tb_tblVM",
+        "foreign_keys": [
+            {
+                "foreign_key": "EZAuditRefID",
+                "primary_key_table": ""
+            },
+            {
+                "foreign_key": "AssetRefID",
+                "primary_key_table": ""
+            }
+        ]
+    }
+]

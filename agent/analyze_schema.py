@@ -3,7 +3,8 @@ import pyodbc
 from agent.state import State
 from langchain_core.messages import AIMessage
 from dotenv import load_dotenv
-
+from agent.combine_json_schema import combine_schema
+import json
 load_dotenv()
 
 
@@ -69,10 +70,19 @@ def analyze_schema(state: State, tools, db_connection):
 
     try:
         schema = fetch_lean_schema(db_connection)
+
+        try:
+            schema = json.loads(schema)
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON schema: {e}")
+            schema = []
+
+        combined_schema_with_metadata = combine_schema(schema)
+
         return {
             **state,
             "messages": [AIMessage(content="Schema information gathered.")],
-            "schema": schema,
+            "schema": combined_schema_with_metadata,
             "last_step": "analyze_schema",
         }
     except Exception as e:
