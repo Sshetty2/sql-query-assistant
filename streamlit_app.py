@@ -9,11 +9,13 @@ from database.connection import get_db_connection
 
 load_dotenv()
 
+use_test_db = os.getenv("USE_TEST_DB").lower() == "true"
+
 def load_sample_queries():
     """Load sample queries based on database type."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
-    filename = "test-db-queries.json" if os.getenv('USE_TEST_DB', '').lower() == 'true' else "cwp-sample-queries.json"
+    filename = "test-db-queries.json" if use_test_db else "cwp-sample-queries.json"
     file_path = os.path.join(current_dir, filename)
     
     try:
@@ -72,7 +74,7 @@ def main():
         "What would you like to know about the database?",
         value=selected_query,
         height=100,
-        placeholder="e.g., What are the top 5 CVEs with the highest CVSS scores?"
+        placeholder="Find tracks that belong to a specific genre, like 'Rock'." if use_test_db else "e.g., What are the top 5 CVEs with the highest CVSS scores?"
     )
     
     col1, col2, col3 = st.columns(3)
@@ -124,21 +126,22 @@ def main():
                             if output["retry_count"] > 0:       
                                 st.subheader("Error Corrections")
                                 st.write("Retry count:", output["retry_count"])
-                                st.write("Error history:", output["error_history"])
                                 for i, query in enumerate(output["corrected_queries"], 1):
                                     st.write(f"Attempt {i}:")
+                                    st.write(f"Error {output["error_history"][i-1]}:")
                                     st.code(query, language="sql")
                         
                         with col2:
                             if output["refined_count"] > 0:
                                 st.subheader("Query Refinements")
+                                st.write("Refinement count:", output["refined_count"])
                                 for i, query in enumerate(output["refined_queries"], 1):
                                     st.write(f"Refinement {i}:")
                                     st.code(query, language="sql")
 
                 tab1, tab2 = st.tabs(["Table View", "Raw Data"])
 
-                if type(output["result"]) == str:
+                if type(output["result"]) == str or output["result"] is None or output["result"][0] is None:
                     status.update(label="No results found", state="error")
                     st.warning("Query returned no results.")
                     return 
