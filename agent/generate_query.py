@@ -81,7 +81,7 @@ def generate_query(state: State):
         
         json_instructions = get_json_format_instructions()
         
-        prompt = f"""Given this database schema:
+        prompt = f"""Given this truncated database schema:
         {schema}
 
         Generate a SQL query to answer this question: {question}
