@@ -6,6 +6,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+def get_sql_return_instructions():
+    """Get instructions for returning only the raw SQL query."""
+    return """
+    Important: Return ONLY the raw SQL query without any markdown formatting, quotes, or code blocks.
+    For example, instead of:
+    ```sql
+    SELECT * FROM table
+    ```
+    Just return:
+    SELECT * FROM table
+    """
+
 def get_json_format_instructions():
     """Get database-specific JSON formatting instructions."""
     if os.getenv('USE_TEST_DB', '').lower() == 'true':
@@ -74,13 +86,7 @@ def generate_query(state: State):
 
         Generate a SQL query to answer this question: {question}
 
-        Important: Return ONLY the raw SQL query without any markdown formatting, quotes, or code blocks.
-        For example, instead of:
-        ```sql
-        SELECT * FROM table
-        ```
-        Just return:
-        SELECT * FROM table
+        {get_sql_return_instructions()}
 
         Additional requirements:
         {modifications_text if modifications_text else ""}
@@ -88,27 +94,21 @@ def generate_query(state: State):
         {json_instructions}
         """
 
-        llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL"), temperature=0)
+        llm = ChatOpenAI(model=os.getenv("AI_MODEL"), temperature=0.3)
         response = llm.invoke(prompt)
         
         query = response.content.strip()
-        
+
         return {
+            **state,
             "messages": [AIMessage(content=f"Generated SQL Query")],
             "query": query,
-            "sort_order": state["sort_order"],
-            "result_limit": state["result_limit"],
-            "time_filter": state["time_filter"],
-            "schema": state["schema"],
-            "current_step": "Generating Query"
+            "last_step": "generate_query",
         }
     except Exception as e:
         return {
+            **state,
             "messages": [AIMessage(content=f"Error generating query: {str(e)}")],
-            "sort_order": state["sort_order"],
-            "result_limit": state["result_limit"],
-            "time_filter": state["time_filter"],
-            "schema": state["schema"],
-            "current_step": "Error in Query Generation"
+            "last_step": "generate_query",
         }
         

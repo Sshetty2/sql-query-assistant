@@ -42,7 +42,7 @@ DB_SERVER=your_server_name
 DB_NAME=your_database_name
 DB_USER=your_database_user
 DB_PASSWORD=your_database_password
-OPENAI_MODEL=gpt-4-turbo-preview
+AI_MODEL=gpt-4-turbo-preview
 ```
 
 ## 🚀 Usage

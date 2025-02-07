@@ -12,82 +12,69 @@ from dotenv import load_dotenv
 from typing import Literal
 from database.connection import get_pyodbc_connection
 from database.connection import init_database
+from agent.refine_query import refine_query
 
 load_dotenv()
 
-def debug_node(state: State):
-    """Debug node to print current state and update status"""
-    current_step = state["current_step"]
-    
-    print(f"Step completed: {current_step}")
-    
-    return {
-        "messages": [AIMessage(content=f"Step completed: {current_step}")],
-        **state
-    }
 
-def should_continue(state: State) -> Literal[END, "debug_execute", "handle_error"]:
+def should_continue(state: State) -> Literal["handle_error", "refine_query", "cleanup"]:
     """Determine the next step based on the current state."""
+    
     messages = state["messages"]
     last_message = messages[-1]
-    retry_count = state.get("retry_count", 0)
-    
-    # Stop if we've tried 3 times
-    if retry_count >= 3:
-        return END
-    
-    # If we hit rate limit, end the process
-    if "Rate limit timeout" in last_message.content:
-        return END  
-    if "corrected_query" in state and state["corrected_query"]:
-        return "debug_execute"
-    if "Error" in last_message.content:
+    retry_count = state["retry_count"]
+    refined_count = state["refined_count"] 
+    result = state["result"]
+
+    env_retry_count = int(os.getenv("RETRY_COUNT")) if os.getenv("RETRY_COUNT") else 3
+    env_refine_count = int(os.getenv("REFINE_COUNT")) if os.getenv("REFINE_COUNT") else 2
+    noneResult = False
+
+    if isinstance(result, list) and len(result) > 0:
+        first_entry = result[0]
+        if len(first_entry) > 0:
+            noneResult = first_entry[0] is None
+
+    # Handle errors
+    if "Error" in last_message.content and retry_count < env_retry_count:
         return "handle_error"
-    elif "Query Successfully Executed" in last_message.content:
-        return "debug_execute"
-    return END
+    
+    # If result is None and refinement is not exhausted, refine
+    if noneResult and refined_count < env_refine_count:
+        return "refine_query"
+    
+    # Default path if no errors/refinements are needed
+    return "cleanup"
 
 def create_sql_agent():
     workflow = StateGraph(State)
-
-    ## Need DB Instance for sql tools    
-    db = init_database()
-
-    ## Need DB PYODBC connection for regular sql queries
-    db_connection = get_pyodbc_connection()
     
+    db = init_database()
+    db_connection = get_pyodbc_connection()
     tools = create_sql_tools(db)
 
     workflow.add_node("analyze_schema", lambda state: analyze_schema(state, tools, db_connection))
     workflow.add_node("generate_query", lambda state: generate_query(state))
     workflow.add_node("execute_query", lambda state: execute_query(state, tools, db_connection))
-    workflow.add_node("handle_error", handle_tool_error)
+    workflow.add_node("handle_error", lambda state: handle_tool_error(state))
     workflow.add_node("cleanup", lambda state: cleanup_connection(state, db_connection))
-    
-    workflow.add_node("debug_schema", debug_node)
-    workflow.add_node("debug_query", debug_node)
-    workflow.add_node("debug_execute", debug_node)
+    workflow.add_node("refine_query", lambda state: refine_query(state))
 
     workflow.add_edge(START, "analyze_schema")
-    workflow.add_edge("analyze_schema", "debug_schema")
-    workflow.add_edge("debug_schema", "generate_query")
-    workflow.add_edge("generate_query", "debug_query")
-    workflow.add_edge("debug_query", "execute_query")
+    workflow.add_edge("analyze_schema", "generate_query")
 
-    workflow.add_conditional_edges(
-        "execute_query",
-        should_continue,
-    )
-    
+    workflow.add_conditional_edges("execute_query", should_continue)
+
+    workflow.add_edge("generate_query", "execute_query")
     workflow.add_edge("handle_error", "execute_query")
-    
-    workflow.add_edge("debug_execute", "cleanup")
+    workflow.add_edge("refine_query", "execute_query")
     workflow.add_edge("cleanup", END)
 
     return workflow.compile()
 
 def cleanup_connection(state: State, connection):
     """Cleanup node to ensure connection is closed"""
+
     try:
         connection.close()
     except Exception as e:

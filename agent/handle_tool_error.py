@@ -1,7 +1,7 @@
 from langchain_openai import ChatOpenAI
 from langchain.schema import AIMessage
 from typing import Any
-from agent.generate_query import get_json_format_instructions
+from agent.generate_query import get_json_format_instructions, get_sql_return_instructions
 from dotenv import load_dotenv
 import os
 
@@ -14,6 +14,7 @@ def handle_tool_error(state) -> dict:
     schema = state["schema"]
     error_history = state.get("error_history", [])
     json_instructions = get_json_format_instructions()
+    sql_return_instructions = get_sql_return_instructions()
 
     prompt = f"""The following SQL query generated an error; please analyze the error closely and try not to repeat the issue:
     Database schema:
@@ -27,30 +28,18 @@ def handle_tool_error(state) -> dict:
 
     Please analyze the error and previous attempts, then suggest a corrected query. Return ONLY the corrected SQL query without any explanation or formatting.
 
-    Important: 
-    Return ONLY the raw SQL query without any markdown formatting, quotes, or code blocks.
-    For example, instead of:    
-    ```sql
-    SELECT * FROM table
-    ```
-    Just return:
-    SELECT * FROM table
-
     {json_instructions}
+
+    {sql_return_instructions}
     """
 
-    llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL"), temperature=.3)
+    llm = ChatOpenAI(model=os.getenv("AI_MODEL"), temperature=.3)
     corrected_query = llm.invoke(prompt).content.strip()
 
     return {
+        **state,
         "messages": [AIMessage(content="Generated corrected SQL query")],
         "query": corrected_query,
-        "corrected_query": original_query,
-        "schema": state["schema"],
-        "sort_order": state["sort_order"],
-        "result_limit": state["result_limit"],
-        "time_filter": state["time_filter"],
-        "current_step": "Correcting Query",
-        "retry_count": state.get("retry_count", 0),
-        "error_history": error_history
+        "corrected_queries": state["corrected_queries"] + [original_query],
+        "last_step": "handle_tool_error",
     }
