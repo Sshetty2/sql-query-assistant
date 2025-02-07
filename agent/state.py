@@ -4,7 +4,7 @@ from langgraph.graph.message import AnyMessage, add_messages
 class State(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     user_question: str  # Holds user question
-    schema: str  # Holds schema information
+    schema: list[dict]  # Holds schema information
     query: str  # Holds generated SQL query
     result: str  # Holds query execution result
     sort_order: str  # Holds sort order preference

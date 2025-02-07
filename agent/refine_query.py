@@ -37,14 +37,14 @@ def refine_query(state: State) -> Dict[str, Any]:
     sql_return_instructions = get_sql_return_instructions()
 
     prompt = f"""
-    As an expert SQL developer, I need you to refine and broaden this SQL query that returned no results.
+    Please help refine and broaden this SQL query that returned no results.
     Original question: {user_question}
     Original query: {original_query}
-    Database schema: {schema_info}
+    Truncated Database schema: {schema_info}
     
     {previous_attempts}
 
-    Please modify the query to be more inclusive. You may need to change the content of the query so that it makes logical sense. Consider:
+    You may need to change the content of the query so that it makes logical sense. Consider:
     1. Broadening WHERE clauses
     2. Using LIKE instead of exact matches
     3. Removing overly restrictive conditions

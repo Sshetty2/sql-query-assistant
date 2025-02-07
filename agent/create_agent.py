@@ -13,6 +13,7 @@ from typing import Literal
 from database.connection import get_pyodbc_connection
 from database.connection import init_database
 from agent.refine_query import refine_query
+from agent.filter_schema import filter_schema
 
 load_dotenv()
 use_test_db = os.getenv("USE_TEST_DB").lower() == "true"
@@ -20,10 +21,11 @@ use_test_db = os.getenv("USE_TEST_DB").lower() == "true"
 def is_none_result(result):
     noneResult = False
     
+    if result is None:
+        return True
+
     ## SQL-lite specific syntax
     if use_test_db:
-        if result is None:
-            return True
         if isinstance(result, list) and len(result) > 0:
             first_entry = result[0]
             if len(first_entry) > 0:
@@ -70,6 +72,7 @@ def create_sql_agent():
     tools = create_sql_tools(db)
 
     workflow.add_node("analyze_schema", lambda state: analyze_schema(state, tools, db_connection))
+    workflow.add_node("filter_schema", lambda state: filter_schema(state))
     workflow.add_node("generate_query", lambda state: generate_query(state))
     workflow.add_node("execute_query", lambda state: execute_query(state, tools, db_connection))
     workflow.add_node("handle_error", lambda state: handle_tool_error(state))
@@ -77,7 +80,8 @@ def create_sql_agent():
     workflow.add_node("refine_query", lambda state: refine_query(state))
 
     workflow.add_edge(START, "analyze_schema")
-    workflow.add_edge("analyze_schema", "generate_query")
+    workflow.add_edge("analyze_schema", "filter_schema")
+    workflow.add_edge("filter_schema", "generate_query")
 
     workflow.add_conditional_edges("execute_query", should_continue)
 

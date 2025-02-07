@@ -33,7 +33,6 @@ def execute_query(state: State, tools, db_connection):
             "messages": [AIMessage(content=f"Error executing query: {e}")],
             "last_step": "execute_query",
             "result": None,
-            "retry_count": current_retry + 1,
             "error_history": error_history,
             "last_attempt_time": datetime.now().isoformat(),
         }

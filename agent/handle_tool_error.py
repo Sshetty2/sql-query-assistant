@@ -12,21 +12,28 @@ def handle_tool_error(state) -> dict:
     error_message = state["messages"][-1].content
     original_query = state["query"]
     schema = state["schema"]
-    error_history = state.get("error_history", [])
+    error_history = state["error_history"][:-1]
     json_instructions = get_json_format_instructions()
     sql_return_instructions = get_sql_return_instructions()
 
     prompt = f"""The following SQL query generated an error; please analyze the error closely and try not to repeat the issue:
-    Database schema:
+
+    Be sure to check whether or not the column exists in the table you're querying based on the schema.
+    Truncated Database schema:
     {schema}
 
-    Original query:
+    Erroring query:
     {original_query}
+
+    **Latest error message:**
+    {error_message}
 
     Error history:
     {chr(10).join(error_history)}
 
     Please analyze the error and previous attempts, then suggest a corrected query. Return ONLY the corrected SQL query without any explanation or formatting.
+
+    You may need to remove and time filters from the query which may be causing the error.
 
     {json_instructions}
 
@@ -40,6 +47,7 @@ def handle_tool_error(state) -> dict:
         **state,
         "messages": [AIMessage(content="Generated corrected SQL query")],
         "query": corrected_query,
+        "retry_count": state["retry_count"] + 1,
         "corrected_queries": state["corrected_queries"] + [original_query],
         "last_step": "handle_tool_error",
     }
