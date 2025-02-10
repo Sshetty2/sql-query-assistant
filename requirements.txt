@@ -9,3 +9,4 @@ streamlit
 fastapi
 uvicorn
 pytest
+fastapi[standard]
