@@ -1,7 +1,12 @@
+"""State object for the SQL agent."""
+
 from typing import Annotated, TypedDict, Optional
 from langgraph.graph.message import AnyMessage, add_messages
 
+
 class State(TypedDict):
+    """State object type for the SQL agent."""
+
     messages: Annotated[list[AnyMessage], add_messages]
     user_question: str  # Holds user question
     schema: list[dict]  # Holds schema information

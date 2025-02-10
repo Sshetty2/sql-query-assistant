@@ -1,17 +1,28 @@
+"""Refine the SQL query based on the results."""
+
+import os
 from typing import Dict, Any
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from agent.state import State
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
-import os
-from dotenv import load_dotenv
-from agent.generate_query import get_json_format_instructions, get_sql_return_instructions
+from agent.generate_query import (
+    get_json_format_instructions,
+    get_sql_return_instructions,
+)
 
 load_dotenv()
 
+
 class QueryRefinement(BaseModel):
-    reasoning: str = Field(description="Explanation of how and why the query was refined")
+    """Pydantic model for refining a query."""
+
+    reasoning: str = Field(
+        description="Explanation of how and why the query was refined"
+    )
     sql_query: str = Field(description="The refined SQL query")
+
 
 def refine_query(state: State) -> Dict[str, Any]:
     """
@@ -26,7 +37,9 @@ def refine_query(state: State) -> Dict[str, Any]:
 
     previous_attempts = ""
     if refined_queries:
-        previous_attempts = "Previous refinement attempts that still returned no results:\n"
+        previous_attempts = (
+            "Previous refinement attempts that still returned no results:\n"
+        )
         for i, query in enumerate(refined_queries, 1):
             previous_attempts += f"{i}. {query}\n"
 
@@ -41,7 +54,7 @@ def refine_query(state: State) -> Dict[str, Any]:
     Original question: {user_question}
     Original query: {original_query}
     Truncated Database schema: {schema_info}
-    
+
     {previous_attempts}
 
     You may need to change the content of the query so that it makes logical sense. Consider:
@@ -60,10 +73,10 @@ def refine_query(state: State) -> Dict[str, Any]:
 
     return {
         **state,
-        "messages": [AIMessage(content=f"Query refined for broader results")],
+        "messages": [AIMessage(content="Query refined for broader results")],
         "query": response.sql_query,
         "last_step": "refine_query",
         "refined_queries": state["refined_queries"] + [original_query],
         "refined_reasoning": state["refined_reasoning"] + [response.reasoning],
         "refined_count": state["refined_count"] + 1,
-    } 
+    }
