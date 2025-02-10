@@ -1,16 +1,20 @@
-import os
-import pyodbc
-from agent.state import State
-from langchain_core.messages import AIMessage
-from dotenv import load_dotenv
-from agent.combine_json_schema import combine_schema
+"""Retrieve schema information for the database."""
+
 import json
+import os
+
+from dotenv import load_dotenv
+from langchain_core.messages import AIMessage
+
+from agent.combine_json_schema import combine_schema
+from agent.state import State
+
 load_dotenv()
 
 
 def get_schema_query():
     """Get the appropriate schema query based on database type."""
-    if os.getenv('USE_TEST_DB', '').lower() == 'true':
+    if os.getenv("USE_TEST_DB", "").lower() == "true":
         return """
         SELECT json_group_array(
             json_object(
@@ -38,7 +42,7 @@ def get_schema_query():
     else:
         return """
         select ((
-            SELECT 
+            SELECT
                 t.TABLE_NAME AS table_name,
                 c.COLUMN_NAME AS column_name,
                 c.DATA_TYPE AS data_type,
@@ -49,6 +53,7 @@ def get_schema_query():
             FOR JSON AUTO
         )) as json
         """
+
 
 def fetch_lean_schema(connection):
     """Fetch only the necessary schema details for efficient LLM processing."""
@@ -65,7 +70,8 @@ def fetch_lean_schema(connection):
             cursor.close()
         raise Exception(f"Failed to fetch schema: {e}")
 
-def analyze_schema(state: State, tools, db_connection):
+
+def analyze_schema(state: State, db_connection):
     """Retrieve schema information for the database."""
 
     try:

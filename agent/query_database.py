@@ -1,10 +1,15 @@
+"""Entry point for query chain"""
+
 from langchain_core.messages import HumanMessage
 from agent.create_agent import create_sql_agent
 
-def query_database(question: str, sort_order="Default", result_limit=0, time_filter="All Time"):
+
+def query_database(
+    question: str, sort_order="Default", result_limit=0, time_filter="All Time"
+):
     """Run the query workflow for a given question."""
     agent = create_sql_agent()
-    
+
     initial_state = {
         "messages": [HumanMessage(content=question)],
         "schema": [],

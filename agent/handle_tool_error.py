@@ -1,11 +1,16 @@
+"""Handle errors from query execution by having LLM analyze and suggest fixes."""
+
+import os
+from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain.schema import AIMessage
-from typing import Any
-from agent.generate_query import get_json_format_instructions, get_sql_return_instructions
-from dotenv import load_dotenv
-import os
+from agent.generate_query import (
+    get_json_format_instructions,
+    get_sql_return_instructions,
+)
 
 load_dotenv()
+
 
 def handle_tool_error(state) -> dict:
     """Handle errors from query execution by getting LLM to analyze and suggest fixes."""
@@ -16,7 +21,8 @@ def handle_tool_error(state) -> dict:
     json_instructions = get_json_format_instructions()
     sql_return_instructions = get_sql_return_instructions()
 
-    prompt = f"""The following SQL query generated an error; please analyze the error closely and try not to repeat the issue:
+    prompt = f"""The following SQL query generated an error;
+    please analyze the error closely and try not to repeat the issue:
 
     Be sure to check whether or not the column exists in the table you're querying based on the schema.
     Truncated Database schema:
@@ -31,7 +37,8 @@ def handle_tool_error(state) -> dict:
     Error history:
     {chr(10).join(error_history)}
 
-    Please analyze the error and previous attempts, then suggest a corrected query. Return ONLY the corrected SQL query without any explanation or formatting.
+    Please analyze the error and previous attempts, then suggest a corrected query.
+    Return ONLY the corrected SQL query without any explanation or formatting.
 
     You may need to remove and time filters from the query which may be causing the error.
 
@@ -40,7 +47,7 @@ def handle_tool_error(state) -> dict:
     {sql_return_instructions}
     """
 
-    llm = ChatOpenAI(model=os.getenv("AI_MODEL"), temperature=.3)
+    llm = ChatOpenAI(model=os.getenv("AI_MODEL"), temperature=0.3)
     corrected_query = llm.invoke(prompt).content.strip()
 
     return {

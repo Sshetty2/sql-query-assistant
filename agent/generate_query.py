@@ -1,10 +1,13 @@
-from agent.state import State 
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import AIMessage
+"""Generate a SQL query based on the question and schema."""
+
 import os
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import AIMessage
+from agent.state import State
 
 load_dotenv()
+
 
 def get_sql_return_instructions():
     """Get instructions for returning only the raw SQL query."""
@@ -18,9 +21,10 @@ def get_sql_return_instructions():
     SELECT * FROM table
     """
 
+
 def get_json_format_instructions():
     """Get database-specific JSON formatting instructions."""
-    if os.getenv('USE_TEST_DB', '').lower() == 'true':
+    if os.getenv("USE_TEST_DB", "").lower() == "true":
         return """
         The Database is SQLite.
         Format the results as JSON using SQLite's json functions:
@@ -45,30 +49,33 @@ def get_json_format_instructions():
         ) as json
         """
 
+
 def generate_query(state: State):
     """Generate SQL query based on the question and schema."""
     try:
         question = state["messages"][0].content  # Get the original question
         schema = state["schema"]  # Schema information
-        
+
         sort_order = state["sort_order"]
         result_limit = state["result_limit"]
         time_filter = state["time_filter"]
 
         query_modifications = []
-        
+
         if sort_order != "Default":
-            query_modifications.append(f"The results should be ordered {sort_order.lower()}")
-            
+            query_modifications.append(
+                f"The results should be ordered {sort_order.lower()}"
+            )
+
         if result_limit > 0:
             query_modifications.append(f"Limit the results to {result_limit} records")
-            
+
         if time_filter != "All Time":
             days_map = {
                 "Last 30 Days": 30,
                 "Last 60 Days": 60,
                 "Last 90 Days": 90,
-                "Last Year": 365
+                "Last Year": 365,
             }
             days = days_map.get(time_filter)
             if days:
@@ -78,9 +85,9 @@ def generate_query(state: State):
                 )
 
         modifications_text = "\n".join([f"- {mod}" for mod in query_modifications])
-        
+
         json_instructions = get_json_format_instructions()
-        
+
         prompt = f"""Given this truncated database schema:
         {schema}
 
@@ -96,12 +103,12 @@ def generate_query(state: State):
 
         llm = ChatOpenAI(model=os.getenv("AI_MODEL"), temperature=0.3)
         response = llm.invoke(prompt)
-        
+
         query = response.content.strip()
 
         return {
             **state,
-            "messages": [AIMessage(content=f"Generated SQL Query")],
+            "messages": [AIMessage(content="Generated SQL Query")],
             "query": query,
             "last_step": "generate_query",
         }
@@ -111,4 +118,3 @@ def generate_query(state: State):
             "messages": [AIMessage(content=f"Error generating query: {str(e)}")],
             "last_step": "generate_query",
         }
-        
