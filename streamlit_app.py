@@ -27,7 +27,6 @@ def load_sample_queries():
         return {}
 
 
-# Replace the hardcoded SAMPLE_QUERIES with the loaded queries
 SAMPLE_QUERIES = load_sample_queries()
 
 st.set_page_config(
