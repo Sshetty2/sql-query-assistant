@@ -90,10 +90,10 @@ def create_sql_agent():
     workflow.add_edge(START, "analyze_schema")
     workflow.add_edge("analyze_schema", "filter_schema")
     workflow.add_edge("filter_schema", "generate_query")
+    workflow.add_edge("generate_query", "execute_query")
 
     workflow.add_conditional_edges("execute_query", should_continue)
 
-    workflow.add_edge("generate_query", "execute_query")
     workflow.add_edge("handle_error", "execute_query")
     workflow.add_edge("refine_query", "execute_query")
     workflow.add_edge("cleanup", END)
