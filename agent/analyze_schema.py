@@ -1,6 +1,5 @@
 """Retrieve schema information for the database."""
 
-import json
 import os
 
 from dotenv import load_dotenv
@@ -16,55 +15,64 @@ def get_schema_query():
     """Get the appropriate schema query based on database type."""
     if os.getenv("USE_TEST_DB", "").lower() == "true":
         return """
-        SELECT json_group_array(
-            json_object(
-                'table_name', m.name,
-                'columns', (
-                    SELECT json_group_array(
-                        json_object(
-                            'column_name', p.name,
-                            'data_type', p.type,
-                            'is_nullable', (
-                                CASE
-                                    WHEN p."notnull" = 0 THEN 'YES'
-                                    ELSE 'NO'
-                                END
-                            )
-                        )
-                    )
-                    FROM pragma_table_info(m.name) p
-                )
-            )
-        ) AS json
+        SELECT
+            m.name AS table_name,
+            p.name AS column_name,
+            p.type AS data_type,
+            CASE
+                WHEN p."notnull" = 0 THEN 'YES'
+                ELSE 'NO'
+            END AS is_nullable
         FROM sqlite_master m
-        WHERE m.type = 'table';
+        JOIN pragma_table_info(m.name) p
+        WHERE m.type = 'table'
+        ORDER BY m.name, p.cid;
         """
     else:
         return """
-        select ((
-            SELECT
-                t.TABLE_NAME AS table_name,
-                c.COLUMN_NAME AS column_name,
-                c.DATA_TYPE AS data_type,
-                c.IS_NULLABLE AS is_nullable
-            FROM INFORMATION_SCHEMA.COLUMNS c
-            JOIN INFORMATION_SCHEMA.TABLES t ON c.TABLE_NAME = t.TABLE_NAME
-            WHERE t.TABLE_SCHEMA = 'dbo'
-            FOR JSON AUTO
-        )) as json
+        SELECT
+            t.TABLE_NAME AS table_name,
+            c.COLUMN_NAME AS column_name,
+            c.DATA_TYPE AS data_type,
+            c.IS_NULLABLE AS is_nullable
+        FROM INFORMATION_SCHEMA.COLUMNS c
+        JOIN INFORMATION_SCHEMA.TABLES t ON c.TABLE_NAME = t.TABLE_NAME
+        WHERE t.TABLE_SCHEMA = 'dbo'
+        ORDER BY t.TABLE_NAME, c.ORDINAL_POSITION;
         """
 
 
 def fetch_lean_schema(connection):
     """Fetch only the necessary schema details for efficient LLM processing."""
     schema_query = get_schema_query()
+    cursor = None
 
     try:
         cursor = connection.cursor()
         cursor.execute(schema_query)
-        schema_result = cursor.fetchall()
+        results = cursor.fetchall()
+
+        # Post-process results into structured format
+        columns = [column[0] for column in cursor.description]
+        rows = [dict(zip(columns, row)) for row in results]
+
+        # Group columns by table
+        tables = {}
+        for row in rows:
+            table_name = row['table_name']
+            if table_name not in tables:
+                tables[table_name] = {
+                    'table_name': table_name,
+                    'columns': []
+                }
+            tables[table_name]['columns'].append({
+                'column_name': row['column_name'],
+                'data_type': row['data_type'],
+                'is_nullable': row['is_nullable']
+            })
+
         cursor.close()
-        return schema_result[0][0] if schema_result else None
+        return list(tables.values())
     except Exception as e:
         if cursor:
             cursor.close()
@@ -76,13 +84,6 @@ def analyze_schema(state: State, db_connection):
 
     try:
         schema = fetch_lean_schema(db_connection)
-
-        try:
-            schema = json.loads(schema)
-        except json.JSONDecodeError as e:
-            print(f"Error decoding JSON schema: {e}")
-            schema = []
-
         combined_schema_with_metadata = combine_schema(schema)
 
         return {

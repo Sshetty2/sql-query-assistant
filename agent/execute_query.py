@@ -1,23 +1,43 @@
 """Execute the SQL query and return the result."""
 
-from datetime import datetime
+import json
+from datetime import datetime, date
+from decimal import Decimal
 from agent.state import State
 from langchain_core.messages import AIMessage
 
 
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default json code."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, bytes):
+        return obj.decode('utf-8', errors='ignore')
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+
 def execute_query(state: State, db_connection):
     """Execute the SQL query and return the result."""
+    cursor = None
     try:
         query = state["query"]
         cursor = db_connection.cursor()
         cursor.execute(query)
-        result = cursor.fetchall()
+        results = cursor.fetchall()
+
+        # Post-process results into JSON format
+        columns = [column[0] for column in cursor.description]
+        data = [dict(zip(columns, row)) for row in results]
+        json_result = json.dumps(data, default=json_serial)
+
         cursor.close()
 
         return {
             **state,
             "messages": [AIMessage(content="Query Successfully Executed")],
-            "result": result,
+            "result": json_result,
             "last_step": "execute_query",
             "last_attempt_time": datetime.now().isoformat(),
         }

@@ -11,8 +11,11 @@ load_dotenv()
 
 def get_sql_return_instructions():
     """Get instructions for returning only the raw SQL query."""
-    return """
-    Important: Return ONLY the raw SQL query without any markdown formatting, quotes, or code blocks.
+    database_type = "SQLite" if os.getenv("USE_TEST_DB", "").lower() == "true" else "SQL Server"
+    return f"""
+    The Database is {database_type}.
+    Important: Return ONLY the raw SQL query without any markdown formatting, quotes, code blocks, or JSON formatting.
+    Do NOT use FOR JSON AUTO or json_object/json_group_array functions.
     For example, instead of:
     ```sql
     SELECT * FROM table
@@ -20,34 +23,6 @@ def get_sql_return_instructions():
     Just return:
     SELECT * FROM table
     """
-
-
-def get_json_format_instructions():
-    """Get database-specific JSON formatting instructions."""
-    if os.getenv("USE_TEST_DB", "").lower() == "true":
-        return """
-        The Database is SQLite.
-        Format the results as JSON using SQLite's json functions:
-        SELECT json_group_array(
-            json_object(
-                'column1', column1,
-                'column2', column2
-            )
-        ) AS json_result
-        FROM (
-            <your query here>
-        );
-        """
-    else:
-        return """
-        The Database is SQL Server.
-        Also, please append 'FOR JSON AUTO' to the query to format the result as JSON
-        and wrap the query in another select statement that returns json.
-
-        select (
-            <query> FOR JSON AUTO
-        ) as json
-        """
 
 
 def generate_query(state: State):
@@ -86,8 +61,6 @@ def generate_query(state: State):
 
         modifications_text = "\n".join([f"- {mod}" for mod in query_modifications])
 
-        json_instructions = get_json_format_instructions()
-
         prompt = f"""Given this truncated database schema:
         {schema}
 
@@ -96,9 +69,7 @@ def generate_query(state: State):
         {get_sql_return_instructions()}
 
         Additional requirements:
-        {modifications_text if modifications_text else ""}
-
-        {json_instructions}
+        {modifications_text if modifications_text else "None"}
         """
 
         llm = ChatOpenAI(model=os.getenv("AI_MODEL"), temperature=0.3)

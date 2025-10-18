@@ -7,10 +7,7 @@ from pydantic import BaseModel, Field
 from agent.state import State
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
-from agent.generate_query import (
-    get_json_format_instructions,
-    get_sql_return_instructions,
-)
+from agent.generate_query import get_sql_return_instructions
 
 load_dotenv()
 
@@ -46,7 +43,6 @@ def refine_query(state: State) -> Dict[str, Any]:
     model = ChatOpenAI(model=os.getenv("AI_MODEL_REFINE"), temperature=0.7)
     structured_model = model.with_structured_output(QueryRefinement)
 
-    json_instructions = get_json_format_instructions()
     sql_return_instructions = get_sql_return_instructions()
 
     prompt = f"""
@@ -63,8 +59,6 @@ def refine_query(state: State) -> Dict[str, Any]:
     3. Removing overly restrictive conditions
     4. Checking for NULL values
     5. Using OR conditions where appropriate
-
-    {json_instructions}
 
     {sql_return_instructions}
     """

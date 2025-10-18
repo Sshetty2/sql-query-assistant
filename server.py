@@ -30,18 +30,17 @@ app = FastAPI(
 
 
 def parse_query_result(result):
-    """Parse the nested query result into JSON if it exists."""
+    """Parse the query result from JSON string."""
     try:
         if not result:
             return None
 
-        if result and result[0] and result[0][0]:
-            json_str = result[0][0]
-            if json_str:
-                return json.loads(json_str)
+        # Result is now a JSON string from execute_query
+        if isinstance(result, str):
+            return json.loads(result)
 
         return result
-    except (IndexError, json.JSONDecodeError) as e:
+    except json.JSONDecodeError as e:
         print(f"Error parsing query result: {e}")
         return None
 

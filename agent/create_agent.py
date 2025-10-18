@@ -20,26 +20,21 @@ use_test_db = os.getenv("USE_TEST_DB").lower() == "true"
 
 
 def is_none_result(result):
-    """Check if the result is None."""
-    none_result = False
-
+    """Check if the result is None or empty."""
     if result is None:
         return True
 
-    # SQL-lite specific syntax
-    if use_test_db:
-        if isinstance(result, list) and len(result) > 0:
-            first_entry = result[0]
-            if len(first_entry) > 0:
-                none_result = first_entry[0] == "[]"
-        return none_result
+    # Result is now a JSON string from execute_query
+    if isinstance(result, str):
+        try:
+            import json
+            data = json.loads(result)
+            # Check if the data is empty or is an empty list
+            return not data or (isinstance(data, list) and len(data) == 0)
+        except json.JSONDecodeError:
+            return True
 
-    # SQL-Server specific syntax
-    if isinstance(result, list) and len(result) > 0:
-        first_entry = result[0]
-        if len(first_entry) > 0:
-            none_result = first_entry[0] is None
-    return none_result
+    return False
 
 
 def should_continue(state: State) -> Literal["handle_error", "refine_query", "cleanup"]:

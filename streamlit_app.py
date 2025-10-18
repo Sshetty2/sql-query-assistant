@@ -39,16 +39,20 @@ st.title("SQL Query Assistant")
 def format_results(result):
     """Convert query results into a pandas DataFrame."""
     try:
-        if not result or not result[0] or not result[0][0]:
+        if not result:
             return pd.DataFrame()
 
-        data = json.loads(result[0][0])
+        # Result is now a JSON string from execute_query
+        if isinstance(result, str):
+            data = json.loads(result)
+        else:
+            data = result
 
         if not data:
             return pd.DataFrame()
 
         return pd.DataFrame(data)
-    except (json.JSONDecodeError, IndexError, TypeError) as e:
+    except (json.JSONDecodeError, TypeError) as e:
         print(f"Error formatting results: {str(e)}")
         return pd.DataFrame()
 
@@ -150,11 +154,7 @@ def main():
 
                 tab1, tab2 = st.tabs(["Table View", "Raw Data"])
 
-                if (
-                    isinstance(output["result"], str)
-                    or output["result"] is None
-                    or output["result"][0] is None
-                ):
+                if output["result"] is None:
                     status.update(label="No results found", state="error")
                     st.warning("Query returned no results.")
                     return
@@ -194,7 +194,7 @@ def main():
                 with tab2:
                     st.text_area(
                         "Raw Results:",
-                        value=output["result"][0],
+                        value=output["result"],
                         height=200,
                         disabled=True,
                     )
