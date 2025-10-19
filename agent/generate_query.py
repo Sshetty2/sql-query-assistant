@@ -4,7 +4,7 @@ import os
 import json
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import AIMessage
 from agent.state import State
 
@@ -84,7 +84,7 @@ def generate_query(state: State):
     """Generate SQL query based on the planner output and schema."""
     try:
         question = state["user_question"]
-        planner_output = state.get("planner_output")
+        planner_output = state["planner_output"]
 
         # Debug: Dump planner output to JSON file
         if isinstance(planner_output, dict):

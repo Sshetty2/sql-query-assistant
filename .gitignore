@@ -3,3 +3,4 @@
 venv/
 *debug*
 cwp_*
+models/domain_guidance.json

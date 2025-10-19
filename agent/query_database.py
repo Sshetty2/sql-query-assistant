@@ -27,6 +27,7 @@ def query_database(
         "refined_queries": [],
         "refined_reasoning": [],
         "corrected_queries": [],
+        "planner_output": None,
     }
 
     result = agent.invoke(initial_state)

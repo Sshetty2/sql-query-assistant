@@ -1,33 +1,107 @@
 {
-    "decision": "proceed | clarify",
-    "intent_summary": "string",
-    "selections": [
-      {
-        "table": "exact table_name",
-        "alias": "optional",
-        "confidence": 0.0,
-        "reason": "optional",
-        "columns": [
-          {"table":"<same as parent>", "column":"exact column_name", "role":"projection|filter|group_by|order_by", "reason":"optional", "value_type":"string|number|integer|boolean|date|datetime|unknown"}
-        ],
-        "filters": [
-          {"table":"<same as parent>", "column":"exact column_name", "op":"=|!=|>|>=|<|<=|between|in|not_in|like|ilike|starts_with|ends_with|is_null|is_not_null|exists", "value": "scalar | [lo,hi] | [v1,v2,...]", "source_text":"optional", "comment":"optional"}
-        ],
-        "candidate_keys": {"primary_keys":["..."], "foreign_keys":["..."]}
+  "decision": "proceed",
+  "intent_summary": "Retrieve active users from specified companies with their company names",
+  "selections": [
+    {
+      "table": "tb_Users",
+      "alias": "u",
+      "confidence": 0.9,
+      "reason": "Main table containing user information",
+      "include_only_for_join": false,
+      "columns": [
+        {
+          "table": "tb_Users",
+          "column": "ID",
+          "role": "projection",
+          "reason": "Primary key for user records",
+          "value_type": "integer"
+        },
+        {
+          "table": "tb_Users",
+          "column": "FirstName",
+          "role": "projection",
+          "reason": "User's first name for display",
+          "value_type": "string"
+        },
+        {
+          "table": "tb_Users",
+          "column": "CompanyID",
+          "role": "filter",
+          "reason": "Foreign key to join with tb_Company",
+          "value_type": "integer"
+        },
+        {
+          "table": "tb_Users",
+          "column": "IsActive",
+          "role": "filter",
+          "reason": "May be used to filter active users if specified in query",
+          "value_type": "boolean"
+        },
+        {
+          "table": "tb_Users",
+          "column": "CreatedOn",
+          "role": "filter",
+          "reason": "Timestamp column - may be used for time filtering by downstream agent",
+          "value_type": "datetime"
+        }
+      ],
+      "filters": [
+        {
+          "table": "tb_Users",
+          "column": "IsActive",
+          "op": "=",
+          "value": 1,
+          "source_text": "active users",
+          "comment": "User explicitly asked for active users only"
+        }
+      ],
+      "candidate_keys": {
+        "primary_keys": ["ID"],
+        "foreign_keys": ["CompanyID"]
       }
-    ],
-    "global_filters": [
-      {"table":"exact table_name", "column":"exact column_name", "op":"...", "value": "...", "source_text":"optional", "comment":"optional"}
-    ],
-    "group_by": [
-      {"table":"...", "column":"...", "role":"group_by", "value_type":"..."}
-    ],
-    "order_by": [
-      {"table":"...", "column":"...", "role":"order_by", "value_type":"..."}
-    ],
-    "time_context": {"from_date":"YYYY-MM-DD","to_date":"YYYY-MM-DD","relative_phrase":"optional"},
-    "join_hints": [{"from_table":"...","to_table":"...","via":"optional","reason":"optional","confidence":0.0}],
-    "ambiguities": ["question 1", "question 2"],
-    "notes_for_join_planner": "optional string",
-    "confidence": 0.0
-  }
+    },
+    {
+      "table": "tb_Company",
+      "alias": "c",
+      "confidence": 0.85,
+      "reason": "Lookup table to get human-readable company name for CompanyID",
+      "include_only_for_join": false,
+      "columns": [
+        {
+          "table": "tb_Company",
+          "column": "Name",
+          "role": "projection",
+          "reason": "Display company name instead of just CompanyID",
+          "value_type": "string"
+        }
+      ],
+      "filters": [],
+      "candidate_keys": {
+        "primary_keys": ["ID"]
+      }
+    }
+  ],
+  "global_filters": [
+    {
+      "table": "tb_Company",
+      "column": "Name",
+      "op": "in",
+      "value": ["Cisco", "Microsoft", "Google"],
+      "source_text": "from Cisco, Microsoft, or Google",
+      "comment": "Filter to specific vendors mentioned by user"
+    }
+  ],
+  "join_edges": [
+    {
+      "from_table": "tb_Users",
+      "from_column": "CompanyID",
+      "to_table": "tb_Company",
+      "to_column": "ID",
+      "join_type": "left",
+      "reason": "Join to retrieve company name for each user",
+      "confidence": 0.9
+    }
+  ],
+  "ambiguities": [],
+  "confidence": 0.85
+}

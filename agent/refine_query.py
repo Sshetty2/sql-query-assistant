@@ -4,7 +4,7 @@ import os
 from typing import Dict, Any
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from agent.state import State
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI

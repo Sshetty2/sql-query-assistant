@@ -3,7 +3,7 @@
 import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langchain.schema import AIMessage
+from langchain_core.messages import AIMessage
 
 load_dotenv()
 

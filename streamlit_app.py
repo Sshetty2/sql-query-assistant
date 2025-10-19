@@ -126,6 +126,10 @@ def main():
                     st.error("Query error.")
                     return
 
+                # Display the executed SQL query
+                with st.expander("Executed SQL Query", icon="📝", expanded=True):
+                    st.code(output["query"], language="sql")
+
                 if output.get("corrected_queries") or output.get("refined_queries"):
                     with st.expander("Query History", icon="📜"):
                         col1, col2 = st.columns(2)
@@ -169,7 +173,6 @@ def main():
 
                         st.dataframe(
                             df,
-                            use_container_width=True,
                             hide_index=True,
                             column_config={
                                 col: st.column_config.TextColumn(
