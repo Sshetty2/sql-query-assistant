@@ -1,6 +1,7 @@
 """Filter the schema to only the most relevant tables based on the query with a vector search."""
 
 import os
+import json
 from dotenv import load_dotenv
 
 from langchain_openai import OpenAIEmbeddings

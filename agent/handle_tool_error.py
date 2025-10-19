@@ -4,7 +4,6 @@ import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain.schema import AIMessage
-from agent.generate_query import get_sql_return_instructions
 
 load_dotenv()
 
@@ -15,7 +14,6 @@ def handle_tool_error(state) -> dict:
     original_query = state["query"]
     schema = state["schema"]
     error_history = state["error_history"][:-1]
-    sql_return_instructions = get_sql_return_instructions()
 
     prompt = f"""The following SQL query generated an error;
     please analyze the error closely and try not to repeat the issue:
@@ -37,8 +35,6 @@ def handle_tool_error(state) -> dict:
     Return ONLY the corrected SQL query without any explanation or formatting.
 
     You may need to remove and time filters from the query which may be causing the error.
-
-    {sql_return_instructions}
     """
 
     llm = ChatOpenAI(model=os.getenv("AI_MODEL"), temperature=0.3)

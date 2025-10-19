@@ -1,0 +1,89 @@
+{
+    "type": "array",
+    "description": "List of all tables available in the database.",
+    "items": {
+      "type": "object",
+      "title": "TableSchema",
+      "properties": {
+        "table_name": {
+          "type": "string",
+          "description": "Exact table name as it appears in the database."
+        },
+        "columns": {
+          "type": "array",
+          "description": "List of all columns belonging to this table.",
+          "items": {
+            "type": "object",
+            "title": "Column",
+            "properties": {
+              "column_name": {
+                "type": "string",
+                "description": "Column or field name in the table."
+              },
+              "data_type": {
+                "type": "string",
+                "description": "Database-native data type (e.g., 'int', 'nvarchar', 'decimal', 'datetime')."
+              },
+              "is_nullable": {
+                "type": "boolean",
+                "description": "True if this column allows NULL values."
+              }
+            },
+            "required": ["column_name", "data_type", "is_nullable"]
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "title": "TableMetadata",
+          "description": "Optional metadata about the table, may be null or partially filled.",
+          "properties": {
+            "description": {
+              "type": ["string", "null"],
+              "description": "Human-readable description of the table’s contents or purpose."
+            },
+            "primary_key": {
+              "type": ["string", "null"],
+              "description": "Column name that serves as the table’s primary key, if applicable."
+            },
+            "primary_key_description": {
+              "type": ["string", "null"],
+              "description": "Optional human-readable explanation of the primary key."
+            },
+            "row_count_estimate": {
+              "type": ["integer", "null"],
+              "description": "Approximate number of rows or records in the table."
+            },
+            "key_columns": {
+              "type": ["array", "null"],
+              "description": "List of key columns used for identifying records or relationships.",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "foreign_keys": {
+          "type": ["array", "null"],
+          "title": "ForeignKeyRef",
+          "description": "List of foreign key references from this table to other tables.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "foreign_key": {
+                "type": "string",
+                "description": "Column in this table that serves as a foreign key."
+              },
+              "primary_key_table": {
+                "type": ["string", "null"],
+                "description": "Name of the referenced table containing the primary key."
+              },
+              "primary_key_column": {
+                "type": ["string", "null"],
+                "description": "Name of the referenced column in the primary key table."
+              }
+            },
+            "required": ["foreign_key"]
+          }
+        }
+      },
+      "required": ["table_name", "columns"]
+    }
+  }

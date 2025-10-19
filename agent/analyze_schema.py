@@ -1,6 +1,7 @@
 """Retrieve schema information for the database."""
 
 import os
+import json
 
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
@@ -38,6 +39,7 @@ def get_schema_query():
         FROM INFORMATION_SCHEMA.COLUMNS c
         JOIN INFORMATION_SCHEMA.TABLES t ON c.TABLE_NAME = t.TABLE_NAME
         WHERE t.TABLE_SCHEMA = 'dbo'
+            AND t.TABLE_TYPE = 'BASE TABLE'
         ORDER BY t.TABLE_NAME, c.ORDINAL_POSITION;
         """
 
@@ -59,17 +61,16 @@ def fetch_lean_schema(connection):
         # Group columns by table
         tables = {}
         for row in rows:
-            table_name = row['table_name']
+            table_name = row["table_name"]
             if table_name not in tables:
-                tables[table_name] = {
-                    'table_name': table_name,
-                    'columns': []
+                tables[table_name] = {"table_name": table_name, "columns": []}
+            tables[table_name]["columns"].append(
+                {
+                    "column_name": row["column_name"],
+                    "data_type": row["data_type"],
+                    "is_nullable": row["is_nullable"],
                 }
-            tables[table_name]['columns'].append({
-                'column_name': row['column_name'],
-                'data_type': row['data_type'],
-                'is_nullable': row['is_nullable']
-            })
+            )
 
         cursor.close()
         return list(tables.values())
@@ -85,6 +86,10 @@ def analyze_schema(state: State, db_connection):
     try:
         schema = fetch_lean_schema(db_connection)
         combined_schema_with_metadata = combine_schema(schema)
+
+        # Debug: Write full_schema to a JSON file
+        with open("debug_combined_schema_with_metadata.json", "w") as f:
+            json.dump(combined_schema_with_metadata, f, indent=2)
 
         return {
             **state,

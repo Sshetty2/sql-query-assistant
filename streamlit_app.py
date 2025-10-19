@@ -16,7 +16,7 @@ def load_sample_queries():
     """Load sample queries based on database type."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
 
-    filename = "test-db-queries.json" if use_test_db else "cwp-sample-queries.json"
+    filename = "test-db-queries.json" if use_test_db else "cwp_sample_queries.json"
     file_path = os.path.join(current_dir, filename)
 
     try:

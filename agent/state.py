@@ -1,6 +1,6 @@
 """State object for the SQL agent."""
 
-from typing import Annotated, TypedDict, Optional
+from typing import Annotated, TypedDict, Optional, Any
 from langgraph.graph.message import AnyMessage, add_messages
 
 
@@ -10,6 +10,7 @@ class State(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     user_question: str  # Holds user question
     schema: list[dict]  # Holds schema information
+    planner_output: Optional[dict[str, Any]]  # Holds the planner output (PlannerOutput as dict)
     query: str  # Holds generated SQL query
     result: str  # Holds query execution result
     sort_order: str  # Holds sort order preference

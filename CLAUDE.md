@@ -152,7 +152,7 @@ The `State` TypedDict (in `agent/state.py`) tracks:
 
 - `cwp_table_metadata.json` - Table descriptions and column metadata for schema enrichment
 - `cwp_foreign_keys.json` - Foreign key relationships between tables
-- `test-db-queries.json`, `cwp-sample-queries.json` - Sample queries for testing
+- `test-db-queries.json`, `cwp_sample_queries.json` - Sample queries for testing
 
 ## Code Organization
 

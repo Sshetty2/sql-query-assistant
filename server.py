@@ -19,13 +19,9 @@ app = FastAPI(
     This API converts natural language queries into SQL queries and executes them on an SQL Server database.
     - Supports **sorting, result limits, and time filters** for enhanced querying.
     - Uses **LangChain-powered SQL generation** for natural language understanding.
-    - Designed for **Wiznucleus data analysis**.
     """,
     version="1.0.0",
-    contact={
-        "name": "Wiznucleus Dev Team",
-        "email": "support@wiznucleus.com",
-    },
+    contact={},
 )
 
 

@@ -1,0 +1,33 @@
+{
+    "decision": "proceed | clarify",
+    "intent_summary": "string",
+    "selections": [
+      {
+        "table": "exact table_name",
+        "alias": "optional",
+        "confidence": 0.0,
+        "reason": "optional",
+        "columns": [
+          {"table":"<same as parent>", "column":"exact column_name", "role":"projection|filter|group_by|order_by", "reason":"optional", "value_type":"string|number|integer|boolean|date|datetime|unknown"}
+        ],
+        "filters": [
+          {"table":"<same as parent>", "column":"exact column_name", "op":"=|!=|>|>=|<|<=|between|in|not_in|like|ilike|starts_with|ends_with|is_null|is_not_null|exists", "value": "scalar | [lo,hi] | [v1,v2,...]", "source_text":"optional", "comment":"optional"}
+        ],
+        "candidate_keys": {"primary_keys":["..."], "foreign_keys":["..."]}
+      }
+    ],
+    "global_filters": [
+      {"table":"exact table_name", "column":"exact column_name", "op":"...", "value": "...", "source_text":"optional", "comment":"optional"}
+    ],
+    "group_by": [
+      {"table":"...", "column":"...", "role":"group_by", "value_type":"..."}
+    ],
+    "order_by": [
+      {"table":"...", "column":"...", "role":"order_by", "value_type":"..."}
+    ],
+    "time_context": {"from_date":"YYYY-MM-DD","to_date":"YYYY-MM-DD","relative_phrase":"optional"},
+    "join_hints": [{"from_table":"...","to_table":"...","via":"optional","reason":"optional","confidence":0.0}],
+    "ambiguities": ["question 1", "question 2"],
+    "notes_for_join_planner": "optional string",
+    "confidence": 0.0
+  }

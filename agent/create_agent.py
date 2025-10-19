@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 from agent.analyze_schema import analyze_schema
 from agent.execute_query import execute_query
-from agent.filter_schema import filter_schema
+from agent.planner import plan_query
 from agent.generate_query import generate_query
 from agent.handle_tool_error import handle_tool_error
 from agent.refine_query import refine_query
@@ -73,7 +73,7 @@ def create_sql_agent():
     workflow.add_node(
         "analyze_schema", lambda state: analyze_schema(state, db_connection)
     )
-    workflow.add_node("filter_schema", filter_schema)
+    workflow.add_node("planner", plan_query)
     workflow.add_node("generate_query", generate_query)
     workflow.add_node(
         "execute_query", lambda state: execute_query(state, db_connection)
@@ -83,8 +83,8 @@ def create_sql_agent():
     workflow.add_node("refine_query", refine_query)
 
     workflow.add_edge(START, "analyze_schema")
-    workflow.add_edge("analyze_schema", "filter_schema")
-    workflow.add_edge("filter_schema", "generate_query")
+    workflow.add_edge("analyze_schema", "planner")
+    workflow.add_edge("planner", "generate_query")
     workflow.add_edge("generate_query", "execute_query")
 
     workflow.add_conditional_edges("execute_query", should_continue)

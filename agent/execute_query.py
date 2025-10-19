@@ -14,7 +14,7 @@ def json_serial(obj):
     if isinstance(obj, Decimal):
         return float(obj)
     if isinstance(obj, bytes):
-        return obj.decode('utf-8', errors='ignore')
+        return obj.decode("utf-8", errors="ignore")
     raise TypeError(f"Type {type(obj)} not serializable")
 
 

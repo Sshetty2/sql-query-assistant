@@ -4,10 +4,10 @@ import os
 from typing import Dict, Any
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+from langchain.prompts import ChatPromptTemplate
 from agent.state import State
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
-from agent.generate_query import get_sql_return_instructions
 
 load_dotenv()
 
@@ -43,27 +43,40 @@ def refine_query(state: State) -> Dict[str, Any]:
     model = ChatOpenAI(model=os.getenv("AI_MODEL_REFINE"), temperature=0.7)
     structured_model = model.with_structured_output(QueryRefinement)
 
-    sql_return_instructions = get_sql_return_instructions()
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                """You are a SQL query refinement expert. Your task is to refine SQL queries that returned no results by broadening them intelligently.""",
+            ),
+            (
+                "user",
+                """Please help refine and broaden this SQL query that returned no results.
+    
+Original question: {user_question}
+Original query: {original_query}
+Truncated Database schema: {schema_info}
 
-    prompt = f"""
-    Please help refine and broaden this SQL query that returned no results.
-    Original question: {user_question}
-    Original query: {original_query}
-    Truncated Database schema: {schema_info}
+{previous_attempts}
 
-    {previous_attempts}
+You may need to change the content of the query so that it makes logical sense. Consider:
+1. Broadening WHERE clauses
+2. Using LIKE instead of exact matches
+3. Removing overly restrictive conditions
+4. Checking for NULL values
+5. Using OR conditions where appropriate""",
+            ),
+        ]
+    )
 
-    You may need to change the content of the query so that it makes logical sense. Consider:
-    1. Broadening WHERE clauses
-    2. Using LIKE instead of exact matches
-    3. Removing overly restrictive conditions
-    4. Checking for NULL values
-    5. Using OR conditions where appropriate
+    formatted_prompt = prompt_template.format_messages(
+        user_question=user_question,
+        original_query=original_query,
+        schema_info=schema_info,
+        previous_attempts=previous_attempts,
+    )
 
-    {sql_return_instructions}
-    """
-
-    response = structured_model.invoke(prompt)
+    response = structured_model.invoke(formatted_prompt)
 
     return {
         **state,
