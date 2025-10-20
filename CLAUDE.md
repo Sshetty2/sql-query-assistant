@@ -207,3 +207,21 @@ This significantly reduces token usage and improves query accuracy.
 - `conftest.py` adds project root to Python path for imports
 - Unit tests use pytest fixtures
 - Test database queries available in `test-db-queries.json`
+
+## Additional Documentation
+
+### JOIN Synthesizer
+For detailed information about the SQL generation component (the "join synthesizer"), see **[JOIN_SYNTHESIZER.md](JOIN_SYNTHESIZER.md)**. This document covers:
+- How the planner output is transformed into SQL deterministically
+- Multi-dialect support (SQL Server, SQLite, PostgreSQL, MySQL)
+- Advanced SQL features (aggregations, window functions, subqueries, CTEs)
+- Performance characteristics and cost savings
+- SQL injection prevention and security
+
+### Dialect Compatibility
+See **[DIALECT_FIXES_SUMMARY.md](DIALECT_FIXES_SUMMARY.md)** for:
+- Recent fixes for SQL Server compatibility
+- ILIKE → LIKE conversion
+- DATEADD syntax corrections
+- SQL injection prevention measures
+- Dialect-specific handling strategies

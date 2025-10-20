@@ -133,6 +133,36 @@ def create_planner_prompt_template(mode: str = None):
 
             {domain_guidance}
 
+            ## Advanced SQL Features (Use When Needed)
+
+            The planner supports advanced SQL features. Use them ONLY when the user query requires:
+
+            **Aggregations (GROUP BY):**
+            - When user asks for totals, counts, averages, min/max (e.g., "total sales by company")
+            - Set `group_by` with:
+              - `group_by_columns`: Columns to group by (typically dimensions like company name, category)
+              - `aggregates`: List of aggregate functions (COUNT, SUM, AVG, MIN, MAX)
+              - `having_filters`: Filters on aggregated results (e.g., "companies with more than 100 sales")
+            - Example: "Show total sales by company" → GROUP BY company, SUM(sales)
+
+            **Window Functions:**
+            - When user asks for rankings, running totals, or row numbers (e.g., "rank users by sales")
+            - Set `window_functions` with function, partition_by, order_by, and alias
+            - Example: "Rank employees by salary within each department" → ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC)
+
+            **Subqueries (in filters):**
+            - When filtering based on results from another query (e.g., "users from top companies")
+            - Set `subquery_filters` for WHERE col IN (SELECT...) patterns
+            - Keep subqueries simple - single table with filters
+            - Example: "Users from companies with >50 employees" → WHERE CompanyID IN (SELECT ID FROM Companies WHERE EmployeeCount > 50)
+
+            **CTEs (WITH clauses):**
+            - For complex queries that benefit from intermediate results
+            - Use sparingly - only when query logic is clearer with a CTE
+            - Set `ctes` with name, selections, joins, filters, and optional group_by
+
+            **Important:** Leave these fields empty (null or []) when not needed. Most queries don't require them.
+
             ## Filter Operator Examples
 
             When creating FilterPredicate objects in the `filters` array, use these operator patterns:
@@ -143,8 +173,7 @@ def create_planner_prompt_template(mode: str = None):
             - Between: {{"op": "between", "value": [0, 100]}} — MUST be array [low, high]
             - In list: {{"op": "in", "value": ["Cisco", "Microsoft", "Google"]}} — MUST be array
             - Not in list: {{"op": "not_in", "value": ["Inactive", "Suspended"]}} — MUST be array
-            - Like pattern: {{"op": "like", "value": "%cisco%"}}
-            - Case-insensitive like: {{"op": "ilike", "value": "%cisco%"}}
+            - Like pattern: {{"op": "like", "value": "%cisco%"}} — Use for pattern matching (case-insensitive in SQL Server)
             - Starts with: {{"op": "starts_with", "value": "CVE-"}}
             - Ends with: {{"op": "ends_with", "value": ".com"}}
             - Is null: {{"op": "is_null", "value": null}}

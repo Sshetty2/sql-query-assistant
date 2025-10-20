@@ -102,6 +102,10 @@
       "confidence": 0.9
     }
   ],
+  "group_by": null,
+  "window_functions": [],
+  "subquery_filters": [],
+  "ctes": [],
   "ambiguities": [],
   "confidence": 0.85
 }

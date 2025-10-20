@@ -60,9 +60,9 @@ Truncated Database schema: {schema_info}
 {previous_attempts}
 
 You may need to change the content of the query so that it makes logical sense. Consider:
-1. Broadening WHERE clauses
-2. Using LIKE instead of exact matches
-3. Removing overly restrictive conditions
+1. Using the correct column or table names; Double check the schema to make sure we are using the correct names.
+2. Broadening WHERE clauses
+3. Using LIKE instead of exact matches
 4. Checking for NULL values
 5. Using OR conditions where appropriate""",
             ),

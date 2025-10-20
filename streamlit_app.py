@@ -107,7 +107,7 @@ def main():
             "Time Filter",
             ["All Time", "Last 30 Days", "Last 60 Days", "Last 90 Days", "Last Year"],
             help="Filter results by time period",
-            index=1,
+            index=0,
         )
 
     if st.button("Generate Query", type="primary"):

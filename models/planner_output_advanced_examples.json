@@ -1,0 +1,187 @@
+{
+  "comment": "This file contains examples of advanced SQL features for the planner",
+
+  "example_aggregation": {
+    "description": "Query: 'Show me the total sales by company'",
+    "group_by": {
+      "group_by_columns": [
+        {
+          "table": "tb_Company",
+          "column": "Name",
+          "role": "projection",
+          "value_type": "string"
+        }
+      ],
+      "aggregates": [
+        {
+          "function": "SUM",
+          "table": "tb_Sales",
+          "column": "Amount",
+          "alias": "TotalSales",
+          "comment": "Sum of all sales amounts per company"
+        },
+        {
+          "function": "COUNT",
+          "table": "tb_Sales",
+          "column": "ID",
+          "alias": "SalesCount",
+          "comment": "Number of sales per company"
+        }
+      ],
+      "having_filters": []
+    }
+  },
+
+  "example_aggregation_with_having": {
+    "description": "Query: 'Show companies with more than 100 sales'",
+    "group_by": {
+      "group_by_columns": [
+        {
+          "table": "tb_Company",
+          "column": "ID",
+          "role": "filter",
+          "value_type": "integer"
+        },
+        {
+          "table": "tb_Company",
+          "column": "Name",
+          "role": "projection",
+          "value_type": "string"
+        }
+      ],
+      "aggregates": [
+        {
+          "function": "COUNT",
+          "table": "tb_Sales",
+          "column": "ID",
+          "alias": "SalesCount",
+          "comment": "Number of sales per company"
+        }
+      ],
+      "having_filters": [
+        {
+          "table": "tb_Sales",
+          "column": "SalesCount",
+          "op": ">",
+          "value": 100,
+          "comment": "Filter to companies with more than 100 sales"
+        }
+      ]
+    }
+  },
+
+  "example_window_function": {
+    "description": "Query: 'Rank users by sales within each company'",
+    "window_functions": [
+      {
+        "function": "ROW_NUMBER",
+        "partition_by": [
+          {
+            "table": "tb_Users",
+            "column": "CompanyID",
+            "role": "filter",
+            "value_type": "integer"
+          }
+        ],
+        "order_by": [
+          {
+            "table": "tb_Sales",
+            "column": "Amount",
+            "direction": "DESC"
+          }
+        ],
+        "alias": "SalesRank",
+        "comment": "Rank users by sales amount within their company"
+      }
+    ]
+  },
+
+  "example_subquery_filter": {
+    "description": "Query: 'Show users from companies with more than 50 employees'",
+    "subquery_filters": [
+      {
+        "outer_table": "tb_Users",
+        "outer_column": "CompanyID",
+        "op": "in",
+        "subquery_table": "tb_Company",
+        "subquery_column": "ID",
+        "subquery_filters": [
+          {
+            "table": "tb_Company",
+            "column": "EmployeeCount",
+            "op": ">",
+            "value": 50,
+            "comment": "Companies with more than 50 employees"
+          }
+        ],
+        "comment": "Filter to users whose company has more than 50 employees"
+      }
+    ]
+  },
+
+  "example_cte": {
+    "description": "Query: 'Show users and their company's average sales (using CTE)'",
+    "ctes": [
+      {
+        "name": "CompanyAvgSales",
+        "selections": [
+          {
+            "table": "tb_Company",
+            "alias": "c",
+            "confidence": 0.9,
+            "columns": [
+              {
+                "table": "tb_Company",
+                "column": "ID",
+                "role": "projection",
+                "value_type": "integer"
+              }
+            ]
+          },
+          {
+            "table": "tb_Sales",
+            "alias": "s",
+            "confidence": 0.9,
+            "columns": [
+              {
+                "table": "tb_Sales",
+                "column": "Amount",
+                "role": "filter",
+                "value_type": "number"
+              }
+            ]
+          }
+        ],
+        "join_edges": [
+          {
+            "from_table": "tb_Sales",
+            "from_column": "CompanyID",
+            "to_table": "tb_Company",
+            "to_column": "ID",
+            "join_type": "inner"
+          }
+        ],
+        "filters": [],
+        "group_by": {
+          "group_by_columns": [
+            {
+              "table": "tb_Company",
+              "column": "ID",
+              "role": "projection",
+              "value_type": "integer"
+            }
+          ],
+          "aggregates": [
+            {
+              "function": "AVG",
+              "table": "tb_Sales",
+              "column": "Amount",
+              "alias": "AvgSales"
+            }
+          ],
+          "having_filters": []
+        }
+      }
+    ]
+  }
+}
