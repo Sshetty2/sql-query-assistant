@@ -47,14 +47,70 @@ def load_domain_guidance():
     return None
 
 
-def create_planner_prompt_template():
-    """Create the prompt template for the planner."""
+def create_planner_prompt_template(mode: str = None):
+    """Create the prompt template for the planner.
 
-    system_message = """You are analyzing a natural language query against a SQL database schema
+    Args:
+        mode: Optional mode - "update" for plan updates, "rewrite" for full replan, None for initial
+    """
+
+    if mode == "update":
+        system_message = """You are revising an existing SQL query execution plan based on user feedback.
+
+            ## Context
+            You previously created a query plan, and now the user has requested modifications.
+            Your job is to UPDATE the existing plan incrementally, not create a new one from scratch.
+
+            ## Your Task
+            1. Review the previous plan and understand what was already decided
+            2. Read the routing instructions carefully - they specify what needs to change
+            3. Make ONLY the changes requested, preserving the rest of the plan
+            4. Ensure the updated plan remains internally consistent
+
+            ## What to Preserve
+            - Keep the same tables unless instructions say otherwise
+            - Keep existing joins unless they need modification
+            - Keep existing columns unless specifically adding/removing
+            - Maintain the overall query structure
+
+            ## What to Update
+            - Add/remove/modify filters as instructed
+            - Add/remove columns as requested
+            - Adjust joins if needed for new requirements
+            - Update confidence if assumptions have changed
+
+            ## Return ONLY a JSON object that conforms to the following json structure:
+            {planner_example}"""
+
+    elif mode == "rewrite":
+        system_message = """You are creating a NEW SQL query execution plan based on an updated user request.
+
+            ## Context
+            The user had a previous query, but now wants something significantly different.
+            While you should be aware of the previous plan for context, you need to create
+            a FRESH plan from scratch that addresses the new request.
+
+            ## Your Task
+            1. Understand the new user request and routing instructions
+            2. Review the previous plan to understand context (but don't be constrained by it)
+            3. Analyze the full database schema
+            4. Create a completely new plan optimized for the new request
+
+            ## Considerations
+            - This is a major change - different tables, different intent, or different domain
+            - Start fresh but learn from previous assumptions/ambiguities
+            - Use the full schema to make the best decisions
+            - Don't force-fit the old plan structure onto the new request
+
+            ## Return ONLY a JSON object that conforms to the following json structure:
+            {planner_example}"""
+
+    else:  # Initial mode (None)
+        system_message = """You are analyzing a natural language query against a SQL database schema
             to create a query execution plan.
 
-            We have a multi-step SQL query generation system. 
-            
+            We have a multi-step SQL query generation system.
+
             Your role in this pipeline is to:
 
             1. Understand the user's intent from their natural language query
@@ -68,7 +124,10 @@ def create_planner_prompt_template():
             - Ambiguities or assumptions being made
 
             ## Return ONLY a JSON object that conforms to the following json structure:
-            {planner_example}
+            {planner_example}"""
+
+    # Common continuation of system message
+    system_message += """
 
             ## Domain-Specific Guidance
 
@@ -94,7 +153,7 @@ def create_planner_prompt_template():
             ## Database Schema Structure
 
             The schema you'll receive follows this format:
-            
+
             {schema_model}
 
             ## Hard Rules (MUST follow)
@@ -142,7 +201,48 @@ def create_planner_prompt_template():
             ✓ Output is valid PlannerOutput JSON and nothing else
             """
 
-    user_message = """## User Query
+    # User message varies by mode
+    if mode == "update":
+        user_message = """## Previous Plan
+{previous_plan}
+
+## Routing Instructions
+{router_instructions}
+
+## User Query History
+{conversation_history}
+
+## Latest User Request
+{user_query}
+
+## Query Parameters
+{parameters}
+
+Please update the plan according to the routing instructions."""
+
+    elif mode == "rewrite":
+        user_message = """## Previous Plan (for context)
+{previous_plan}
+
+## Routing Instructions
+{router_instructions}
+
+## User Query History
+{conversation_history}
+
+## Latest User Request
+{user_query}
+
+## Available Database Schema
+{schema}
+
+## Query Parameters
+{parameters}
+
+Please create a new plan for the updated request."""
+
+    else:  # Initial mode
+        user_message = """## User Query
 {user_query}
 
 ## Available Database Schema
@@ -163,6 +263,10 @@ def plan_query(state: State):
     try:
         user_query = state["user_question"]
         full_schema = state["schema"]
+
+        # Check for router mode (conversational flow)
+        router_mode = state.get("router_mode")
+        router_instructions = state.get("router_instructions", "")
 
         # Get query parameters
         sort_order = state["sort_order"]
@@ -215,22 +319,49 @@ def plan_query(state: State):
         else:
             domain_text = "No domain-specific guidance available. Use general database query planning principles."
 
-        # Create prompt
-        prompt_template = create_planner_prompt_template()
+        # Create prompt (with mode)
+        prompt_template = create_planner_prompt_template(mode=router_mode)
 
-        # Format the prompt with schema descriptions
-        formatted_prompt = prompt_template.format_messages(
-            planner_example=json.dumps(planner_example, indent=2),
-            domain_guidance=domain_text,
-            schema_model=json.dumps(schema_model, indent=2),
-            user_query=user_query,
-            schema=json.dumps(full_schema, indent=2),
-            parameters=parameters_text,
-        )
+        # Format the prompt based on mode
+        format_params = {
+            "planner_example": json.dumps(planner_example, indent=2),
+            "domain_guidance": domain_text,
+            "schema_model": json.dumps(schema_model, indent=2),
+            "user_query": user_query,
+            "parameters": parameters_text,
+        }
+
+        # Add mode-specific parameters
+        if router_mode in ["update", "rewrite"]:
+            # Get conversation history
+            user_questions = state.get("user_questions", [])
+            conversation_history = "\n".join(
+                [f"{i+1}. {q}" for i, q in enumerate(user_questions[:-1])]
+            )
+
+            # Get previous plan
+            planner_outputs = state.get("planner_outputs", [])
+            previous_plan = (
+                json.dumps(planner_outputs[-1], indent=2)
+                if planner_outputs
+                else "No previous plan available"
+            )
+
+            format_params["conversation_history"] = conversation_history
+            format_params["previous_plan"] = previous_plan
+            format_params["router_instructions"] = router_instructions
+
+            # Only include schema for rewrite mode
+            if router_mode == "rewrite":
+                format_params["schema"] = json.dumps(full_schema, indent=2)
+        else:
+            # Initial mode - include full schema
+            format_params["schema"] = json.dumps(full_schema, indent=2)
+
+        formatted_prompt = prompt_template.format_messages(**format_params)
 
         # Use structured output with JSON schema
         llm = ChatOpenAI(model=os.getenv("AI_MODEL"), temperature=0.7)
-
         structured_llm = llm.with_structured_output(PlannerOutput)
 
         # Get the plan
@@ -243,10 +374,17 @@ def plan_query(state: State):
                 "last_step": "planner",
             }
 
+        # Append to planner_outputs history
+        planner_outputs = state.get("planner_outputs", [])
+        # Convert Pydantic model to dict for storage
+        plan_dict = plan.model_dump() if hasattr(plan, "model_dump") else plan
+        planner_outputs = planner_outputs + [plan_dict]
+
         return {
             **state,
             "messages": [AIMessage(content="Query plan created successfully")],
             "planner_output": plan,
+            "planner_outputs": planner_outputs,
             "last_step": "planner",
         }
 

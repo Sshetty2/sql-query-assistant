@@ -11,6 +11,7 @@ from agent.planner import plan_query
 from agent.generate_query import generate_query
 from agent.handle_tool_error import handle_tool_error
 from agent.refine_query import refine_query
+from agent.conversational_router import conversational_router
 from agent.state import State
 
 from database.connection import get_pyodbc_connection
@@ -35,6 +36,28 @@ def is_none_result(result):
             return True
 
     return False
+
+
+def route_from_start(state: State) -> Literal["conversational_router", "analyze_schema"]:
+    """Route from START based on whether this is a continuation."""
+    is_continuation = state.get("is_continuation", False)
+
+    if is_continuation:
+        return "conversational_router"
+    else:
+        return "analyze_schema"
+
+
+def route_from_router(state: State) -> Literal["planner", "execute_query"]:
+    """Route from conversational_router based on decision."""
+    router_mode = state.get("router_mode")
+
+    if router_mode in ["update", "rewrite"]:
+        # Need to go through planner
+        return "planner"
+    else:
+        # Inline revision - query is already set, go straight to execute
+        return "execute_query"
 
 
 def should_continue(state: State) -> Literal["handle_error", "refine_query", "cleanup"]:
@@ -70,9 +93,11 @@ def create_sql_agent():
 
     db_connection = get_pyodbc_connection()
 
+    # Add all nodes
     workflow.add_node(
         "analyze_schema", lambda state: analyze_schema(state, db_connection)
     )
+    workflow.add_node("conversational_router", conversational_router)
     workflow.add_node("planner", plan_query)
     workflow.add_node("generate_query", generate_query)
     workflow.add_node(
@@ -82,15 +107,23 @@ def create_sql_agent():
     workflow.add_node("cleanup", lambda state: cleanup_connection(state, db_connection))
     workflow.add_node("refine_query", refine_query)
 
-    workflow.add_edge(START, "analyze_schema")
+    # Conditional routing from START
+    workflow.add_conditional_edges(START, route_from_start)
+
+    # Standard workflow path (new conversations)
     workflow.add_edge("analyze_schema", "planner")
     workflow.add_edge("planner", "generate_query")
     workflow.add_edge("generate_query", "execute_query")
 
-    workflow.add_conditional_edges("execute_query", should_continue)
+    # Conversational flow path (continuations)
+    workflow.add_conditional_edges("conversational_router", route_from_router)
 
+    # Error handling and refinement
+    workflow.add_conditional_edges("execute_query", should_continue)
     workflow.add_edge("handle_error", "execute_query")
     workflow.add_edge("refine_query", "execute_query")
+
+    # Cleanup
     workflow.add_edge("cleanup", END)
 
     return workflow.compile()

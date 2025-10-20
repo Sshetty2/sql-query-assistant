@@ -34,10 +34,16 @@ def execute_query(state: State, db_connection):
 
         cursor.close()
 
+        # Append current query to queries list for conversation history
+        queries = state.get("queries", [])
+        if query not in queries:  # Avoid duplicates
+            queries = queries + [query]
+
         return {
             **state,
             "messages": [AIMessage(content="Query Successfully Executed")],
             "result": json_result,
+            "queries": queries,
             "last_step": "execute_query",
             "last_attempt_time": datetime.now().isoformat(),
         }
