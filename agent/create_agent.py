@@ -6,6 +6,7 @@ from langgraph.graph import StateGraph, END, START
 from dotenv import load_dotenv
 
 from agent.analyze_schema import analyze_schema
+from agent.filter_schema import filter_schema
 from agent.format_schema_markdown import convert_schema_to_markdown
 from agent.execute_query import execute_query
 from agent.planner import plan_query
@@ -98,6 +99,7 @@ def create_sql_agent():
     workflow.add_node(
         "analyze_schema", lambda state: analyze_schema(state, db_connection)
     )
+    workflow.add_node("filter_schema", filter_schema)
     workflow.add_node("format_schema_markdown", convert_schema_to_markdown)
     workflow.add_node("conversational_router", conversational_router)
     workflow.add_node("planner", plan_query)
@@ -113,7 +115,8 @@ def create_sql_agent():
     workflow.add_conditional_edges(START, route_from_start)
 
     # Standard workflow path (new conversations)
-    workflow.add_edge("analyze_schema", "format_schema_markdown")
+    workflow.add_edge("analyze_schema", "filter_schema")
+    workflow.add_edge("filter_schema", "format_schema_markdown")
     workflow.add_edge("format_schema_markdown", "planner")
     workflow.add_edge("planner", "generate_query")
     workflow.add_edge("generate_query", "execute_query")

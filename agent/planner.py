@@ -3,7 +3,7 @@
 import os
 import json
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from models.planner_output import PlannerOutput
 from utils.llm_factory import get_structured_llm
 
@@ -60,6 +60,11 @@ def create_planner_prompt(mode: str = None, **format_params):
     if mode == "update":
         system_instructions = """# SYSTEM INSTRUCTIONS
 
+## YOUR TASK
+**CREATE A REVISED QUERY EXECUTION PLAN FOR THE USER REQUEST SHOWN IN THE USER INPUT SECTION ABOVE.**
+
+Read the user's latest request carefully, review the previous plan, and update it according to the routing instructions.
+
 ## Objective
 Revise an existing SQL query execution plan based on user feedback.
 
@@ -93,6 +98,11 @@ Return ONLY a JSON object that conforms to the following json structure:
     elif mode == "rewrite":
         system_instructions = """# SYSTEM INSTRUCTIONS
 
+## YOUR TASK
+**CREATE A NEW QUERY EXECUTION PLAN FOR THE USER REQUEST SHOWN IN THE USER INPUT SECTION ABOVE.**
+
+Read the user's latest request carefully. This is a significant change from the previous query - create a fresh plan from scratch.
+
 ## Objective
 Create a NEW SQL query execution plan based on an updated user request.
 
@@ -120,6 +130,11 @@ Return ONLY a JSON object that conforms to the following json structure:
 
     else:  # Initial mode (None)
         system_instructions = """# SYSTEM INSTRUCTIONS
+
+## YOUR TASK
+**CREATE A QUERY EXECUTION PLAN FOR THE USER QUERY SHOWN IN THE USER INPUT SECTION ABOVE.**
+
+Read what the user asked for in their query. Analyze the database schema. Then create a structured plan that identifies which tables, columns, joins, and filters are needed to answer EXACTLY what the user asked for.
 
 ## Objective
 Analyze a natural language query against a SQL database schema to create a query execution plan.
@@ -314,8 +329,10 @@ Before responding, validate:
         user_input = """
 # USER INPUT
 
-## LATEST USER REQUEST
-{user_query}
+## ⚠️ LATEST USER REQUEST (READ THIS FIRST!)
+**THE USER ASKED:** "{user_query}"
+
+👉 **YOUR JOB:** Update the existing plan below to answer this EXACT request. Follow the routing instructions.
 
 ## Previous Plan
 {previous_plan}
@@ -343,10 +360,11 @@ Before responding, validate:
 ## User Query History
 {conversation_history}
 
-## Latest User Request
-{user_query}
+## ⚠️ LATEST USER REQUEST (READ THIS FIRST!)
+**THE USER ASKED:** "{user_query}"
 
 ## Available Database Schema
+{schema_note}
 {schema}
 
 ## Query Parameters
@@ -357,28 +375,33 @@ Before responding, validate:
         user_input = """
 # USER INPUT
 
-## User Query
-{user_query}
+## ⚠️ USER QUERY (READ THIS FIRST!)
+**THE USER ASKED:** "{user_query}"
+
+👉 **YOUR JOB:** Create a query execution plan to answer this EXACT question. Use the schema below to identify which tables and columns are needed.
 
 ## Available Database Schema
+{schema_note}
 {schema}
 
 ## Query Parameters
 {parameters}
 """
 
-    # Format and combine (USER INPUT FIRST, then SYSTEM INSTRUCTIONS)
-    formatted_user = user_input.format(**format_params)
+    # Format system and user messages separately
     formatted_system = system_instructions.format(**format_params)
+    formatted_user = user_input.format(**format_params)
 
-    return f"{formatted_user}\n\n{formatted_system}"
+    # Return as a tuple (system, user) for proper message structure
+    return (formatted_system, formatted_user)
 
 
 def plan_query(state: State):
     """Create a structured query plan by analyzing schema and user intent."""
     try:
         user_query = state["user_question"]
-        full_schema = state["schema"]
+        # Use filtered schema if available, otherwise use full schema
+        schema_to_use = state.get("filtered_schema") or state["schema"]
         schema_markdown = state.get("schema_markdown", "")
 
         # Check for router mode (conversational flow)
@@ -436,6 +459,13 @@ def plan_query(state: State):
         else:
             domain_text = "No domain-specific guidance available. Use general database query planning principles."
 
+        # Check if we're using filtered schema
+        is_filtered = state.get("filtered_schema") is not None
+        if is_filtered:
+            schema_note = "**NOTE:** This is a filtered subset of the most relevant tables from the full database schema, selected based on the user's query."
+        else:
+            schema_note = ""
+
         # Build format parameters
         format_params = {
             "planner_example": json.dumps(planner_example, indent=2),
@@ -443,6 +473,7 @@ def plan_query(state: State):
             "schema_model": json.dumps(schema_model, indent=2),
             "user_query": user_query,
             "parameters": parameters_text,
+            "schema_note": schema_note,
         }
 
         # Add mode-specific parameters
@@ -468,14 +499,20 @@ def plan_query(state: State):
             # Only include schema for rewrite mode
             if router_mode == "rewrite":
                 # Use markdown schema if available, otherwise fallback to JSON
-                format_params["schema"] = schema_markdown or json.dumps(full_schema, indent=2)
+                format_params["schema"] = schema_markdown or json.dumps(
+                    schema_to_use, indent=2
+                )
         else:
-            # Initial mode - include full schema
+            # Initial mode - include schema (filtered if available)
             # Use markdown schema if available, otherwise fallback to JSON
-            format_params["schema"] = schema_markdown or json.dumps(full_schema, indent=2)
+            format_params["schema"] = schema_markdown or json.dumps(
+                schema_to_use, indent=2
+            )
 
-        # Create the prompt
-        prompt = create_planner_prompt(mode=router_mode, **format_params)
+        # Create the prompt (returns tuple of system and user messages)
+        system_content, user_content = create_planner_prompt(
+            mode=router_mode, **format_params
+        )
 
         # Debug: Save the prompt to a file
         debug_prompt_path = os.path.join(
@@ -485,7 +522,8 @@ def plan_query(state: State):
             with open(debug_prompt_path, "w", encoding="utf-8") as f:
                 debug_data = {
                     "mode": router_mode or "initial",
-                    "prompt": prompt,
+                    "system_message": system_content,
+                    "user_message": user_content,
                     "format_params_keys": list(format_params.keys()),
                 }
                 json.dump(debug_data, f, indent=2)
@@ -497,8 +535,14 @@ def plan_query(state: State):
             PlannerOutput, model_name=os.getenv("AI_MODEL"), temperature=0.7
         )
 
+        # Create proper message structure for chat models
+        messages = [
+            SystemMessage(content=system_content),
+            HumanMessage(content=user_content),
+        ]
+
         # Get the plan
-        plan = structured_llm.invoke(prompt)
+        plan = structured_llm.invoke(messages)
 
         if plan is None:
             return {

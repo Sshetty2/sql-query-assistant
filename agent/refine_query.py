@@ -26,7 +26,8 @@ def refine_query(state: State) -> Dict[str, Any]:
     Broaden the query to try to get results.
     """
     original_query = state["query"]
-    schema_info = state["schema"]
+    # Use filtered schema if available, otherwise use full schema
+    schema_info = state.get("filtered_schema") or state["schema"]
     user_question = state["user_question"]
 
     refined_queries = state["refined_queries"]

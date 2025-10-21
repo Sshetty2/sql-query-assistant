@@ -1,5 +1,6 @@
 langchain-openai
 langchain-ollama
+langchain-huggingface
 langchain-core
 langchain
 langchain-community
@@ -11,4 +12,5 @@ fastapi
 uvicorn
 pytest
 fastapi[standard]
+sentence-transformers
 sqlglot

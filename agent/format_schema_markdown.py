@@ -103,11 +103,13 @@ def convert_schema_to_markdown(state: State):
     """
     Convert the JSON schema to markdown format and update state.
 
-    This step runs after analyze_schema and formats the schema
-    into markdown for better LLM parsing and understanding.
+    This step runs after filter_schema and formats the filtered schema
+    (or full schema if filtering didn't occur) into markdown for better
+    LLM parsing and understanding.
     """
     try:
-        schema = state.get("schema", [])
+        # Use filtered schema if available, otherwise use full schema
+        schema = state.get("filtered_schema") or state.get("schema", [])
 
         if not schema:
             return {

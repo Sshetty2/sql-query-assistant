@@ -12,7 +12,8 @@ def handle_tool_error(state) -> dict:
     """Handle errors from query execution by getting LLM to analyze and suggest fixes."""
     error_message = state["messages"][-1].content
     original_query = state["query"]
-    schema = state["schema"]
+    # Use filtered schema if available, otherwise use full schema
+    schema = state.get("filtered_schema") or state["schema"]
     error_history = state["error_history"][:-1]
 
     prompt = f"""The following SQL query generated an error;

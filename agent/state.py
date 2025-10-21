@@ -15,7 +15,8 @@ class State(TypedDict):
     is_continuation: bool  # Flag to indicate if continuing from previous query
 
     # Schema and planning
-    schema: list[dict]  # Holds schema information (JSON format)
+    schema: list[dict]  # Holds full schema information (JSON format)
+    filtered_schema: Optional[list[dict]]  # Holds filtered schema (top-k relevant tables)
     schema_markdown: Optional[str]  # Schema formatted as markdown for LLM readability
     planner_outputs: list[dict[str, Any]]  # History of planner outputs
     planner_output: Optional[dict[str, Any]]  # Current/latest planner output (convenience field)
