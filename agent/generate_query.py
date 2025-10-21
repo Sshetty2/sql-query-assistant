@@ -196,7 +196,7 @@ def build_select_columns(
         # Regular projection columns
         for table_selection in selections:
             table_name = table_selection.get("table")
-            alias = table_selection.get("alias", table_name)
+            alias = table_selection.get("alias") or table_name  # Handle None/null
             table_columns = table_selection.get("columns", [])
 
             # Filter to only projection columns (not filter-only columns)
@@ -239,7 +239,7 @@ def build_table_expression(selections: List[Dict]) -> exp.Table:
 
     first_table = selections[0]
     table_name = first_table.get("table")
-    alias = first_table.get("alias", table_name)
+    alias = first_table.get("alias") or table_name  # Handle None/null
 
     # Create table with alias if different from table name
     if alias and alias != table_name:
@@ -274,10 +274,13 @@ def build_join_expressions(
     """
     joins = []
 
-    # Create alias lookup
-    alias_map = {
-        sel.get("table"): sel.get("alias", sel.get("table")) for sel in selections
-    }
+    # Create alias lookup (handle None/null aliases)
+    alias_map = {}
+    for sel in selections:
+        table = sel.get("table")
+        alias = sel.get("alias")
+        # If alias is None or empty, use table name
+        alias_map[table] = alias if alias else table
 
     for edge in join_edges:
         from_table = edge.get("from_table")
@@ -732,13 +735,11 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
     if not selections:
         raise ValueError("No table selections in planner output")
 
-    # Create alias mapping
-    alias_map = {
-        sel.get("table"): sel.get("alias", sel.get("table")) for sel in selections
-    }
-
-    # Build SELECT column list as strings
+    # Build SELECT column list as strings (with column aliases to avoid duplicates)
     select_cols = []
+
+    # Track column names to detect duplicates
+    seen_columns = {}  # {column_name: count}
 
     # Handle GROUP BY case
     if group_by_spec:
@@ -746,8 +747,16 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         for col_info in group_by_spec.get("group_by_columns", []):
             table = col_info.get("table")
             column = col_info.get("column")
-            alias = alias_map.get(table, table)
-            select_cols.append(f"{alias}.{column}")
+
+            # Add column alias if duplicate
+            if column in seen_columns:
+                seen_columns[column] += 1
+                # Use table name prefix for uniqueness
+                col_alias = f"{table}_{column}"
+                select_cols.append(f"{table}.{column} AS {col_alias}")
+            else:
+                seen_columns[column] = 1
+                select_cols.append(f"{table}.{column}")
 
         # Add aggregates
         for agg in group_by_spec.get("aggregates", []):
@@ -755,19 +764,17 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             table = agg.get("table")
             column = agg.get("column")
             output_alias = agg.get("alias")
-            table_alias = alias_map.get(table, table)
 
             if function == "COUNT" and column is None:
                 select_cols.append(f"COUNT(*) AS {output_alias}")
             elif function == "COUNT_DISTINCT":
-                select_cols.append(f"COUNT(DISTINCT {table_alias}.{column}) AS {output_alias}")
+                select_cols.append(f"COUNT(DISTINCT {table}.{column}) AS {output_alias}")
             else:
-                select_cols.append(f"{function}({table_alias}.{column}) AS {output_alias}")
+                select_cols.append(f"{function}({table}.{column}) AS {output_alias}")
     else:
         # Regular projection columns
         for table_selection in selections:
             table_name = table_selection.get("table")
-            alias = table_selection.get("alias", table_name)
             table_columns = table_selection.get("columns", [])
 
             # Filter to only projection columns
@@ -777,7 +784,18 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
 
             for col_info in projection_columns:
                 col_name = col_info.get("column")
-                select_cols.append(f"{alias}.{col_name}")
+
+                # Check for duplicate column names and add alias if needed
+                if col_name in seen_columns:
+                    seen_columns[col_name] += 1
+                    # Use table name prefix for uniqueness (e.g., CompanyID, ComputerID)
+                    # Strip "tb_" prefix if present for cleaner aliases
+                    table_prefix = table_name.replace("tb_", "").replace("Saas", "")
+                    col_alias = f"{table_prefix}{col_name}"
+                    select_cols.append(f"{table_name}.{col_name} AS {col_alias}")
+                else:
+                    seen_columns[col_name] = 1
+                    select_cols.append(f"{table_name}.{col_name}")
 
     # Add window functions
     for window_func in window_functions:
@@ -791,8 +809,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         for col_info in partition_by:
             table = col_info.get("table")
             column = col_info.get("column")
-            table_alias = alias_map.get(table, table)
-            partition_cols.append(f"{table_alias}.{column}")
+            partition_cols.append(f"{table}.{column}")
 
         # Build ORDER BY clause
         order_cols = []
@@ -800,8 +817,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             table = order_col.get("table")
             column = order_col.get("column")
             direction = order_col.get("direction", "ASC")
-            table_alias = alias_map.get(table, table)
-            order_cols.append(f"{table_alias}.{column} {direction}")
+            order_cols.append(f"{table}.{column} {direction}")
 
         # Build OVER clause
         over_parts = []
@@ -817,18 +833,17 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
     if not select_cols:
         select_cols = ["*"]
 
-    # Build FROM clause
+    # Build FROM clause (no aliases - just use table name)
     first_table = selections[0]
     table_name = first_table.get("table")
-    table_alias = first_table.get("alias", table_name)
 
     # Start with SELECT ... FROM
-    if table_alias != table_name:
-        query = select(*select_cols).from_(f"{table_name} {table_alias}")
-    else:
-        query = select(*select_cols).from_(table_name)
+    query = select(*select_cols).from_(table_name)
 
-    # Add JOINs
+    # Add JOINs (no aliases - just use table names)
+    # Track which tables have been added to the query
+    tables_in_query = {table_name}  # Start with the base FROM table
+
     for i, edge in enumerate(join_edges):
         from_table = edge.get("from_table")
         from_column = edge.get("from_column")
@@ -836,28 +851,30 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         to_column = edge.get("to_column")
         join_type = edge.get("join_type", "inner")
 
-        # Get aliases
-        from_alias = alias_map.get(from_table, from_table)
-        to_alias = alias_map.get(to_table, to_table)
-
-        # Build join table string
-        if to_alias != to_table:
-            join_table_str = f"{to_table} {to_alias}"
+        # Determine which table to join (the one NOT already in the query)
+        # If to_table is already in the query, join from_table instead
+        if to_table in tables_in_query and from_table not in tables_in_query:
+            # Join from_table
+            join_table_name = from_table
+            # Swap the ON condition columns
+            on_condition = f"{to_table}.{to_column} = {from_table}.{from_column}"
         else:
-            join_table_str = to_table
+            # Join to_table (default behavior)
+            join_table_name = to_table
+            on_condition = f"{from_table}.{from_column} = {to_table}.{to_column}"
 
-        # Build ON condition
-        on_condition = f"{from_alias}.{from_column} = {to_alias}.{to_column}"
+        # Track that this table is now in the query
+        tables_in_query.add(join_table_name)
 
         # Add join based on type
         if join_type.lower() == "left":
-            query = query.join(join_table_str, on=on_condition, join_type="left")
+            query = query.join(join_table_name, on=on_condition, join_type="left")
         elif join_type.lower() == "right":
-            query = query.join(join_table_str, on=on_condition, join_type="right")
+            query = query.join(join_table_name, on=on_condition, join_type="right")
         elif join_type.lower() == "full":
-            query = query.join(join_table_str, on=on_condition, join_type="full")
+            query = query.join(join_table_name, on=on_condition, join_type="full")
         else:  # inner or default
-            query = query.join(join_table_str, on=on_condition)
+            query = query.join(join_table_name, on=on_condition)
 
     # Build WHERE conditions
     where_conditions = []
@@ -871,9 +888,8 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             op = filter_pred.get("op")
             value = filter_pred.get("value")
 
-            table_alias = alias_map.get(table, table)
             where_conditions.append(
-                format_filter_condition(table_alias, column, op, value)
+                format_filter_condition(table, column, op, value)
             )
 
     # Add global filters
@@ -883,8 +899,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         op = filter_pred.get("op")
         value = filter_pred.get("value")
 
-        table_alias = alias_map.get(table, table)
-        where_conditions.append(format_filter_condition(table_alias, column, op, value))
+        where_conditions.append(format_filter_condition(table, column, op, value))
 
     # Add subquery filters
     for sq_filter in subquery_filters:
@@ -894,8 +909,6 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         subquery_table = sq_filter.get("subquery_table")
         subquery_column = sq_filter.get("subquery_column")
         subquery_filters_list = sq_filter.get("subquery_filters", [])
-
-        outer_alias = alias_map.get(outer_table, outer_table)
 
         # Build subquery
         subquery_where = []
@@ -912,9 +925,9 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
 
         # Add to WHERE conditions
         if op == "in":
-            where_conditions.append(f"{outer_alias}.{outer_column} IN ({subquery_str})")
+            where_conditions.append(f"{outer_table}.{outer_column} IN ({subquery_str})")
         elif op == "not_in":
-            where_conditions.append(f"{outer_alias}.{outer_column} NOT IN ({subquery_str})")
+            where_conditions.append(f"{outer_table}.{outer_column} NOT IN ({subquery_str})")
 
     # Apply WHERE clause
     for condition in where_conditions:
@@ -924,7 +937,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
     time_filter = state.get("time_filter", "All Time")
     if time_filter != "All Time":
         time_condition = build_time_filter_condition(
-            time_filter, selections, alias_map, db_context
+            time_filter, selections, db_context
         )
         if time_condition:
             query = query.where(time_condition)
@@ -935,8 +948,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         for col_info in group_by_spec.get("group_by_columns", []):
             table = col_info.get("table")
             column = col_info.get("column")
-            alias = alias_map.get(table, table)
-            group_by_cols.append(f"{alias}.{column}")
+            group_by_cols.append(f"{table}.{column}")
 
         for col in group_by_cols:
             query = query.group_by(col)
@@ -952,10 +964,8 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                 op = filter_pred.get("op")
                 value = filter_pred.get("value")
 
-                # Check if this is referencing an aggregate alias
-                table_alias = alias_map.get(table, table)
                 having_conditions.append(
-                    format_filter_condition(table_alias, column, op, value)
+                    format_filter_condition(table, column, op, value)
                 )
 
             for condition in having_conditions:
@@ -966,17 +976,14 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
     if sort_order and sort_order != "Default":
         # Find first projection column for ordering
         first_col = None
-        first_table_alias = None
+        first_table = None
 
         if group_by_spec:
             # Order by first GROUP BY column
             group_by_columns = group_by_spec.get("group_by_columns", [])
             if group_by_columns:
                 first_col = group_by_columns[0].get("column")
-                first_table_alias = alias_map.get(
-                    group_by_columns[0].get("table"),
-                    group_by_columns[0].get("table")
-                )
+                first_table = group_by_columns[0].get("table")
         else:
             # Regular ORDER BY
             for table_selection in selections:
@@ -986,13 +993,11 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                 ]
                 if projection_cols:
                     first_col = projection_cols[0].get("column")
-                    first_table_alias = table_selection.get(
-                        "alias", table_selection.get("table")
-                    )
+                    first_table = table_selection.get("table")
                     break
 
-        if first_col:
-            order_col = f"{first_table_alias}.{first_col}"
+        if first_col and first_table:
+            order_col = f"{first_table}.{first_col}"
             if sort_order.lower() == "descending":
                 query = query.order_by(f"{order_col} DESC")
             else:
@@ -1078,7 +1083,7 @@ def format_filter_condition(table_alias: str, column: str, op: str, value) -> st
 
 
 def build_time_filter_condition(
-    time_filter: str, selections: List[Dict], alias_map: Dict, db_context: Dict
+    time_filter: str, selections: List[Dict], db_context: Dict
 ) -> str:
     """Build time filter condition as SQL string."""
     # Find timestamp column
@@ -1119,8 +1124,7 @@ def build_time_filter_condition(
     if not days:
         return None
 
-    table_alias = alias_map.get(time_table, time_table)
-    col_ref = f"{table_alias}.{time_column}"
+    col_ref = f"{time_table}.{time_column}"
 
     if db_context["is_sqlite"]:
         return f"{col_ref} >= datetime('now', '-{days} days')"
