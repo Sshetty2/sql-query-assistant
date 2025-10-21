@@ -9,12 +9,24 @@ This is a **SQL Query Assistant** that converts natural language queries into SQ
 ## Environment Setup
 
 Required environment variables (see `.env` file):
-- `OPENAI_API_KEY` - OpenAI API key for LLM and embeddings
-- `AI_MODEL` - Primary model for query generation (e.g., `gpt-4o-mini`)
-- `AI_MODEL_REFINE` - Model for query refinement (e.g., `gpt-4o`)
-- `EMBEDDING_MODEL` - Model for vector search (e.g., `text-embedding-3-small`)
+
+### LLM Provider Configuration
+- `USE_LOCAL_LLM` - Set to `true` to use local Ollama, `false` for OpenAI (default: `false`)
+- `OPENAI_API_KEY` - OpenAI API key (required when `USE_LOCAL_LLM=false`)
+- `OLLAMA_BASE_URL` - Ollama server URL (default: `http://localhost:11434`, only used when `USE_LOCAL_LLM=true`)
+
+### Model Selection
+- `AI_MODEL` - Primary model for query generation
+  - When using OpenAI: `gpt-4o-mini`, `gpt-4o`, etc.
+  - When using Ollama: `qwen3:8b`, `llama3`, `mistral`, etc.
+- `AI_MODEL_REFINE` - Model for query refinement (same format as AI_MODEL)
+- `EMBEDDING_MODEL` - Model for vector search (deprecated - not currently used)
+
+### Database Configuration
 - `DB_SERVER`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - SQL Server connection details
 - `USE_TEST_DB` - Set to `true` to use SQLite test database instead of SQL Server
+
+### Query Configuration
 - `RETRY_COUNT` - Max retries for query errors (default: 3)
 - `REFINE_COUNT` - Max refinement attempts for empty results (default: 3)
 - `TOP_MOST_RELEVANT_TABLES` - Number of tables to retrieve via vector search (default: 3)
@@ -71,6 +83,29 @@ Flake8 config in `.flake8`:
 - Max line length: 120 characters
 - Ignores: E203 (whitespace before ':')
 - Excludes: `.git`, `__pycache__`, `build`, `dist`
+
+### Using Local LLM (Ollama)
+
+**Setup Ollama:**
+1. Install Ollama from https://ollama.com
+2. Pull a model: `ollama pull qwen3:8b` (or `llama3`, `mistral`, etc.)
+3. Verify Ollama is running: `curl http://localhost:11434/api/tags`
+
+**Configure the application:**
+1. Set `USE_LOCAL_LLM=true` in `.env`
+2. Set `AI_MODEL=qwen3:8b` (or your preferred Ollama model)
+3. Set `AI_MODEL_REFINE=qwen3:8b`
+4. Optionally set `OLLAMA_BASE_URL` if using a non-default Ollama server
+
+**Benefits:**
+- No API costs (runs locally)
+- No internet required
+- Full data privacy
+- Faster responses (no network latency)
+
+**Switching between providers:**
+- OpenAI: Set `USE_LOCAL_LLM=false` and ensure `OPENAI_API_KEY` is set
+- Ollama: Set `USE_LOCAL_LLM=true` and ensure Ollama is running locally
 
 ### Docker
 
@@ -172,6 +207,9 @@ agent/
 database/
 └── connection.py           # Database connection management
 
+utils/
+└── llm_factory.py          # LLM provider factory (OpenAI/Ollama switcher)
+
 tests/
 └── unit/
     └── test_combine_json_schema.py  # Unit tests for schema utilities
@@ -181,6 +219,21 @@ streamlit_app.py            # Streamlit web UI
 ```
 
 ## Important Patterns
+
+**LLM Provider Factory:**
+The `utils/llm_factory.py` module provides a `get_chat_llm()` function that abstracts LLM provider selection:
+- Returns `ChatOpenAI` when `USE_LOCAL_LLM=false`
+- Returns `ChatOllama` when `USE_LOCAL_LLM=true`
+- Both providers have identical LangChain APIs (`.invoke()`, `.with_structured_output()`)
+- Allows seamless switching between cloud and local LLMs
+
+All LLM instantiation points use this factory:
+```python
+from utils.llm_factory import get_chat_llm
+
+llm = get_chat_llm(model_name=os.getenv("AI_MODEL"), temperature=0.7)
+structured_llm = llm.with_structured_output(PlannerOutput)
+```
 
 **Conditional Routing:**
 The workflow uses `should_continue()` in `agent/create_agent.py` to decide next steps:

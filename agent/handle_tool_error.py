@@ -2,8 +2,8 @@
 
 import os
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage
+from utils.llm_factory import get_chat_llm
 
 load_dotenv()
 
@@ -37,7 +37,7 @@ def handle_tool_error(state) -> dict:
     You may need to remove and time filters from the query which may be causing the error.
     """
 
-    llm = ChatOpenAI(model=os.getenv("AI_MODEL"), temperature=0.3)
+    llm = get_chat_llm(model_name=os.getenv("AI_MODEL"), temperature=0.3)
     corrected_query = llm.invoke(prompt).content.strip()
 
     return {

@@ -3,10 +3,9 @@
 import os
 import json
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import AIMessage
 from models.planner_output import PlannerOutput
+from utils.llm_factory import get_structured_llm
 
 from agent.state import State
 
@@ -47,192 +46,278 @@ def load_domain_guidance():
     return None
 
 
-def create_planner_prompt_template(mode: str = None):
-    """Create the prompt template for the planner.
+def create_planner_prompt(mode: str = None, **format_params):
+    """Create a simple formatted prompt for the planner.
 
     Args:
         mode: Optional mode - "update" for plan updates, "rewrite" for full replan, None for initial
+        format_params: Parameters to format into the prompt
+
+    Returns:
+        Formatted prompt string with system instructions and user input
     """
 
     if mode == "update":
-        system_message = """You are revising an existing SQL query execution plan based on user feedback.
+        system_instructions = """# SYSTEM INSTRUCTIONS
 
-            ## Context
-            You previously created a query plan, and now the user has requested modifications.
-            Your job is to UPDATE the existing plan incrementally, not create a new one from scratch.
+## Objective
+Revise an existing SQL query execution plan based on user feedback.
 
-            ## Your Task
-            1. Review the previous plan and understand what was already decided
-            2. Read the routing instructions carefully - they specify what needs to change
-            3. Make ONLY the changes requested, preserving the rest of the plan
-            4. Ensure the updated plan remains internally consistent
+## Context
+- A previous query plan exists
+- The user has requested modifications
+- UPDATE the existing plan incrementally, not from scratch
 
-            ## What to Preserve
-            - Keep the same tables unless instructions say otherwise
-            - Keep existing joins unless they need modification
-            - Keep existing columns unless specifically adding/removing
-            - Maintain the overall query structure
+## Task
+1. Review the previous plan and understand what was already decided
+2. Read the routing instructions carefully - they specify what needs to change
+3. Make ONLY the changes requested, preserving the rest of the plan
+4. Ensure the updated plan remains internally consistent
 
-            ## What to Update
-            - Add/remove/modify filters as instructed
-            - Add/remove columns as requested
-            - Adjust joins if needed for new requirements
-            - Update confidence if assumptions have changed
+## What to Preserve
+- Same tables unless instructions say otherwise
+- Existing joins unless they need modification
+- Existing columns unless specifically adding/removing
+- Overall query structure
 
-            ## Return ONLY a JSON object that conforms to the following json structure:
-            {planner_example}"""
+## What to Update
+- Add/remove/modify filters as instructed
+- Add/remove columns as requested
+- Adjust joins if needed for new requirements
+- Update confidence if assumptions have changed
+
+## Output Format
+Return ONLY a JSON object that conforms to the following json structure:
+{planner_example}"""
 
     elif mode == "rewrite":
-        system_message = """You are creating a NEW SQL query execution plan based on an updated user request.
+        system_instructions = """# SYSTEM INSTRUCTIONS
 
-            ## Context
-            The user had a previous query, but now wants something significantly different.
-            While you should be aware of the previous plan for context, you need to create
-            a FRESH plan from scratch that addresses the new request.
+## Objective
+Create a NEW SQL query execution plan based on an updated user request.
 
-            ## Your Task
-            1. Understand the new user request and routing instructions
-            2. Review the previous plan to understand context (but don't be constrained by it)
-            3. Analyze the full database schema
-            4. Create a completely new plan optimized for the new request
+## Context
+- The user had a previous query
+- Now wants something significantly different
+- Be aware of the previous plan for context
+- Create a FRESH plan from scratch that addresses the new request
 
-            ## Considerations
-            - This is a major change - different tables, different intent, or different domain
-            - Start fresh but learn from previous assumptions/ambiguities
-            - Use the full schema to make the best decisions
-            - Don't force-fit the old plan structure onto the new request
+## Task
+1. Understand the new user request and routing instructions
+2. Review the previous plan to understand context (but don't be constrained by it)
+3. Analyze the full database schema
+4. Create a completely new plan optimized for the new request
 
-            ## Return ONLY a JSON object that conforms to the following json structure:
-            {planner_example}"""
+## Considerations
+- This is a major change - different tables, different intent, or different domain
+- Start fresh but learn from previous assumptions/ambiguities
+- Use the full schema to make the best decisions
+- Don't force-fit the old plan structure onto the new request
+
+## Output Format
+Return ONLY a JSON object that conforms to the following json structure:
+{planner_example}"""
 
     else:  # Initial mode (None)
-        system_message = """You are analyzing a natural language query against a SQL database schema
-            to create a query execution plan.
+        system_instructions = """# SYSTEM INSTRUCTIONS
 
-            We have a multi-step SQL query generation system.
+## Objective
+Analyze a natural language query against a SQL database schema to create a query execution plan.
 
-            Your role in this pipeline is to:
+## Pipeline Overview
+Multi-step SQL query generation system.
 
-            1. Understand the user's intent from their natural language query
-            2. Analyze the provided database schema (tables, columns, relationships)
-            3. Create a structured plan that identifies:
-            - Which tables are relevant and why
-            - Which columns are needed (for display, filtering, grouping, or ordering)
-            - What filters/conditions should be applied
-            - How tables might be related (based on foreign keys and context)
-            - Any time-based constraints
-            - Ambiguities or assumptions being made
+## Your Task
+1. Understand the user's intent from their natural language query
+2. Analyze the provided database schema (tables, columns, relationships)
+3. Create a structured plan that identifies:
+   - Which tables are relevant and why
+   - Which columns are needed (for display, filtering, grouping, or ordering)
+   - What filters/conditions should be applied
+   - How tables might be related (based on foreign keys and context)
+   - Any time-based constraints
+   - Ambiguities or assumptions being made
 
-            ## Return ONLY a JSON object that conforms to the following json structure:
-            {planner_example}"""
+## Output Format
+Return ONLY a JSON object that conforms to the following json structure:
+{planner_example}"""
 
-    # Common continuation of system message
-    system_message += """
+    # Common continuation of system instructions
+    system_instructions += """
 
-            ## Domain-Specific Guidance
+---
 
-            {domain_guidance}
+# DOMAIN-SPECIFIC GUIDANCE
 
-            ## Advanced SQL Features (Use When Needed)
+{domain_guidance}
 
-            The planner supports advanced SQL features. Use them ONLY when the user query requires:
+---
 
-            **Aggregations (GROUP BY):**
-            - When user asks for totals, counts, averages, min/max (e.g., "total sales by company")
-            - Set `group_by` with:
-              - `group_by_columns`: Columns to group by (typically dimensions like company name, category)
-              - `aggregates`: List of aggregate functions (COUNT, SUM, AVG, MIN, MAX)
-              - `having_filters`: Filters on aggregated results (e.g., "companies with more than 100 sales")
-            - Example: "Show total sales by company" → GROUP BY company, SUM(sales)
+# ADVANCED SQL FEATURES
 
-            **Window Functions:**
-            - When user asks for rankings, running totals, or row numbers (e.g., "rank users by sales")
-            - Set `window_functions` with function, partition_by, order_by, and alias
-            - Example: "Rank employees by salary within each department" → ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC)
+## When to Use Advanced Features
+Use these ONLY when the user query requires them. Most queries don't need advanced features.
 
-            **Subqueries (in filters):**
-            - When filtering based on results from another query (e.g., "users from top companies")
-            - Set `subquery_filters` for WHERE col IN (SELECT...) patterns
-            - Keep subqueries simple - single table with filters
-            - Example: "Users from companies with >50 employees" → WHERE CompanyID IN (SELECT ID FROM Companies WHERE EmployeeCount > 50)
+### Aggregations (GROUP BY)
+When user asks for totals, counts, averages, min/max (e.g., "total sales by company")
+- Set `group_by` with:
+  - `group_by_columns`: Columns to group by (dimensions like company name, category)
+  - `aggregates`: List of aggregate functions (COUNT, SUM, AVG, MIN, MAX)
+  - `having_filters`: Filters on aggregated results (e.g., "companies with more than 100 sales")
+- Example: "Show total sales by company" → GROUP BY company, SUM(sales)
 
-            **CTEs (WITH clauses):**
-            - For complex queries that benefit from intermediate results
-            - Use sparingly - only when query logic is clearer with a CTE
-            - Set `ctes` with name, selections, joins, filters, and optional group_by
+### Window Functions
+When user asks for rankings, running totals, or row numbers (e.g., "rank users by sales")
+- Set `window_functions` with function, partition_by, order_by, and alias
+- Example: "Rank employees by salary within each department" → ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC)
 
-            **Important:** Leave these fields empty (null or []) when not needed. Most queries don't require them.
+### Subqueries (in filters)
+When filtering based on results from another query (e.g., "users from top companies")
+- Set `subquery_filters` for WHERE col IN (SELECT...) patterns
+- Keep subqueries simple - single table with filters
+- Example: "Users from companies with >50 employees" → WHERE CompanyID IN (SELECT ID FROM Companies WHERE EmployeeCount > 50)
 
-            ## Filter Operator Examples
+### CTEs (WITH clauses)
+For complex queries that benefit from intermediate results
+- Use sparingly - only when query logic is clearer with a CTE
+- Set `ctes` with name, selections, joins, filters, and optional group_by
 
-            When creating FilterPredicate objects in the `filters` array, use these operator patterns:
+**Important:** Leave these fields empty (null or []) when not needed.
 
-            - Equality: {{"op": "=", "value": "Cisco"}}
-            - Inequality: {{"op": "!=", "value": "Active"}}
-            - Comparison: {{"op": ">", "value": 100}}
-            - Between: {{"op": "between", "value": [0, 100]}} — MUST be array [low, high]
-            - In list: {{"op": "in", "value": ["Cisco", "Microsoft", "Google"]}} — MUST be array
-            - Not in list: {{"op": "not_in", "value": ["Inactive", "Suspended"]}} — MUST be array
-            - Like pattern: {{"op": "like", "value": "%cisco%"}} — Use for pattern matching (case-insensitive in SQL Server)
-            - Starts with: {{"op": "starts_with", "value": "CVE-"}}
-            - Ends with: {{"op": "ends_with", "value": ".com"}}
-            - Is null: {{"op": "is_null", "value": null}}
-            - Is not null: {{"op": "is_not_null", "value": null}}
+---
 
-            ## Database Schema Structure
+# FILTER OPERATORS
 
-            The schema you'll receive follows this format:
+## Available Operators
+When creating FilterPredicate objects in the `filters` array:
 
-            {schema_model}
+| Operator | Example | Notes |
+|----------|---------|-------|
+| `=` | `{{"op": "=", "value": "Cisco"}}` | Equality |
+| `!=` | `{{"op": "!=", "value": "Active"}}` | Inequality |
+| `>` | `{{"op": ">", "value": 100}}` | Greater than |
+| `between` | `{{"op": "between", "value": [0, 100]}}` | MUST be array [low, high] |
+| `in` | `{{"op": "in", "value": ["Cisco", "Microsoft"]}}` | MUST be array |
+| `not_in` | `{{"op": "not_in", "value": ["Inactive"]}}` | MUST be array |
+| `like` | `{{"op": "like", "value": "%cisco%"}}` | Pattern matching (case-insensitive) |
+| `starts_with` | `{{"op": "starts_with", "value": "CVE-"}}` | String starts with |
+| `ends_with` | `{{"op": "ends_with", "value": ".com"}}` | String ends with |
+| `is_null` | `{{"op": "is_null", "value": null}}` | Check for NULL |
+| `is_not_null` | `{{"op": "is_not_null", "value": null}}` | Check for NOT NULL |
 
-            ## Hard Rules (MUST follow)
+---
 
-            1. **Exact names only**: Use table/column names exactly as they appear in the schema. Never invent names.
+# DATABASE SCHEMA
 
-            2. **Always specify joins**: If you select 2+ tables in `selections`, you MUST populate `join_edges` with explicit column-to-column join conditions. Use foreign keys from the schema to identify the correct columns (e.g., from_table.CompanyID = to_table.ID).
+## Schema Format
+The schema you'll receive follows this format:
 
-            3. **Include lookup tables for foreign keys**: When selecting columns that are foreign keys (fields ending in ID like CompanyID, UserID, etc.), you MUST also include the referenced table in `selections` to retrieve human-readable names/descriptions. Add the corresponding join edge and include the name column from the related table with role="projection".
+{schema_model}
 
-            4. **Completeness of joins**: Every table referenced in `join_edges` must also appear in `selections`.
+---
 
-            5. **Join-only tables**: If a table is needed only to connect others (not for data display), set `include_only_for_join = true` and leave its `columns` list empty.
+# RULES AND REQUIREMENTS
 
-            6. **Keep it minimal**: Use the smallest number of tables required (prefer ≤ 6 tables).
+## Hard Rules (MUST follow)
 
-            7. **Localize filters**: Put a filter in the table's `filters` array where the column lives; use `global_filters` only if the constraint genuinely spans multiple tables.
+### 1. Exact Names Only
+Use table/column names exactly as they appear in the schema. Never invent names.
 
-            8. **No extras**: Do not include grouping, ordering, time context, or instructions for later agents. Focus only on table selection, columns, filters, and joins.
+### 2. Always Specify Joins
+If you select 2+ tables in `selections`, you MUST populate `join_edges` with explicit column-to-column join conditions.
+- Use foreign keys from the schema to identify the correct columns
+- Example: `from_table.CompanyID = to_table.ID`
 
-            IMPORTANT: Do NOT create filter predicates for the "Time filter" parameter (e.g., "Last 30 Days", "Last 7 Days"). These will be handled by a downstream agent. Only include filters that are explicitly mentioned in the user's natural language query (e.g., "active users", "vendor = Cisco").
+### 3. Include Lookup Tables for Foreign Keys
+When selecting columns that are foreign keys (fields ending in ID like CompanyID, UserID, etc.):
+- You MUST also include the referenced table in `selections` to retrieve human-readable names/descriptions
+- Add the corresponding join edge
+- Include the name column from the related table with `role="projection"`
 
-            9. **Confidence bounds**: All confidence values must be between 0.0 and 1.0.
+### 4. Completeness of Joins
+Every table referenced in `join_edges` must also appear in `selections`.
 
-            10. **Time filter handling**: When a "Time filter" parameter is provided (e.g., "Last 30 Days"), do NOT create filter predicates. Instead, include relevant timestamp columns (CreatedOn, UpdatedOn, etc.) in the selections with role="projection" or role="filter" to indicate they may be used for time filtering. Let the downstream agent handle the actual date range calculation.
+### 5. Join-Only Tables
+If a table is needed only to connect others (not for data display):
+- Set `include_only_for_join = true`
+- Leave its `columns` list empty
 
-            11. **If unclear → clarify**: If critical information is missing, set `decision = "clarify"` and populate `ambiguities` with concrete questions.
+### 6. Keep it Minimal
+Use the smallest number of tables required (prefer ≤ 6 tables).
 
-            ## Reasoning Hints
+### 7. Localize Filters
+- Put a filter in the table's `filters` array where the column lives
+- Use `global_filters` only if the constraint genuinely spans multiple tables
 
-            - **Create explicit joins**: For every pair of related tables in `selections`, add a `join_edges` entry specifying the exact columns to join (from_column and to_column). Look for foreign keys in the schema's `foreign_keys` arrays.
-            - **Prefer foreign keys**: Use the `foreign_keys` arrays and `...ID` column naming patterns to identify relationships. For example, if Table A has a foreign key "CompanyID" and Table B has a primary key "ID", create a join edge: {{from_table: "TableA", from_column: "CompanyID", to_table: "TableB", to_column: "ID"}}.
-            - **Auto-join for human-readable names**: When a table has a foreign key (e.g., CompanyID, UserID, ProductID), automatically include the related table and join to it to retrieve the name/description column. For example, if selecting from tb_Users which has CompanyID, include tb_Company in selections and add a join edge to retrieve the company Name for display purposes.
-            - **Choose carefully**: When multiple candidate tables exist, choose the one with stronger evidence (metadata, foreign keys) and higher confidence
-            - **Ask when stuck**: If the user mentions a column you can't find, switch to "clarify" and ask for the exact field or acceptable alternative
+### 8. No Extras
+Do not include grouping, ordering, time context, or instructions for later agents.
+Focus only on: table selection, columns, filters, and joins.
 
-            ## Final Checklist (validate before responding)
+### 9. Time Filter Handling
+**IMPORTANT:** Do NOT create filter predicates for the "Time filter" parameter (e.g., "Last 30 Days", "Last 7 Days").
+- These will be handled by a downstream agent
+- Only include filters that are explicitly mentioned in the user's natural language query (e.g., "active users", "vendor = Cisco")
+- When a "Time filter" parameter is provided, include relevant timestamp columns (CreatedOn, UpdatedOn, etc.) in the selections with `role="projection"` or `role="filter"`
+- Let the downstream agent handle the actual date range calculation
 
-            ✓ If 2+ tables in `selections`, `join_edges` must be populated with explicit joins
-            ✓ All tables in `join_edges` exist in `selections`
-            ✓ Each join edge specifies both from_column and to_column (not just table names)
-            ✓ Bridge/lookup tables without projections have `include_only_for_join = true`
-            ✓ No columns appear from tables that aren't in `selections`
-            ✓ No invented table or column names
-            ✓ Output is valid PlannerOutput JSON and nothing else
-            """
+### 10. Confidence Bounds
+All confidence values must be between 0.0 and 1.0.
 
-    # User message varies by mode
+### 11. If Unclear → Clarify
+If critical information is missing:
+- Set `decision = "clarify"`
+- Populate `ambiguities` with concrete questions
+
+---
+
+## Reasoning Hints
+
+### Create Explicit Joins
+For every pair of related tables in `selections`, add a `join_edges` entry specifying the exact columns to join (from_column and to_column).
+- Look for foreign keys in the schema's `foreign_keys` arrays
+
+### Prefer Foreign Keys
+Use the `foreign_keys` arrays and `...ID` column naming patterns to identify relationships.
+- Example: If Table A has foreign key "CompanyID" and Table B has primary key "ID"
+- Create join edge: `{{from_table: "TableA", from_column: "CompanyID", to_table: "TableB", to_column: "ID"}}`
+
+### Auto-Join for Human-Readable Names
+When a table has a foreign key (e.g., CompanyID, UserID, ProductID):
+- Automatically include the related table
+- Join to it to retrieve the name/description column
+- Example: If selecting from tb_Users which has CompanyID, include tb_Company in selections and add a join edge to retrieve the company Name
+
+### Choose Carefully
+When multiple candidate tables exist, choose the one with stronger evidence (metadata, foreign keys) and higher confidence.
+
+### Ask When Stuck
+If the user mentions a column you can't find:
+- Switch to "clarify"
+- Ask for the exact field or acceptable alternative
+
+---
+
+## Final Checklist
+
+Before responding, validate:
+- ✓ If 2+ tables in `selections`, `join_edges` must be populated with explicit joins
+- ✓ All tables in `join_edges` exist in `selections`
+- ✓ Each join edge specifies both from_column and to_column (not just table names)
+- ✓ Bridge/lookup tables without projections have `include_only_for_join = true`
+- ✓ No columns appear from tables that aren't in `selections`
+- ✓ No invented table or column names
+- ✓ Output is valid PlannerOutput JSON and nothing else
+"""
+
+    # User input varies by mode
     if mode == "update":
-        user_message = """## Previous Plan
+        user_input = """
+# USER INPUT
+
+## LATEST USER REQUEST
+{user_query}
+
+## Previous Plan
 {previous_plan}
 
 ## Routing Instructions
@@ -241,16 +326,15 @@ def create_planner_prompt_template(mode: str = None):
 ## User Query History
 {conversation_history}
 
-## Latest User Request
-{user_query}
-
 ## Query Parameters
 {parameters}
-
-Please update the plan according to the routing instructions."""
+"""
 
     elif mode == "rewrite":
-        user_message = """## Previous Plan (for context)
+        user_input = """
+# USER INPUT
+
+## Previous Plan (for context)
 {previous_plan}
 
 ## Routing Instructions
@@ -267,11 +351,13 @@ Please update the plan according to the routing instructions."""
 
 ## Query Parameters
 {parameters}
-
-Please create a new plan for the updated request."""
+"""
 
     else:  # Initial mode
-        user_message = """## User Query
+        user_input = """
+# USER INPUT
+
+## User Query
 {user_query}
 
 ## Available Database Schema
@@ -279,12 +365,13 @@ Please create a new plan for the updated request."""
 
 ## Query Parameters
 {parameters}
+"""
 
-Please analyze this query and create a structured execution plan."""
+    # Format and combine (USER INPUT FIRST, then SYSTEM INSTRUCTIONS)
+    formatted_user = user_input.format(**format_params)
+    formatted_system = system_instructions.format(**format_params)
 
-    return ChatPromptTemplate.from_messages(
-        [("system", system_message), ("user", user_message)]
-    )
+    return f"{formatted_user}\n\n{formatted_system}"
 
 
 def plan_query(state: State):
@@ -348,10 +435,7 @@ def plan_query(state: State):
         else:
             domain_text = "No domain-specific guidance available. Use general database query planning principles."
 
-        # Create prompt (with mode)
-        prompt_template = create_planner_prompt_template(mode=router_mode)
-
-        # Format the prompt based on mode
+        # Build format parameters
         format_params = {
             "planner_example": json.dumps(planner_example, indent=2),
             "domain_guidance": domain_text,
@@ -387,14 +471,31 @@ def plan_query(state: State):
             # Initial mode - include full schema
             format_params["schema"] = json.dumps(full_schema, indent=2)
 
-        formatted_prompt = prompt_template.format_messages(**format_params)
+        # Create the prompt
+        prompt = create_planner_prompt(mode=router_mode, **format_params)
 
-        # Use structured output with JSON schema
-        llm = ChatOpenAI(model=os.getenv("AI_MODEL"), temperature=0.7)
-        structured_llm = llm.with_structured_output(PlannerOutput)
+        # Debug: Save the prompt to a file
+        debug_prompt_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "debug_planner_prompt.json"
+        )
+        try:
+            with open(debug_prompt_path, "w", encoding="utf-8") as f:
+                debug_data = {
+                    "mode": router_mode or "initial",
+                    "prompt": prompt,
+                    "format_params_keys": list(format_params.keys()),
+                }
+                json.dump(debug_data, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save debug prompt: {e}")
+
+        # Get structured LLM (handles method="json_schema" for Ollama automatically)
+        structured_llm = get_structured_llm(
+            PlannerOutput, model_name=os.getenv("AI_MODEL"), temperature=0.7
+        )
 
         # Get the plan
-        plan = structured_llm.invoke(formatted_prompt)
+        plan = structured_llm.invoke(prompt)
 
         if plan is None:
             return {

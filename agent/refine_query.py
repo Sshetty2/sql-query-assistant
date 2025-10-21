@@ -4,10 +4,9 @@ import os
 from typing import Dict, Any
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from langchain_core.prompts import ChatPromptTemplate
 from agent.state import State
 from langchain_core.messages import AIMessage
-from langchain_openai import ChatOpenAI
+from utils.llm_factory import get_structured_llm
 
 load_dotenv()
 
@@ -23,8 +22,8 @@ class QueryRefinement(BaseModel):
 
 def refine_query(state: State) -> Dict[str, Any]:
     """
-    Please refine the SQL query because the initial results are None.
-    Do your best to broaden and the query.
+    Refine the SQL query because the initial results are None.
+    Broaden the query to try to get results.
     """
     original_query = state["query"]
     schema_info = state["schema"]
@@ -40,43 +39,38 @@ def refine_query(state: State) -> Dict[str, Any]:
         for i, query in enumerate(refined_queries, 1):
             previous_attempts += f"{i}. {query}\n"
 
-    model = ChatOpenAI(model=os.getenv("AI_MODEL_REFINE"), temperature=0.7)
-    structured_model = model.with_structured_output(QueryRefinement)
+    # Create the prompt
+    prompt = f"""SYSTEM INSTRUCTIONS:
 
-    prompt_template = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                """You are a SQL query refinement expert. Your task is to refine SQL queries that returned no results by broadening them intelligently.""",
-            ),
-            (
-                "user",
-                """Please help refine and broaden this SQL query that returned no results.
-    
+Refine SQL queries that returned no results by broadening them intelligently.
+
+USER INPUT:
+
 Original question: {user_question}
+
 Original query: {original_query}
+
 Truncated Database schema: {schema_info}
 
 {previous_attempts}
 
-You may need to change the content of the query so that it makes logical sense. Consider:
+Task: Change the content of the query so that it makes logical sense. Consider:
 1. Using the correct column or table names; Double check the schema to make sure we are using the correct names.
 2. Broadening WHERE clauses
 3. Using LIKE instead of exact matches
 4. Checking for NULL values
-5. Using OR conditions where appropriate""",
-            ),
-        ]
+5. Using OR conditions where appropriate
+
+Return a JSON object with:
+- reasoning: Explanation of how and why the query was refined
+- sql_query: The refined SQL query"""
+
+    # Get structured LLM (handles method="json_schema" for Ollama automatically)
+    structured_llm = get_structured_llm(
+        QueryRefinement, model_name=os.getenv("AI_MODEL_REFINE"), temperature=0.7
     )
 
-    formatted_prompt = prompt_template.format_messages(
-        user_question=user_question,
-        original_query=original_query,
-        schema_info=schema_info,
-        previous_attempts=previous_attempts,
-    )
-
-    response = structured_model.invoke(formatted_prompt)
+    response = structured_llm.invoke(prompt)
 
     return {
         **state,

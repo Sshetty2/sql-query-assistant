@@ -3,26 +3,29 @@
 import os
 import json
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import AIMessage
 from models.router_output import RouterOutput
+from utils.llm_factory import get_structured_llm
 from agent.state import State
 
 load_dotenv()
 
 
-def create_router_prompt_template():
-    """Create the prompt template for the conversational router."""
+def create_router_prompt(**format_params):
+    """Create a simple formatted prompt for the conversational router.
 
-    system_message = """You are a conversational routing agent in a SQL query generation system.
+    Args:
+        format_params: Parameters to format into the prompt
 
-Your role is to analyze follow-up user requests in the context of previous queries and decide
-how best to handle them.
+    Returns:
+        Formatted prompt string with system instructions and user input
+    """
 
-## Decision Types
+    system_instructions = """SYSTEM INSTRUCTIONS:
 
-You must choose one of three routing decisions:
+Analyze follow-up user requests in context of previous queries and decide how to handle them.
+
+Decision Types - Choose one of three routing decisions:
 
 1. **revise_query_inline**: Use when the user wants a SMALL change to the SQL query itself:
    - Adding or removing a single column
@@ -30,7 +33,7 @@ You must choose one of three routing decisions:
    - Minor syntax adjustments
    - Simple query modifications that don't require replanning
 
-   For this decision, you MUST generate the complete revised SQL query in `revised_query`.
+   For this decision, generate the complete revised SQL query in `revised_query`.
 
 2. **update_plan**: Use when the user wants MINOR modifications to the query plan:
    - Adding/removing/modifying filters
@@ -50,10 +53,10 @@ You must choose one of three routing decisions:
    For this decision, provide high-level guidance in `routing_instructions` about
    the new direction.
 
-## Guidelines
+Guidelines:
 
 - **Be conservative with revise_query_inline**: Only use for trivial SQL modifications.
-  If you're unsure whether the change affects the plan, choose update_plan instead.
+  If unsure whether the change affects the plan, choose update_plan instead.
 
 - **Context is key**: Consider the entire conversation history, not just the latest request.
   The user might reference earlier queries or results.
@@ -62,46 +65,40 @@ You must choose one of three routing decisions:
   Bad: "Update the query"
   Good: "Add a filter on the Status column to only show records where Status = 'Active'"
 
-- **Preserve intent**: Ensure your decision maintains the user's original intent while
+- **Preserve intent**: Ensure the decision maintains the user's original intent while
   incorporating their requested changes.
 
-## Output Format
+Output Format:
 
 Return ONLY a valid RouterOutput JSON object with:
-- decision: Your routing choice
-- reasoning: Clear explanation of your decision
+- decision: Routing choice
+- reasoning: Clear explanation of decision
 - revised_query: Complete SQL (only if decision = "revise_query_inline")
 - routing_instructions: Instructions for planner (only if decision = "update_plan" or "rewrite_plan")
 """
 
-    user_message = """## Conversation History
+    user_input = """USER INPUT:
 
+Conversation History:
 {conversation_history}
 
-## Previous SQL Queries
-
+Previous SQL Queries:
 {query_history}
 
-## Previous Query Plans
-
+Previous Query Plans:
 {plan_history}
 
-## Current Database Schema (filtered)
-
+Current Database Schema (filtered):
 {schema}
 
-## Latest User Request
+Latest User Request:
+{latest_request}"""
 
-{latest_request}
+    # Format and combine
+    formatted_system = system_instructions
+    formatted_user = user_input.format(**format_params)
 
----
-
-Based on the conversation history and the latest user request, determine how to proceed.
-Provide your decision with clear reasoning and any required fields (revised_query or routing_instructions)."""
-
-    return ChatPromptTemplate.from_messages(
-        [("system", system_message), ("user", user_message)]
-    )
+    return f"{formatted_system}\n\n{formatted_user}"
 
 
 def format_conversation_history(user_questions: list[str]) -> str:
@@ -170,8 +167,7 @@ def conversational_router(state: State):
         plan_history = format_plan_history(planner_outputs)
 
         # Create the prompt
-        prompt_template = create_router_prompt_template()
-        formatted_prompt = prompt_template.format_messages(
+        prompt = create_router_prompt(
             conversation_history=conversation_history,
             query_history=query_history,
             plan_history=plan_history,
@@ -179,16 +175,19 @@ def conversational_router(state: State):
             latest_request=latest_request,
         )
 
-        # Get LLM decision with structured output
-        llm = ChatOpenAI(model=os.getenv("AI_MODEL"), temperature=0.3)
-        structured_llm = llm.with_structured_output(RouterOutput)
+        # Get structured LLM (handles method="json_schema" for Ollama automatically)
+        structured_llm = get_structured_llm(
+            RouterOutput, model_name=os.getenv("AI_MODEL"), temperature=0.3
+        )
 
-        router_output = structured_llm.invoke(formatted_prompt)
+        router_output = structured_llm.invoke(prompt)
 
         if router_output is None:
             return {
                 **state,
-                "messages": [AIMessage(content="Error: Router failed to make a decision")],
+                "messages": [
+                    AIMessage(content="Error: Router failed to make a decision")
+                ],
                 "last_step": "conversational_router",
             }
 
