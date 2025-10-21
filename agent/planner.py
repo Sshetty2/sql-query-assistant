@@ -379,6 +379,7 @@ def plan_query(state: State):
     try:
         user_query = state["user_question"]
         full_schema = state["schema"]
+        schema_markdown = state.get("schema_markdown", "")
 
         # Check for router mode (conversational flow)
         router_mode = state.get("router_mode")
@@ -466,10 +467,12 @@ def plan_query(state: State):
 
             # Only include schema for rewrite mode
             if router_mode == "rewrite":
-                format_params["schema"] = json.dumps(full_schema, indent=2)
+                # Use markdown schema if available, otherwise fallback to JSON
+                format_params["schema"] = schema_markdown or json.dumps(full_schema, indent=2)
         else:
             # Initial mode - include full schema
-            format_params["schema"] = json.dumps(full_schema, indent=2)
+            # Use markdown schema if available, otherwise fallback to JSON
+            format_params["schema"] = schema_markdown or json.dumps(full_schema, indent=2)
 
         # Create the prompt
         prompt = create_planner_prompt(mode=router_mode, **format_params)
