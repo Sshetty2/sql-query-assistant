@@ -41,6 +41,9 @@ class State(TypedDict):
     refined_queries: list[str]  # Holds the refined queries if query returned no results
     retry_count: int  # Number of retries
     refined_count: int  # Number of times the query has been refined
+    column_removal_count: int  # Number of times invalid columns have been removed inline
+    removed_columns: list[str]  # List of columns that were removed due to being invalid
     error_history: list[str]  # List of errors encountered
+    error_reasoning: list[str]  # List of reasoning for each error correction
     refined_reasoning: list[str]  # List of reasoning for each refinement
     last_attempt_time: Optional[str]  # Last time the query was attempted

@@ -149,6 +149,13 @@ def main():
                                 ):
                                     st.write(f"Attempt {i}:")
                                     st.write(f"Error: {output['error_history'][i-1]}")
+                                    # Display error correction reasoning if available
+                                    if output.get("error_reasoning") and i <= len(
+                                        output["error_reasoning"]
+                                    ):
+                                        st.write(
+                                            f"Reasoning: {output['error_reasoning'][i-1]}"
+                                        )
                                     st.code(query, language="sql")
 
                         with col2:

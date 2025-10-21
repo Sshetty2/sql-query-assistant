@@ -11,7 +11,7 @@ def is_using_ollama():
     return os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
 
 
-def get_chat_llm(model_name: str = None, temperature: float = 0.7):
+def get_chat_llm(model_name: str = None, temperature: float = 0.3):
     """
     Returns ChatOpenAI or ChatOllama based on USE_LOCAL_LLM environment variable.
 
@@ -22,7 +22,7 @@ def get_chat_llm(model_name: str = None, temperature: float = 0.7):
         model_name: Model to use (e.g., "gpt-4o-mini" or "qwen3:8b").
                    If None, defaults to AI_MODEL from environment.
         temperature: Temperature for generation (0.0 = deterministic, 1.0 = creative).
-                    Default is 0.7.
+                    Default is 0.3.
 
     Returns:
         LLM instance (ChatOpenAI or ChatOllama) with identical API.
@@ -69,7 +69,7 @@ def get_chat_llm(model_name: str = None, temperature: float = 0.7):
         )
 
 
-def get_structured_llm(schema, model_name: str = None, temperature: float = 0.7):
+def get_structured_llm(schema, model_name: str = None, temperature: float = 0.3):
     """
     Returns an LLM configured for structured output with the correct method for the provider.
 
@@ -83,7 +83,7 @@ def get_structured_llm(schema, model_name: str = None, temperature: float = 0.7)
         model_name: Model to use (e.g., "gpt-4o-mini" or "qwen3:8b").
                    If None, defaults to AI_MODEL from environment.
         temperature: Temperature for generation (0.0 = deterministic, 1.0 = creative).
-                    Default is 0.7.
+                    Default is 0.3.
 
     Returns:
         LLM instance configured for structured output

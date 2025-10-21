@@ -2,6 +2,7 @@
 
 import os
 import json
+import re
 from typing import List, Dict
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
@@ -321,6 +322,47 @@ def build_join_expressions(
     return joins
 
 
+def is_column_reference(value: str) -> bool:
+    """
+    Check if a value looks like a column reference (e.g., 'table.column').
+
+    Args:
+        value: The value to check
+
+    Returns:
+        True if the value appears to be a column reference
+    """
+    if not isinstance(value, str):
+        return False
+
+    # Check if it matches the pattern: word.word (table.column)
+    # This helps detect when a filter value is actually a column reference
+    pattern = r'^[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*$'
+    return bool(re.match(pattern, value))
+
+
+def parse_column_reference(value: str, alias_map: Dict) -> exp.Column:
+    """
+    Parse a column reference like 'table.column' into a Column expression.
+
+    Args:
+        value: The column reference string (e.g., 'tb_Users.CompanyID')
+        alias_map: Mapping of table names to aliases
+
+    Returns:
+        SQLGlot Column expression
+    """
+    parts = value.split('.')
+    if len(parts) == 2:
+        table_name, column_name = parts
+        # Use alias if available
+        table_ref = alias_map.get(table_name, table_name)
+        return exp.Column(this=column_name, table=table_ref)
+    else:
+        # Fallback to treating as simple column
+        return exp.Column(this=value)
+
+
 def build_filter_expression(
     filter_pred: Dict, alias_map: Dict, db_context: Dict = None
 ) -> exp.Expression:
@@ -348,9 +390,19 @@ def build_filter_expression(
 
     # Build expression based on operator
     if op == "=":
-        return exp.EQ(this=col_expr, expression=exp.Literal.string(str(value)))
+        # Check if value is a column reference instead of a literal
+        if is_column_reference(value):
+            value_expr = parse_column_reference(value, alias_map)
+        else:
+            value_expr = exp.Literal.string(str(value))
+        return exp.EQ(this=col_expr, expression=value_expr)
     elif op == "!=":
-        return exp.NEQ(this=col_expr, expression=exp.Literal.string(str(value)))
+        # Check if value is a column reference instead of a literal
+        if is_column_reference(value):
+            value_expr = parse_column_reference(value, alias_map)
+        else:
+            value_expr = exp.Literal.string(str(value))
+        return exp.NEQ(this=col_expr, expression=value_expr)
     elif op == ">":
         return exp.GT(this=col_expr, expression=exp.Literal.number(value))
     elif op == ">=":

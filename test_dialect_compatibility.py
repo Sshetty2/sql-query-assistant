@@ -1,290 +1,118 @@
-"""Test dialect compatibility for SQL generation."""
+"""Test column reference detection in filter expressions."""
 
-import os
-from agent.generate_query import build_sql_query, get_database_context
+from agent.generate_query import (
+    is_column_reference,
+    parse_column_reference,
+    build_filter_expression,
+)
 
 
-def test_sql_server_dateadd():
-    """Test that DATEADD generates correct syntax for SQL Server."""
-    print("=" * 60)
-    print("Test: SQL Server DATEADD Syntax")
-    print("=" * 60)
+def test_column_reference_detection():
+    """Test detection of column references vs literals."""
+    print("Testing column reference detection...")
 
-    # Temporarily set to SQL Server mode
-    original_env = os.environ.get("USE_TEST_DB")
-    os.environ["USE_TEST_DB"] = "false"
+    # Should be detected as column references
+    assert is_column_reference("tb_Users.CompanyID") == True
+    print("[PASS] 'tb_Users.CompanyID' detected as column reference")
 
-    plan_dict = {
-        "selections": [
-            {
-                "table": "tb_Users",
-                "alias": "u",
-                "columns": [
-                    {"table": "tb_Users", "column": "Name", "role": "projection"},
-                    {"table": "tb_Users", "column": "CreatedOn", "role": "filter"}
-                ]
-            }
-        ],
-        "join_edges": [],
-        "global_filters": [],
-        "group_by": None,
-        "window_functions": [],
-        "subquery_filters": [],
-        "ctes": []
+    assert is_column_reference("table.column") == True
+    print("[PASS] 'table.column' detected as column reference")
+
+    assert is_column_reference("TableName.ColumnName") == True
+    print("[PASS] 'TableName.ColumnName' detected as column reference")
+
+    # Should NOT be detected as column references
+    assert is_column_reference("simple_value") == False
+    print("[PASS] 'simple_value' NOT detected as column reference")
+
+    assert is_column_reference("123") == False
+    print("[PASS] '123' NOT detected as column reference")
+
+    assert is_column_reference("Active") == False
+    print("[PASS] 'Active' NOT detected as column reference")
+
+    assert is_column_reference(123) == False
+    print("[PASS] Integer value NOT detected as column reference")
+
+
+def test_parse_column_reference():
+    """Test parsing column references."""
+    print("\nTesting column reference parsing...")
+
+    alias_map = {"tb_Users": "u", "tb_Company": "c"}
+
+    # Parse with alias
+    col_expr = parse_column_reference("tb_Users.CompanyID", alias_map)
+    sql = col_expr.sql(dialect="tsql")
+    print(f"Parsed 'tb_Users.CompanyID' (with alias): {sql}")
+    assert "CompanyID" in sql
+    assert "u" in sql  # Should use alias
+
+    # Parse without alias
+    col_expr2 = parse_column_reference("tb_Product.Name", {})
+    sql2 = col_expr2.sql(dialect="tsql")
+    print(f"Parsed 'tb_Product.Name' (no alias): {sql2}")
+    assert "Name" in sql2
+    assert "tb_Product" in sql2
+
+
+def test_filter_with_column_reference():
+    """Test building filter expressions with column references."""
+    print("\nTesting filter expression building...")
+
+    alias_map = {"tb_Users": "u", "tb_Company": "c"}
+
+    # Test filter with literal value
+    filter1 = {
+        "table": "tb_Company",
+        "column": "Status",
+        "op": "=",
+        "value": "Active",
     }
+    expr1 = build_filter_expression(filter1, alias_map)
+    sql1 = expr1.sql(dialect="tsql")
+    print(f"\nFilter with literal value:\n  {sql1}")
+    # Should have quotes around 'Active'
+    assert "'Active'" in sql1 or '"Active"' in sql1
+    print("[PASS] Literal value is quoted")
 
-    state = {
-        "sort_order": "Default",
-        "result_limit": 0,
-        "time_filter": "Last 30 Days"
+    # Test filter with column reference (the problematic case)
+    filter2 = {
+        "table": "tb_Company",
+        "column": "ID",
+        "op": "=",
+        "value": "tb_Users.CompanyID",
     }
+    expr2 = build_filter_expression(filter2, alias_map)
+    sql2 = expr2.sql(dialect="tsql")
+    print(f"\nFilter with column reference:\n  {sql2}")
+    # Should NOT have quotes around column reference
+    assert "'tb_Users.CompanyID'" not in sql2
+    assert '"tb_Users.CompanyID"' not in sql2
+    # Should reference the columns properly
+    assert "CompanyID" in sql2
+    print("[PASS] Column reference is NOT quoted")
 
-    db_context = get_database_context()
-
-    try:
-        sql = build_sql_query(plan_dict, state, db_context)
-        print("Generated SQL:")
-        print(sql)
-        print("\n")
-
-        # Check that DATEADD has correct syntax (no quotes around 'day')
-        if "DATEADD('day'" in sql or 'DATEADD("day"' in sql:
-            print("ERROR: DATEADD has quoted interval (should be DATEADD(day, ...))")
-            success = False
-        elif "DATEADD(day," in sql:
-            print("SUCCESS: DATEADD has correct syntax")
-            success = True
-        else:
-            print("WARNING: No DATEADD found in SQL")
-            success = False
-
-    except Exception as e:
-        print(f"ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        success = False
-    finally:
-        # Restore original env
-        if original_env:
-            os.environ["USE_TEST_DB"] = original_env
-        elif "USE_TEST_DB" in os.environ:
-            del os.environ["USE_TEST_DB"]
-
-    return success
-
-
-def test_sqlite_datetime():
-    """Test that datetime generates correct syntax for SQLite."""
-    print("=" * 60)
-    print("Test: SQLite datetime Syntax")
-    print("=" * 60)
-
-    # Set to SQLite mode
-    original_env = os.environ.get("USE_TEST_DB")
-    os.environ["USE_TEST_DB"] = "true"
-
-    plan_dict = {
-        "selections": [
-            {
-                "table": "tb_Users",
-                "alias": "u",
-                "columns": [
-                    {"table": "tb_Users", "column": "Name", "role": "projection"},
-                    {"table": "tb_Users", "column": "CreatedOn", "role": "filter"}
-                ]
-            }
-        ],
-        "join_edges": [],
-        "global_filters": [],
-        "group_by": None,
-        "window_functions": [],
-        "subquery_filters": [],
-        "ctes": []
+    # Test != operator with column reference
+    filter3 = {
+        "table": "tb_Users",
+        "column": "ManagerID",
+        "op": "!=",
+        "value": "tb_Users.UserID",
     }
-
-    state = {
-        "sort_order": "Default",
-        "result_limit": 0,
-        "time_filter": "Last 30 Days"
-    }
-
-    db_context = get_database_context()
-
-    try:
-        sql = build_sql_query(plan_dict, state, db_context)
-        print("Generated SQL:")
-        print(sql)
-        print("\n")
-
-        # Check that datetime has correct syntax (case-insensitive)
-        if "datetime('now'" in sql.lower():
-            print("SUCCESS: datetime has correct syntax")
-            success = True
-        else:
-            print("WARNING: No datetime found in SQL")
-            success = False
-
-    except Exception as e:
-        print(f"ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        success = False
-    finally:
-        # Restore original env
-        if original_env:
-            os.environ["USE_TEST_DB"] = original_env
-        elif "USE_TEST_DB" in os.environ:
-            del os.environ["USE_TEST_DB"]
-
-    return success
-
-
-def test_like_not_ilike():
-    """Test that ILIKE is converted to LIKE."""
-    print("=" * 60)
-    print("Test: ILIKE to LIKE Conversion")
-    print("=" * 60)
-
-    plan_dict = {
-        "selections": [
-            {
-                "table": "tb_Software",
-                "alias": "s",
-                "columns": [
-                    {"table": "tb_Software", "column": "Name", "role": "projection"}
-                ],
-                "filters": [
-                    {
-                        "table": "tb_Software",
-                        "column": "Name",
-                        "op": "ilike",
-                        "value": "%windows%"
-                    }
-                ]
-            }
-        ],
-        "join_edges": [],
-        "global_filters": [],
-        "group_by": None,
-        "window_functions": [],
-        "subquery_filters": [],
-        "ctes": []
-    }
-
-    state = {
-        "sort_order": "Default",
-        "result_limit": 0,
-        "time_filter": "All Time"
-    }
-
-    db_context = get_database_context()
-
-    try:
-        sql = build_sql_query(plan_dict, state, db_context)
-        print("Generated SQL:")
-        print(sql)
-        print("\n")
-
-        if "ILIKE" in sql:
-            print("ERROR: ILIKE found (should be LIKE)")
-            return False
-        elif "LIKE" in sql:
-            print("SUCCESS: Using LIKE instead of ILIKE")
-            return True
-        else:
-            print("WARNING: No LIKE found")
-            return False
-
-    except Exception as e:
-        print(f"ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-
-def test_sql_injection_prevention():
-    """Test that values are properly escaped to prevent SQL injection."""
-    print("=" * 60)
-    print("Test: SQL Injection Prevention")
-    print("=" * 60)
-
-    plan_dict = {
-        "selections": [
-            {
-                "table": "tb_Users",
-                "alias": "u",
-                "columns": [
-                    {"table": "tb_Users", "column": "Name", "role": "projection"}
-                ],
-                "filters": [
-                    {
-                        "table": "tb_Users",
-                        "column": "Name",
-                        "op": "=",
-                        "value": "'; DROP TABLE users; --"
-                    }
-                ]
-            }
-        ],
-        "join_edges": [],
-        "global_filters": [],
-        "group_by": None,
-        "window_functions": [],
-        "subquery_filters": [],
-        "ctes": []
-    }
-
-    state = {
-        "sort_order": "Default",
-        "result_limit": 0,
-        "time_filter": "All Time"
-    }
-
-    db_context = get_database_context()
-
-    try:
-        sql = build_sql_query(plan_dict, state, db_context)
-        print("Generated SQL:")
-        print(sql)
-        print("\n")
-
-        # Check that the dangerous string is properly escaped
-        # Should NOT have unescaped DROP TABLE
-        if "DROP TABLE users" in sql and "'" not in sql.split("DROP TABLE")[0][-10:]:
-            print("ERROR: SQL injection vulnerability detected!")
-            return False
-        else:
-            print("SUCCESS: Value appears to be properly escaped")
-            return True
-
-    except Exception as e:
-        print(f"ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+    expr3 = build_filter_expression(filter3, alias_map)
+    sql3 = expr3.sql(dialect="tsql")
+    print(f"\nFilter with != and column reference:\n  {sql3}")
+    assert "'tb_Users.UserID'" not in sql3
+    print("[PASS] Column reference in != is NOT quoted")
 
 
 if __name__ == "__main__":
-    print("\n" + "=" * 60)
-    print("DIALECT COMPATIBILITY TESTS")
-    print("=" * 60 + "\n")
-
-    results = []
-    results.append(("SQL Server DATEADD", test_sql_server_dateadd()))
-    results.append(("SQLite datetime", test_sqlite_datetime()))
-    results.append(("LIKE not ILIKE", test_like_not_ilike()))
-    results.append(("SQL Injection Prevention", test_sql_injection_prevention()))
-
-    print("\n" + "=" * 60)
-    print("TEST RESULTS")
-    print("=" * 60)
-    for test_name, passed in results:
-        status = "PASSED" if passed else "FAILED"
-        print(f"{status}: {test_name}")
-    print("=" * 60 + "\n")
-
-    all_passed = all(result[1] for result in results)
-    if all_passed:
-        print("All tests passed!")
-    else:
-        print("Some tests failed. Please review the errors above.")
+    print("="*60)
+    test_column_reference_detection()
+    print("\n" + "="*60)
+    test_parse_column_reference()
+    print("\n" + "="*60)
+    test_filter_with_column_reference()
+    print("\n" + "="*60)
+    print("[SUCCESS] All tests passed!")

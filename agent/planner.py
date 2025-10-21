@@ -549,7 +549,7 @@ def plan_query(state: State):
 
         # Get structured LLM (handles method="json_schema" for Ollama automatically)
         structured_llm = get_structured_llm(
-            PlannerOutput, model_name=os.getenv("AI_MODEL"), temperature=0.7
+            PlannerOutput, model_name=os.getenv("AI_MODEL"), temperature=0.3
         )
 
         # Create proper message structure for chat models

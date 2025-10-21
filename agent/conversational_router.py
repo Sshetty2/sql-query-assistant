@@ -157,7 +157,9 @@ def conversational_router(state: State):
     3. Rewrite the plan completely (for major changes)
     """
     latest_request = state["user_question"]
-    logger.info("Starting conversational routing", extra={"latest_request": latest_request})
+    logger.info(
+        "Starting conversational routing", extra={"latest_request": latest_request}
+    )
 
     try:
         user_questions = state.get("user_questions", [])
@@ -202,7 +204,7 @@ def conversational_router(state: State):
 
         logger.info(
             "Conversational routing completed",
-            extra={"decision": decision, "reasoning": router_output.reasoning[:200]}
+            extra={"decision": decision, "reasoning": router_output.reasoning},
         )
 
         if decision == "revise_query_inline":
