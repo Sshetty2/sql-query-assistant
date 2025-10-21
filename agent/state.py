@@ -37,8 +37,10 @@ class State(TypedDict):
 
     # Workflow tracking
     last_step: str  # Holds current step in the workflow
-    corrected_queries: list[str]  # Holds the corrected query if query error occurred
-    refined_queries: list[str]  # Holds the refined queries if query returned no results
+    corrected_queries: list[str]  # Corrected query if error occurred (deprecated - use corrected_plans)
+    corrected_plans: list[dict[str, Any]]  # Holds the corrected plans if query error occurred
+    refined_queries: list[str]  # Refined queries if no results (deprecated - use refined_plans)
+    refined_plans: list[dict[str, Any]]  # Holds the refined plans if query returned no results
     retry_count: int  # Number of retries
     refined_count: int  # Number of times the query has been refined
     column_removal_count: int  # Number of times invalid columns have been removed inline

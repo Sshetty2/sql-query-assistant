@@ -66,6 +66,8 @@ def query_database(
             "refined_queries": [],
             "refined_reasoning": [],
             "corrected_queries": [],
+            "corrected_plans": [],
+            "refined_plans": [],
         }
     else:
         # New conversation
@@ -102,6 +104,8 @@ def query_database(
             "refined_queries": [],
             "refined_reasoning": [],
             "corrected_queries": [],
+            "corrected_plans": [],
+            "refined_plans": [],
         }
 
     result = agent.invoke(initial_state)

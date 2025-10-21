@@ -2,7 +2,6 @@
 
 import os
 import json
-import re
 from typing import List, Dict
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
@@ -337,7 +336,9 @@ def is_column_reference(value: str) -> bool:
 
     # Check if it matches the pattern: word.word (table.column)
     # This helps detect when a filter value is actually a column reference
-    pattern = r'^[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*$'
+    import re
+
+    pattern = r"^[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*$"
     return bool(re.match(pattern, value))
 
 
@@ -352,7 +353,7 @@ def parse_column_reference(value: str, alias_map: Dict) -> exp.Column:
     Returns:
         SQLGlot Column expression
     """
-    parts = value.split('.')
+    parts = value.split(".")
     if len(parts) == 2:
         table_name, column_name = parts
         # Use alias if available
@@ -1215,10 +1216,6 @@ def generate_query(state: State):
 
         # Parse planner output to dict
         plan_dict = parse_planner_output(planner_output)
-
-        # Debug: Dump planner output to JSON file
-        with open("debug_planner_output.json", "w") as f:
-            json.dump(plan_dict, f, indent=2)
 
         # Get database context
         db_context = get_database_context()

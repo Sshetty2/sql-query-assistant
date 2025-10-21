@@ -128,8 +128,9 @@ def create_sql_agent():
 
     # Error handling and refinement
     workflow.add_conditional_edges("execute_query", should_continue)
-    workflow.add_edge("handle_error", "execute_query")
-    workflow.add_edge("refine_query", "execute_query")
+    # After correcting/refining the plan, regenerate the query
+    workflow.add_edge("handle_error", "generate_query")
+    workflow.add_edge("refine_query", "generate_query")
 
     # Cleanup
     workflow.add_edge("cleanup", END)

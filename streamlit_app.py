@@ -136,6 +136,44 @@ def main():
                 with st.expander("Executed SQL Query", icon="📝", expanded=True):
                     st.code(output["query"], language="sql")
 
+                # Display the query plan that generated this query
+                if output.get("planner_output"):
+                    with st.expander("Query Plan Used", icon="🗺️"):
+                        st.write(
+                            "This is the plan that was used to generate the executed query."
+                        )
+                        planner_output = output["planner_output"]
+
+                        # Show key information at the top
+                        if isinstance(planner_output, dict):
+                            st.write(
+                                f"**Intent:** {planner_output.get('intent_summary', 'N/A')}"
+                            )
+                            st.write(
+                                f"**Decision:** {planner_output.get('decision', 'N/A')}"
+                            )
+
+                            # Show tables involved
+                            selections = planner_output.get("selections", [])
+                            if selections:
+                                tables = [sel.get("table") for sel in selections]
+                                st.write(f"**Tables:** {', '.join(tables)}")
+
+                            # Show join information if present
+                            join_edges = planner_output.get("join_edges", [])
+                            if join_edges:
+                                st.write(f"**Joins:** {len(join_edges)} join(s)")
+                                for i, join in enumerate(join_edges, 1):
+                                    st.write(
+                                        f"  {i}. `{join.get('from_table')}.{join.get('from_column')}` "
+                                        f"→ `{join.get('to_table')}.{join.get('to_column')}` "
+                                        f"({join.get('join_type', 'inner')})"
+                                    )
+
+                        st.divider()
+                        st.write("**Full Plan JSON:**")
+                        st.json(planner_output)
+
                 if output.get("corrected_queries") or output.get("refined_queries"):
                     with st.expander("Query History", icon="📜"):
                         col1, col2 = st.columns(2)
@@ -147,27 +185,55 @@ def main():
                                 for i, query in enumerate(
                                     output["corrected_queries"], 1
                                 ):
-                                    st.write(f"Attempt {i}:")
-                                    st.write(f"Error: {output['error_history'][i-1]}")
+                                    st.write(f"**Attempt {i}:**")
+                                    st.write(f"❌ Error: `{output['error_history'][i-1]}`")
+
                                     # Display error correction reasoning if available
                                     if output.get("error_reasoning") and i <= len(
                                         output["error_reasoning"]
                                     ):
                                         st.write(
-                                            f"Reasoning: {output['error_reasoning'][i-1]}"
+                                            f"💡 **Reasoning:** {output['error_reasoning'][i-1]}"
                                         )
+
+                                    # Display the original failing query
+                                    st.write("**Original failing query:**")
                                     st.code(query, language="sql")
+
+                                    # Display the corrected plan if available
+                                    if output.get("corrected_plans") and i <= len(
+                                        output["corrected_plans"]
+                                    ):
+                                        with st.expander("View corrected plan"):
+                                            st.json(output["corrected_plans"][i-1])
+
+                                    st.divider()
 
                         with col2:
                             if output["refined_count"] > 0:
                                 st.subheader("Query Refinements")
                                 st.write("Refinement count:", output["refined_count"])
                                 for i, query in enumerate(output["refined_queries"], 1):
-                                    st.write(f"Refinement {i}:")
+                                    st.write(f"**Refinement {i}:**")
+                                    st.write("⚠️ Previous query returned no results")
+
+                                    # Display refinement reasoning
                                     st.write(
-                                        f"Reasoning: {output['refined_reasoning'][i-1]}"
+                                        f"💡 **Reasoning:** {output['refined_reasoning'][i-1]}"
                                     )
+
+                                    # Display the original query that returned no results
+                                    st.write("**Original query:**")
                                     st.code(query, language="sql")
+
+                                    # Display the refined plan if available
+                                    if output.get("refined_plans") and i <= len(
+                                        output["refined_plans"]
+                                    ):
+                                        with st.expander("View refined plan"):
+                                            st.json(output["refined_plans"][i-1])
+
+                                    st.divider()
 
                 tab1, tab2 = st.tabs(["Table View", "Raw Data"])
 

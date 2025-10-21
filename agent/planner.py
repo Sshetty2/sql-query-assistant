@@ -588,6 +588,20 @@ def plan_query(state: State):
             },
         )
 
+        # Debug: Save the planner output to a file
+        debug_output_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "debug_generated_planner_output.json"
+        )
+        try:
+            with open(debug_output_path, "w", encoding="utf-8") as f:
+                json.dump(plan_dict, f, indent=2)
+        except Exception as e:
+            logger.warning(
+                f"Could not save debug planner output: {str(e)}",
+                exc_info=True,
+                extra={"debug_path": debug_output_path},
+            )
+
         return {
             **state,
             "messages": [AIMessage(content="Query plan created successfully")],
