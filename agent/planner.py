@@ -590,7 +590,8 @@ def plan_query(state: State):
 
         # Debug: Save the planner output to a file
         debug_output_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "debug_generated_planner_output.json"
+            os.path.dirname(os.path.dirname(__file__)),
+            "debug_generated_planner_output.json",
         )
         try:
             with open(debug_output_path, "w", encoding="utf-8") as f:
@@ -602,11 +603,17 @@ def plan_query(state: State):
                 extra={"debug_path": debug_output_path},
             )
 
+        # Check if clarification is needed based on planner decision
+        needs_clarification = (
+            plan.decision == "clarify" if hasattr(plan, "decision") else False
+        )
+
         return {
             **state,
             "messages": [AIMessage(content="Query plan created successfully")],
-            "planner_output": plan,
+            "planner_output": plan_dict,  # Store as dict, not Pydantic model
             "planner_outputs": planner_outputs,
+            "needs_clarification": needs_clarification,
             "last_step": "planner",
         }
 

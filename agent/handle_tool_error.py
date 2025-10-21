@@ -165,6 +165,13 @@ def handle_tool_error(state) -> dict:
     except Exception as e:
         logger.warning(f"Could not save debug planner output: {e}")
 
+    # Check if corrected plan needs clarification
+    needs_clarification = (
+        response.corrected_plan.decision == "clarify"
+        if hasattr(response.corrected_plan, "decision")
+        else False
+    )
+
     return {
         **state,
         "messages": [AIMessage(content="Generated corrected query plan")],
@@ -173,5 +180,6 @@ def handle_tool_error(state) -> dict:
         "corrected_queries": state["corrected_queries"] + [original_query],
         "corrected_plans": state["corrected_plans"] + [original_plan_dict],
         "error_reasoning": state.get("error_reasoning", []) + [response.reasoning],
+        "needs_clarification": needs_clarification,
         "last_step": "handle_tool_error",
     }

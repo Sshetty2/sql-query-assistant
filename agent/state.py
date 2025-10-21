@@ -49,3 +49,5 @@ class State(TypedDict):
     error_reasoning: list[str]  # List of reasoning for each error correction
     refined_reasoning: list[str]  # List of reasoning for each refinement
     last_attempt_time: Optional[str]  # Last time the query was attempted
+    needs_clarification: bool  # Flag indicating planner needs clarification
+    clarification_suggestions: list[str]  # LLM-generated query rewrite suggestions

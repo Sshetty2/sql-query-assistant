@@ -80,6 +80,16 @@ def main():
         else:
             selected_query = ""
 
+    # Use session state for question input to support suggestion selection
+    if "question_input" not in st.session_state:
+        st.session_state.question_input = selected_query
+    else:
+        # If we just selected a suggestion, use it
+        if st.session_state.question_input != selected_query:
+            selected_query = st.session_state.question_input
+            # Reset after using
+            st.session_state.question_input = selected_query
+
     user_question = st.text_area(
         "What would you like to know about the database?",
         value=selected_query,
@@ -126,6 +136,51 @@ def main():
                     result_limit=result_limit,
                     time_filter=time_filter,
                 )
+
+                # Check if clarification is needed
+                if output.get("needs_clarification"):
+                    status.update(label="Clarification needed", state="error")
+                    st.warning(
+                        "⚠️ Your question is ambiguous. Please select one of the "
+                        "suggestions below or rephrase your question."
+                    )
+
+                    # Display clarification suggestions
+                    suggestions = output.get("clarification_suggestions", [])
+                    if suggestions:
+                        st.subheader("💡 Suggested Query Rewrites")
+                        st.write("Click on a suggestion to use it:")
+
+                        # Display each suggestion as a button
+                        for i, suggestion in enumerate(suggestions, 1):
+                            if st.button(
+                                f"{i}. {suggestion}",
+                                key=f"suggestion_{i}",
+                                use_container_width=True,
+                            ):
+                                # Set the suggestion as the new question in session state
+                                st.session_state.question_input = suggestion
+                                st.rerun()
+
+                        st.divider()
+                        st.write("**Or modify your original question:**")
+                        st.code(user_question, language="text")
+
+                    # Show planner output for debugging
+                    if output.get("planner_output"):
+                        with st.expander("Planner Analysis", icon="🔍"):
+                            planner_output = output["planner_output"]
+                            st.write(
+                                f"**Intent:** {planner_output.get('intent_summary', 'N/A')}"
+                            )
+                            ambiguities = planner_output.get("ambiguities", [])
+                            if ambiguities:
+                                st.write("**Ambiguities:**")
+                                for amb in ambiguities:
+                                    st.write(f"  - {amb}")
+                            st.json(planner_output)
+
+                    return
 
                 if not output["query"]:
                     status.update(label=output["result"], state="error")
@@ -186,7 +241,9 @@ def main():
                                     output["corrected_queries"], 1
                                 ):
                                     st.write(f"**Attempt {i}:**")
-                                    st.write(f"❌ Error: `{output['error_history'][i-1]}`")
+                                    st.write(
+                                        f"❌ Error: `{output['error_history'][i-1]}`"
+                                    )
 
                                     # Display error correction reasoning if available
                                     if output.get("error_reasoning") and i <= len(
@@ -205,7 +262,7 @@ def main():
                                         output["corrected_plans"]
                                     ):
                                         with st.expander("View corrected plan"):
-                                            st.json(output["corrected_plans"][i-1])
+                                            st.json(output["corrected_plans"][i - 1])
 
                                     st.divider()
 
@@ -231,7 +288,7 @@ def main():
                                         output["refined_plans"]
                                     ):
                                         with st.expander("View refined plan"):
-                                            st.json(output["refined_plans"][i-1])
+                                            st.json(output["refined_plans"][i - 1])
 
                                     st.divider()
 

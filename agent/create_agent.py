@@ -10,6 +10,7 @@ from agent.filter_schema import filter_schema
 from agent.format_schema_markdown import convert_schema_to_markdown
 from agent.execute_query import execute_query
 from agent.planner import plan_query
+from agent.check_clarification import check_clarification
 from agent.generate_query import generate_query
 from agent.handle_tool_error import handle_tool_error
 from agent.refine_query import refine_query
@@ -33,6 +34,7 @@ def is_none_result(result):
     if isinstance(result, str):
         try:
             import json
+
             data = json.loads(result)
             # Check if the data is empty or is an empty list
             return not data or (isinstance(data, list) and len(data) == 0)
@@ -42,7 +44,9 @@ def is_none_result(result):
     return False
 
 
-def route_from_start(state: State) -> Literal["conversational_router", "analyze_schema"]:
+def route_from_start(
+    state: State,
+) -> Literal["conversational_router", "analyze_schema"]:
     """Route from START based on whether this is a continuation."""
     is_continuation = state.get("is_continuation", False)
 
@@ -62,6 +66,21 @@ def route_from_router(state: State) -> Literal["planner", "execute_query"]:
     else:
         # Inline revision - query is already set, go straight to execute
         return "execute_query"
+
+
+def route_after_clarification(
+    state: State,
+) -> Literal["generate_query", "cleanup"]:
+    """Route after checking for clarification needs."""
+    needs_clarification = state["needs_clarification"]
+
+    if needs_clarification:
+        # Skip to cleanup if clarification is needed
+        logger.info("Clarification needed, skipping to cleanup")
+        return "cleanup"
+    else:
+        # Continue to query generation
+        return "generate_query"
 
 
 def should_continue(state: State) -> Literal["handle_error", "refine_query", "cleanup"]:
@@ -105,6 +124,7 @@ def create_sql_agent():
     workflow.add_node("format_schema_markdown", convert_schema_to_markdown)
     workflow.add_node("conversational_router", conversational_router)
     workflow.add_node("planner", plan_query)
+    workflow.add_node("check_clarification", check_clarification)
     workflow.add_node("generate_query", generate_query)
     workflow.add_node(
         "execute_query", lambda state: execute_query(state, db_connection)
@@ -120,7 +140,8 @@ def create_sql_agent():
     workflow.add_edge("analyze_schema", "filter_schema")
     workflow.add_edge("filter_schema", "format_schema_markdown")
     workflow.add_edge("format_schema_markdown", "planner")
-    workflow.add_edge("planner", "generate_query")
+    workflow.add_edge("planner", "check_clarification")
+    workflow.add_conditional_edges("check_clarification", route_after_clarification)
     workflow.add_edge("generate_query", "execute_query")
 
     # Conversational flow path (continuations)
@@ -128,9 +149,9 @@ def create_sql_agent():
 
     # Error handling and refinement
     workflow.add_conditional_edges("execute_query", should_continue)
-    # After correcting/refining the plan, regenerate the query
-    workflow.add_edge("handle_error", "generate_query")
-    workflow.add_edge("refine_query", "generate_query")
+    # After correcting/refining the plan, check for clarification before regenerating query
+    workflow.add_edge("handle_error", "check_clarification")
+    workflow.add_edge("refine_query", "check_clarification")
 
     # Cleanup
     workflow.add_edge("cleanup", END)

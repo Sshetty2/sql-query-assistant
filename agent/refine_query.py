@@ -162,6 +162,13 @@ def refine_query(state: State) -> Dict[str, Any]:
     except Exception as e:
         logger.warning(f"Could not save debug planner output: {e}")
 
+    # Check if refined plan needs clarification
+    needs_clarification = (
+        response.refined_plan.decision == "clarify"
+        if hasattr(response.refined_plan, "decision")
+        else False
+    )
+
     return {
         **state,
         "messages": [AIMessage(content="Query plan refined for broader results")],
@@ -171,4 +178,5 @@ def refine_query(state: State) -> Dict[str, Any]:
         "refined_plans": state["refined_plans"] + [original_plan_dict],
         "refined_reasoning": state["refined_reasoning"] + [response.reasoning],
         "refined_count": state["refined_count"] + 1,
+        "needs_clarification": needs_clarification,
     }
