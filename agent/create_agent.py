@@ -15,10 +15,12 @@ from agent.handle_tool_error import handle_tool_error
 from agent.refine_query import refine_query
 from agent.conversational_router import conversational_router
 from agent.state import State
+from utils.logger import get_logger
 
 from database.connection import get_pyodbc_connection
 
 load_dotenv()
+logger = get_logger()
 use_test_db = os.getenv("USE_TEST_DB").lower() == "true"
 
 
@@ -140,6 +142,7 @@ def cleanup_connection(state: State, connection):
 
     try:
         connection.close()
+        logger.debug("Database connection closed successfully")
     except Exception as e:
-        print(f"Error closing connection: {e}")
+        logger.error(f"Error closing database connection: {str(e)}", exc_info=True)
     return state

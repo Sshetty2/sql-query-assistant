@@ -1,7 +1,14 @@
-*.pyc
 .env
+
+*.pyc
+logs/
+
 venv/
+
 *debug*
+
 cwp_*
+
 .claude/
+
 models/domain_guidance.json

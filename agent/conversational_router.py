@@ -6,9 +6,11 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
 from models.router_output import RouterOutput
 from utils.llm_factory import get_structured_llm
+from utils.logger import get_logger, log_execution_time
 from agent.state import State
 
 load_dotenv()
+logger = get_logger()
 
 
 def create_router_prompt(**format_params):
@@ -154,12 +156,14 @@ def conversational_router(state: State):
     2. Update the existing plan (for minor modifications)
     3. Rewrite the plan completely (for major changes)
     """
+    latest_request = state["user_question"]
+    logger.info("Starting conversational routing", extra={"latest_request": latest_request})
+
     try:
         user_questions = state.get("user_questions", [])
         queries = state.get("queries", [])
         planner_outputs = state.get("planner_outputs", [])
         schema = state.get("schema", [])
-        latest_request = state["user_question"]
 
         # Format context for the prompt
         conversation_history = format_conversation_history(user_questions)
@@ -180,9 +184,11 @@ def conversational_router(state: State):
             RouterOutput, model_name=os.getenv("AI_MODEL"), temperature=0.3
         )
 
-        router_output = structured_llm.invoke(prompt)
+        with log_execution_time(logger, "llm_router_invocation"):
+            router_output = structured_llm.invoke(prompt)
 
         if router_output is None:
+            logger.warning("Router failed to make a decision")
             return {
                 **state,
                 "messages": [
@@ -193,6 +199,11 @@ def conversational_router(state: State):
 
         # Update state based on decision
         decision = router_output.decision
+
+        logger.info(
+            "Conversational routing completed",
+            extra={"decision": decision, "reasoning": router_output.reasoning[:200]}
+        )
 
         if decision == "revise_query_inline":
             # Set the revised query directly
@@ -245,6 +256,7 @@ def conversational_router(state: State):
             }
 
     except Exception as e:
+        logger.error(f"Error in conversational router: {str(e)}", exc_info=True)
         return {
             **state,
             "messages": [

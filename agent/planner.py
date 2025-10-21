@@ -6,10 +6,12 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from models.planner_output import PlannerOutput
 from utils.llm_factory import get_structured_llm
+from utils.logger import get_logger, log_execution_time
 
 from agent.state import State
 
 load_dotenv()
+logger = get_logger()
 
 
 def load_planner_output_example():
@@ -42,7 +44,11 @@ def load_domain_guidance():
             with open(guidance_path, "r") as f:
                 return json.load(f)
     except Exception as e:
-        print(f"Warning: Could not load domain guidance: {e}")
+        logger.warning(
+            f"Could not load domain guidance: {str(e)}",
+            exc_info=True,
+            extra={"guidance_path": guidance_path},
+        )
     return None
 
 
@@ -126,7 +132,7 @@ Create a NEW SQL query execution plan based on an updated user request.
 
 ## Output Format
 Return ONLY a JSON object that conforms to the following json structure:
-{planner_example}"""
+{planner_example}"""  # noqa: E501
 
     else:  # Initial mode (None)
         system_instructions = """# SYSTEM INSTRUCTIONS
@@ -155,7 +161,7 @@ Multi-step SQL query generation system.
 
 ## Output Format
 Return ONLY a JSON object that conforms to the following json structure:
-{planner_example}"""
+{planner_example}"""  # noqa: E501
 
     # Common continuation of system instructions
     system_instructions += """
@@ -322,7 +328,7 @@ Before responding, validate:
 - ✓ No columns appear from tables that aren't in `selections`
 - ✓ No invented table or column names
 - ✓ Output is valid PlannerOutput JSON and nothing else
-"""
+"""  # noqa: E501
 
     # User input varies by mode
     if mode == "update":
@@ -386,7 +392,7 @@ Before responding, validate:
 
 ## Query Parameters
 {parameters}
-"""
+"""  # noqa: E501
 
     # Format system and user messages separately
     formatted_system = system_instructions.format(**format_params)
@@ -398,8 +404,15 @@ Before responding, validate:
 
 def plan_query(state: State):
     """Create a structured query plan by analyzing schema and user intent."""
+    user_query = state["user_question"]
+    router_mode = state.get("router_mode")
+
+    logger.info(
+        "Starting query planning",
+        extra={"user_query": user_query, "mode": router_mode or "initial"},
+    )
+
     try:
-        user_query = state["user_question"]
         # Use filtered schema if available, otherwise use full schema
         schema_to_use = state.get("filtered_schema") or state["schema"]
         schema_markdown = state.get("schema_markdown", "")
@@ -462,7 +475,7 @@ def plan_query(state: State):
         # Check if we're using filtered schema
         is_filtered = state.get("filtered_schema") is not None
         if is_filtered:
-            schema_note = "**NOTE:** This is a filtered subset of the most relevant tables from the full database schema, selected based on the user's query."
+            schema_note = "**NOTE:** This is a filtered subset of the most relevant tables from the full database schema, selected based on the user's query."  # noqa: E501
         else:
             schema_note = ""
 
@@ -528,7 +541,11 @@ def plan_query(state: State):
                 }
                 json.dump(debug_data, f, indent=2)
         except Exception as e:
-            print(f"Warning: Could not save debug prompt: {e}")
+            logger.warning(
+                f"Could not save debug prompt: {str(e)}",
+                exc_info=True,
+                extra={"debug_path": debug_prompt_path},
+            )
 
         # Get structured LLM (handles method="json_schema" for Ollama automatically)
         structured_llm = get_structured_llm(
@@ -541,8 +558,9 @@ def plan_query(state: State):
             HumanMessage(content=user_content),
         ]
 
-        # Get the plan
-        plan = structured_llm.invoke(messages)
+        # Get the plan with execution time tracking
+        with log_execution_time(logger, "llm_planner_invocation"):
+            plan = structured_llm.invoke(messages)
 
         if plan is None:
             return {
@@ -557,6 +575,19 @@ def plan_query(state: State):
         plan_dict = plan.model_dump() if hasattr(plan, "model_dump") else plan
         planner_outputs = planner_outputs + [plan_dict]
 
+        logger.info(
+            "Query planning completed",
+            extra={
+                "decision": plan.decision if hasattr(plan, "decision") else "unknown",
+                "confidence": plan.confidence if hasattr(plan, "confidence") else None,
+                "table_count": (
+                    len(plan.selections)
+                    if hasattr(plan, "selections") and plan.selections
+                    else 0
+                ),
+            },
+        )
+
         return {
             **state,
             "messages": [AIMessage(content="Query plan created successfully")],
@@ -566,10 +597,11 @@ def plan_query(state: State):
         }
 
     except Exception as e:
-        print(f"EXCEPTION IN PLAN_QUERY: {str(e)}")
-        import traceback
-
-        traceback.print_exc()
+        logger.error(
+            f"Exception in plan_query: {str(e)}",
+            exc_info=True,
+            extra={"user_query": state.get("user_question", "")},
+        )
         return {
             **state,
             "messages": [AIMessage(content=f"Error creating query plan: {str(e)}")],

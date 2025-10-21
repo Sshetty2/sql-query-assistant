@@ -4,14 +4,27 @@ import os
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
 from utils.llm_factory import get_chat_llm
+from utils.logger import get_logger, log_execution_time
 
 load_dotenv()
+logger = get_logger()
 
 
 def handle_tool_error(state) -> dict:
     """Handle errors from query execution by getting LLM to analyze and suggest fixes."""
     error_message = state["messages"][-1].content
     original_query = state["query"]
+    retry_count = state.get("retry_count", 0)
+
+    logger.info(
+        "Starting error correction",
+        extra={
+            "retry_count": retry_count,
+            "error": error_message[:200],
+            "original_query": original_query[:200]
+        }
+    )
+
     # Use filtered schema if available, otherwise use full schema
     schema = state.get("filtered_schema") or state["schema"]
     error_history = state["error_history"][:-1]
@@ -39,7 +52,14 @@ def handle_tool_error(state) -> dict:
     """
 
     llm = get_chat_llm(model_name=os.getenv("AI_MODEL"), temperature=0.3)
-    corrected_query = llm.invoke(prompt).content.strip()
+
+    with log_execution_time(logger, "llm_error_correction_invocation"):
+        corrected_query = llm.invoke(prompt).content.strip()
+
+    logger.info(
+        "Error correction completed",
+        extra={"corrected_query_length": len(corrected_query)}
+    )
 
     return {
         **state,

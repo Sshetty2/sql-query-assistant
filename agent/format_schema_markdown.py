@@ -3,6 +3,9 @@
 import os
 from langchain_core.messages import AIMessage
 from agent.state import State
+from utils.logger import get_logger
+
+logger = get_logger()
 
 
 def format_schema_to_markdown(schema: list) -> str:
@@ -80,9 +83,7 @@ def format_schema_to_markdown(schema: list) -> str:
                 to_col = fk.get("to_column", "ID")  # Assume ID if not specified
 
                 if from_col and to_table:
-                    markdown_lines.append(
-                        f"- **{from_col}** → `{to_table}.{to_col}`"
-                    )
+                    markdown_lines.append(f"- **{from_col}** → `{to_table}.{to_col}`")
 
             markdown_lines.append("")
 
@@ -107,6 +108,8 @@ def convert_schema_to_markdown(state: State):
     (or full schema if filtering didn't occur) into markdown for better
     LLM parsing and understanding.
     """
+    logger.info("Starting schema markdown formatting")
+
     try:
         # Use filtered schema if available, otherwise use full schema
         schema = state.get("filtered_schema") or state.get("schema", [])
@@ -123,14 +126,22 @@ def convert_schema_to_markdown(state: State):
 
         # Debug: Write markdown to file for inspection
         debug_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "debug_schema_markdown.md"
+            os.path.dirname(os.path.dirname(__file__)), "debug_schema_markdown.md"
         )
         try:
             with open(debug_path, "w", encoding="utf-8") as f:
                 f.write(schema_markdown)
         except Exception as e:
-            print(f"Warning: Could not save debug markdown schema: {e}")
+            logger.warning(
+                f"Could not save debug markdown schema: {str(e)}",
+                exc_info=True,
+                extra={"debug_path": debug_path},
+            )
+
+        logger.info(
+            "Schema markdown formatting completed",
+            extra={"markdown_length": len(schema_markdown), "table_count": len(schema)},
+        )
 
         # Store markdown version in state (keep JSON version too)
         return {
@@ -141,6 +152,7 @@ def convert_schema_to_markdown(state: State):
         }
 
     except Exception as e:
+        logger.error(f"Error formatting schema to markdown: {str(e)}", exc_info=True)
         return {
             **state,
             "messages": [AIMessage(content=f"Error formatting schema: {e}")],

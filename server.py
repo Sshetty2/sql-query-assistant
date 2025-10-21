@@ -5,8 +5,10 @@ from pydantic import BaseModel, Field
 from typing import Optional, Literal, List, Any
 from dotenv import load_dotenv
 from agent.query_database import query_database
+from utils.logger import get_logger
 
 load_dotenv()
+logger = get_logger()
 
 SORT_ORDER_OPTIONS = Literal["Default", "Ascending", "Descending"]
 TIME_FILTER_OPTIONS = Literal[
@@ -37,7 +39,11 @@ def parse_query_result(result):
 
         return result
     except json.JSONDecodeError as e:
-        print(f"Error parsing query result: {e}")
+        logger.error(
+            f"Error parsing query result: {str(e)}",
+            exc_info=True,
+            extra={"result": result},
+        )
         return None
 
 

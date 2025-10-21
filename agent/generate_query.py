@@ -8,8 +8,10 @@ from langchain_core.messages import AIMessage
 from sqlglot import exp
 
 from agent.state import State
+from utils.logger import get_logger, log_execution_time
 
 load_dotenv()
+logger = get_logger()
 
 
 def get_database_context():
@@ -86,7 +88,9 @@ def build_aggregate_expression(agg: Dict, alias_map: Dict) -> exp.Expression:
     return agg_expr
 
 
-def build_window_function_expression(window_func: Dict, alias_map: Dict) -> exp.Expression:
+def build_window_function_expression(
+    window_func: Dict, alias_map: Dict
+) -> exp.Expression:
     """
     Build a window function expression.
 
@@ -137,16 +141,16 @@ def build_window_function_expression(window_func: Dict, alias_map: Dict) -> exp.
         func_expr = exp.Anonymous(this=function)
 
     # Build OVER clause
-    window_spec = exp.Window(
-        partition_by=partition_exprs if partition_exprs else None,
-        order=exp.Order(expressions=order_exprs) if order_exprs else None
-    )
+    # window_spec = exp.Window(
+    #     partition_by=partition_exprs if partition_exprs else None,
+    #     order=exp.Order(expressions=order_exprs) if order_exprs else None,
+    # )
 
     # Combine function with OVER
     window_expr = exp.Window(
         this=func_expr,
         partition_by=partition_exprs if partition_exprs else None,
-        order=exp.Order(expressions=order_exprs) if order_exprs else None
+        order=exp.Order(expressions=order_exprs) if order_exprs else None,
     )
 
     # Add alias
@@ -161,7 +165,7 @@ def build_select_columns(
     db_context: Dict,
     group_by_spec: Dict = None,
     window_functions: List[Dict] = None,
-    alias_map: Dict = None
+    alias_map: Dict = None,
 ) -> List[exp.Expression]:
     """
     Build SELECT column expressions from table selections.
@@ -317,7 +321,9 @@ def build_join_expressions(
     return joins
 
 
-def build_filter_expression(filter_pred: Dict, alias_map: Dict, db_context: Dict = None) -> exp.Expression:
+def build_filter_expression(
+    filter_pred: Dict, alias_map: Dict, db_context: Dict = None
+) -> exp.Expression:
     """
     Build a WHERE condition from a FilterPredicate.
 
@@ -390,7 +396,9 @@ def build_filter_expression(filter_pred: Dict, alias_map: Dict, db_context: Dict
     return exp.EQ(this=col_expr, expression=exp.Literal.string(str(value)))
 
 
-def build_subquery_filter_expression(subquery_filter: Dict, alias_map: Dict) -> exp.Expression:
+def build_subquery_filter_expression(
+    subquery_filter: Dict, alias_map: Dict
+) -> exp.Expression:
     """
     Build a subquery filter expression (e.g., WHERE col IN (SELECT...)).
 
@@ -414,6 +422,7 @@ def build_subquery_filter_expression(subquery_filter: Dict, alias_map: Dict) -> 
 
     # Build subquery SELECT
     from sqlglot import select
+
     subquery_col_expr = exp.Column(this=subquery_column, table=subquery_table)
     subquery = select(subquery_col_expr).from_(subquery_table)
 
@@ -448,7 +457,7 @@ def build_where_clause(
     selections: List[Dict],
     global_filters: List[Dict],
     alias_map: Dict,
-    subquery_filters: List[Dict] = None
+    subquery_filters: List[Dict] = None,
 ) -> exp.Expression:
     """
     Build WHERE clause from table filters, global filters, and subquery filters.
@@ -730,7 +739,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
     group_by_spec = plan_dict.get("group_by")
     window_functions = plan_dict.get("window_functions", [])
     subquery_filters = plan_dict.get("subquery_filters", [])
-    ctes = plan_dict.get("ctes", [])
+    # ctes = plan_dict.get("ctes", [])
 
     if not selections:
         raise ValueError("No table selections in planner output")
@@ -768,7 +777,9 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             if function == "COUNT" and column is None:
                 select_cols.append(f"COUNT(*) AS {output_alias}")
             elif function == "COUNT_DISTINCT":
-                select_cols.append(f"COUNT(DISTINCT {table}.{column}) AS {output_alias}")
+                select_cols.append(
+                    f"COUNT(DISTINCT {table}.{column}) AS {output_alias}"
+                )
             else:
                 select_cols.append(f"{function}({table}.{column}) AS {output_alias}")
     else:
@@ -888,9 +899,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             op = filter_pred.get("op")
             value = filter_pred.get("value")
 
-            where_conditions.append(
-                format_filter_condition(table, column, op, value)
-            )
+            where_conditions.append(format_filter_condition(table, column, op, value))
 
     # Add global filters
     for filter_pred in global_filters:
@@ -917,7 +926,9 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             sq_column = sq_f.get("column")
             sq_op = sq_f.get("op")
             sq_value = sq_f.get("value")
-            subquery_where.append(format_filter_condition(sq_table, sq_column, sq_op, sq_value))
+            subquery_where.append(
+                format_filter_condition(sq_table, sq_column, sq_op, sq_value)
+            )
 
         subquery_str = f"SELECT {subquery_column} FROM {subquery_table}"
         if subquery_where:
@@ -927,7 +938,9 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         if op == "in":
             where_conditions.append(f"{outer_table}.{outer_column} IN ({subquery_str})")
         elif op == "not_in":
-            where_conditions.append(f"{outer_table}.{outer_column} NOT IN ({subquery_str})")
+            where_conditions.append(
+                f"{outer_table}.{outer_column} NOT IN ({subquery_str})"
+            )
 
     # Apply WHERE clause
     for condition in where_conditions:
@@ -1135,10 +1148,13 @@ def build_time_filter_condition(
 
 def generate_query(state: State):
     """Generate SQL query deterministically from planner output using SQLGlot."""
+    logger.info("Starting SQL query generation")
+
     try:
         planner_output = state["planner_output"]
 
         if not planner_output:
+            logger.warning("No planner output available for query generation")
             return {
                 **state,
                 "messages": [AIMessage(content="Error: No planner output available")],
@@ -1155,12 +1171,18 @@ def generate_query(state: State):
         # Get database context
         db_context = get_database_context()
 
-        # Build SQL query using SQLGlot
-        query = build_sql_query(plan_dict, state, db_context)
+        # Build SQL query using SQLGlot with execution time tracking
+        with log_execution_time(logger, "build_sql_query"):
+            query = build_sql_query(plan_dict, state, db_context)
 
         # Debug: Write generated SQL
         with open("debug_generated_sql.txt", "w") as f:
             f.write(query)
+
+        logger.info(
+            "SQL query generation completed",
+            extra={"query_length": len(query), "database_type": db_context["type"]},
+        )
 
         return {
             **state,
@@ -1174,9 +1196,7 @@ def generate_query(state: State):
         }
 
     except Exception as e:
-        import traceback
-
-        traceback.print_exc()
+        logger.error(f"Error generating SQL query: {str(e)}", exc_info=True)
 
         return {
             **state,

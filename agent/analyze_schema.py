@@ -8,8 +8,10 @@ from langchain_core.messages import AIMessage
 
 from agent.combine_json_schema import combine_schema
 from agent.state import State
+from utils.logger import get_logger, log_execution_time
 
 load_dotenv()
+logger = get_logger()
 
 
 def get_schema_query():
@@ -82,14 +84,30 @@ def fetch_lean_schema(connection):
 
 def analyze_schema(state: State, db_connection):
     """Retrieve schema information for the database."""
+    logger.info("Starting schema analysis")
 
     try:
-        schema = fetch_lean_schema(db_connection)
-        combined_schema_with_metadata = combine_schema(schema)
+        with log_execution_time(logger, "fetch_lean_schema"):
+            schema = fetch_lean_schema(db_connection)
+
+        logger.info(f"Retrieved schema with {len(schema)} tables")
+
+        with log_execution_time(logger, "combine_schema_with_metadata"):
+            combined_schema_with_metadata = combine_schema(schema)
 
         # Debug: Write full_schema to a JSON file
         with open("debug_combined_schema_with_metadata.json", "w") as f:
             json.dump(combined_schema_with_metadata, f, indent=2)
+
+        logger.info(
+            "Schema analysis completed",
+            extra={
+                "table_count": len(combined_schema_with_metadata),
+                "has_metadata": any(
+                    "metadata" in table for table in combined_schema_with_metadata
+                ),
+            },
+        )
 
         return {
             **state,
@@ -98,6 +116,7 @@ def analyze_schema(state: State, db_connection):
             "last_step": "analyze_schema",
         }
     except Exception as e:
+        logger.error(f"Error retrieving schema: {str(e)}", exc_info=True)
         return {
             **state,
             "messages": [AIMessage(content=f"Error retrieving schema: {e}")],

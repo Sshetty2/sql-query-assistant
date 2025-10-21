@@ -6,8 +6,10 @@ from dotenv import load_dotenv
 import streamlit as st
 import pandas as pd
 from agent.query_database import query_database
+from utils.logger import get_logger
 
 load_dotenv()
+logger = get_logger()
 
 use_test_db = os.getenv("USE_TEST_DB").lower() == "true"
 
@@ -23,7 +25,11 @@ def load_sample_queries():
         with open(file_path, "r", encoding="utf-8") as file:
             return json.load(file)
     except Exception as e:
-        print(f"Error loading sample queries: {e}")
+        logger.error(
+            f"Error loading sample queries: {str(e)}",
+            exc_info=True,
+            extra={"file_path": file_path},
+        )
         return {}
 
 
@@ -53,7 +59,7 @@ def format_results(result):
 
         return pd.DataFrame(data)
     except (json.JSONDecodeError, TypeError) as e:
-        print(f"Error formatting results: {str(e)}")
+        logger.error(f"Error formatting results: {str(e)}", exc_info=True)
         return pd.DataFrame()
 
 

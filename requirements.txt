@@ -6,6 +6,7 @@ langchain
 langchain-community
 langgraph
 python-dotenv
+python-json-logger
 pyodbc
 streamlit
 fastapi

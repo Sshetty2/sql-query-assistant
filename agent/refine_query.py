@@ -7,8 +7,10 @@ from pydantic import BaseModel, Field
 from agent.state import State
 from langchain_core.messages import AIMessage
 from utils.llm_factory import get_structured_llm
+from utils.logger import get_logger, log_execution_time
 
 load_dotenv()
+logger = get_logger()
 
 
 class QueryRefinement(BaseModel):
@@ -26,9 +28,19 @@ def refine_query(state: State) -> Dict[str, Any]:
     Broaden the query to try to get results.
     """
     original_query = state["query"]
+    user_question = state["user_question"]
+    refined_count = state.get("refined_count", 0)
+
+    logger.info(
+        "Starting query refinement",
+        extra={
+            "refined_count": refined_count,
+            "original_query": original_query[:200]
+        }
+    )
+
     # Use filtered schema if available, otherwise use full schema
     schema_info = state.get("filtered_schema") or state["schema"]
-    user_question = state["user_question"]
 
     refined_queries = state["refined_queries"]
 
@@ -71,7 +83,13 @@ Return a JSON object with:
         QueryRefinement, model_name=os.getenv("AI_MODEL_REFINE"), temperature=0.7
     )
 
-    response = structured_llm.invoke(prompt)
+    with log_execution_time(logger, "llm_refine_query_invocation"):
+        response = structured_llm.invoke(prompt)
+
+    logger.info(
+        "Query refinement completed",
+        extra={"refined_query_length": len(response.sql_query)}
+    )
 
     return {
         **state,

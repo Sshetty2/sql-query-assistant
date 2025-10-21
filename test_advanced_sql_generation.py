@@ -1,6 +1,5 @@
 """Test advanced SQL generation with aggregations, window functions, etc."""
 
-import json
 from agent.generate_query import build_sql_query, get_database_context
 
 
@@ -17,15 +16,15 @@ def test_group_by_with_aggregates():
                 "alias": "s",
                 "columns": [
                     {"table": "tb_Sales", "column": "CompanyID", "role": "filter"}
-                ]
+                ],
             },
             {
                 "table": "tb_Company",
                 "alias": "c",
                 "columns": [
                     {"table": "tb_Company", "column": "Name", "role": "projection"}
-                ]
-            }
+                ],
+            },
         ],
         "join_edges": [
             {
@@ -33,7 +32,7 @@ def test_group_by_with_aggregates():
                 "from_column": "CompanyID",
                 "to_table": "tb_Company",
                 "to_column": "ID",
-                "join_type": "left"
+                "join_type": "left",
             }
         ],
         "global_filters": [],
@@ -43,7 +42,7 @@ def test_group_by_with_aggregates():
                     "table": "tb_Company",
                     "column": "Name",
                     "role": "projection",
-                    "value_type": "string"
+                    "value_type": "string",
                 }
             ],
             "aggregates": [
@@ -51,27 +50,23 @@ def test_group_by_with_aggregates():
                     "function": "SUM",
                     "table": "tb_Sales",
                     "column": "Amount",
-                    "alias": "TotalSales"
+                    "alias": "TotalSales",
                 },
                 {
                     "function": "COUNT",
                     "table": "tb_Sales",
                     "column": "ID",
-                    "alias": "SalesCount"
-                }
+                    "alias": "SalesCount",
+                },
             ],
-            "having_filters": []
+            "having_filters": [],
         },
         "window_functions": [],
         "subquery_filters": [],
-        "ctes": []
+        "ctes": [],
     }
 
-    state = {
-        "sort_order": "Default",
-        "result_limit": 0,
-        "time_filter": "All Time"
-    }
+    state = {"sort_order": "Default", "result_limit": 0, "time_filter": "All Time"}
 
     db_context = get_database_context()
 
@@ -84,6 +79,7 @@ def test_group_by_with_aggregates():
     except Exception as e:
         print(f"ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -102,8 +98,8 @@ def test_window_function():
                 "columns": [
                     {"table": "tb_Users", "column": "Name", "role": "projection"},
                     {"table": "tb_Users", "column": "CompanyID", "role": "filter"},
-                    {"table": "tb_Users", "column": "Salary", "role": "projection"}
-                ]
+                    {"table": "tb_Users", "column": "Salary", "role": "projection"},
+                ],
             }
         ],
         "join_edges": [],
@@ -117,28 +113,20 @@ def test_window_function():
                         "table": "tb_Users",
                         "column": "CompanyID",
                         "role": "filter",
-                        "value_type": "integer"
+                        "value_type": "integer",
                     }
                 ],
                 "order_by": [
-                    {
-                        "table": "tb_Users",
-                        "column": "Salary",
-                        "direction": "DESC"
-                    }
+                    {"table": "tb_Users", "column": "Salary", "direction": "DESC"}
                 ],
-                "alias": "Rank"
+                "alias": "Rank",
             }
         ],
         "subquery_filters": [],
-        "ctes": []
+        "ctes": [],
     }
 
-    state = {
-        "sort_order": "Default",
-        "result_limit": 0,
-        "time_filter": "All Time"
-    }
+    state = {"sort_order": "Default", "result_limit": 0, "time_filter": "All Time"}
 
     db_context = get_database_context()
 
@@ -151,6 +139,7 @@ def test_window_function():
     except Exception as e:
         print(f"ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -168,8 +157,8 @@ def test_subquery_filter():
                 "alias": "u",
                 "columns": [
                     {"table": "tb_Users", "column": "Name", "role": "projection"},
-                    {"table": "tb_Users", "column": "CompanyID", "role": "filter"}
-                ]
+                    {"table": "tb_Users", "column": "CompanyID", "role": "filter"},
+                ],
             }
         ],
         "join_edges": [],
@@ -188,19 +177,15 @@ def test_subquery_filter():
                         "table": "tb_Company",
                         "column": "EmployeeCount",
                         "op": ">",
-                        "value": 50
+                        "value": 50,
                     }
-                ]
+                ],
             }
         ],
-        "ctes": []
+        "ctes": [],
     }
 
-    state = {
-        "sort_order": "Default",
-        "result_limit": 0,
-        "time_filter": "All Time"
-    }
+    state = {"sort_order": "Default", "result_limit": 0, "time_filter": "All Time"}
 
     db_context = get_database_context()
 
@@ -213,6 +198,7 @@ def test_subquery_filter():
     except Exception as e:
         print(f"ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -230,15 +216,15 @@ def test_group_by_with_having():
                 "alias": "s",
                 "columns": [
                     {"table": "tb_Sales", "column": "CompanyID", "role": "filter"}
-                ]
+                ],
             },
             {
                 "table": "tb_Company",
                 "alias": "c",
                 "columns": [
                     {"table": "tb_Company", "column": "Name", "role": "projection"}
-                ]
-            }
+                ],
+            },
         ],
         "join_edges": [
             {
@@ -246,7 +232,7 @@ def test_group_by_with_having():
                 "from_column": "CompanyID",
                 "to_table": "tb_Company",
                 "to_column": "ID",
-                "join_type": "left"
+                "join_type": "left",
             }
         ],
         "global_filters": [],
@@ -256,7 +242,7 @@ def test_group_by_with_having():
                     "table": "tb_Company",
                     "column": "Name",
                     "role": "projection",
-                    "value_type": "string"
+                    "value_type": "string",
                 }
             ],
             "aggregates": [
@@ -264,28 +250,19 @@ def test_group_by_with_having():
                     "function": "COUNT",
                     "table": "tb_Sales",
                     "column": "ID",
-                    "alias": "SalesCount"
+                    "alias": "SalesCount",
                 }
             ],
             "having_filters": [
-                {
-                    "table": "tb_Sales",
-                    "column": "SalesCount",
-                    "op": ">",
-                    "value": 100
-                }
-            ]
+                {"table": "tb_Sales", "column": "SalesCount", "op": ">", "value": 100}
+            ],
         },
         "window_functions": [],
         "subquery_filters": [],
-        "ctes": []
+        "ctes": [],
     }
 
-    state = {
-        "sort_order": "Default",
-        "result_limit": 0,
-        "time_filter": "All Time"
-    }
+    state = {"sort_order": "Default", "result_limit": 0, "time_filter": "All Time"}
 
     db_context = get_database_context()
 
@@ -298,6 +275,7 @@ def test_group_by_with_having():
     except Exception as e:
         print(f"ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 

@@ -11,8 +11,10 @@ from langchain_core.documents import Document
 
 from agent.state import State
 from utils.llm_factory import is_using_ollama
+from utils.logger import get_logger, log_execution_time
 
 load_dotenv()
+logger = get_logger()
 
 
 def get_embedding_model():
@@ -32,7 +34,7 @@ def get_embedding_model():
         return OpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL"))
 
 
-top_most_relevant_tables = int(os.getenv("TOP_MOST_RELEVANT_TABLES", "10"))
+top_most_relevant_tables = int(os.getenv("TOP_MOST_RELEVANT_TABLES", "6"))
 
 
 def get_page_content(entry):
@@ -79,6 +81,15 @@ def filter_schema(state: State, vector_store=None):
     full_schema = state["schema"]
     user_query = state["user_question"]
 
+    logger.info(
+        "Starting schema filtering",
+        extra={
+            "total_tables": len(full_schema),
+            "top_k": top_most_relevant_tables,
+            "user_query": user_query,
+        },
+    )
+
     # Get the appropriate embedding model
     embedding_model = get_embedding_model()
 
@@ -106,23 +117,32 @@ def filter_schema(state: State, vector_store=None):
             }
             json.dump(debug_data, f, indent=2)
     except Exception as e:
-        print(f"Warning: Could not save debug embedded content: {e}")
+        logger.warning(
+            f"Could not save debug embedded content: {str(e)}",
+            exc_info=True,
+            extra={"debug_path": debug_path},
+        )
 
-    vector_store = InMemoryVectorStore.from_documents(
-        documents=documents, embedding=embedding_model
-    )
+    with log_execution_time(logger, "create_vector_store_and_search"):
+        vector_store = InMemoryVectorStore.from_documents(
+            documents=documents, embedding=embedding_model
+        )
 
-    relevant_tables = vector_store.similarity_search(
-        query=user_query, k=top_most_relevant_tables
-    )
+        relevant_tables = vector_store.similarity_search(
+            query=user_query, k=top_most_relevant_tables
+        )
 
     filtered_schema = [doc.metadata for doc in relevant_tables]
 
-    # Print which tables were selected
+    # Log which tables were selected
     selected_tables = [table.get("table_name", "Unknown") for table in filtered_schema]
-    print(
-        f"\nFiltered schema from {len(full_schema)} tables to {len(filtered_schema)} most relevant tables"
+    logger.info(
+        "Schema filtering completed",
+        extra={
+            "full_table_count": len(full_schema),
+            "filtered_table_count": len(filtered_schema),
+            "selected_tables": selected_tables,
+        },
     )
-    print(f"Selected tables: {', '.join(selected_tables)}\n")
 
     return {**state, "last_step": "filter_schema", "filtered_schema": filtered_schema}

@@ -3,8 +3,10 @@
 import os
 import json
 from dotenv import load_dotenv
+from utils.logger import get_logger
 
 load_dotenv()
+logger = get_logger()
 
 use_test_db = os.getenv("USE_TEST_DB").lower() == "true"
 
@@ -19,10 +21,12 @@ def load_json(filename):
         with open(file_path, "r", encoding="utf-8") as file:
             return json.load(file)
     except FileNotFoundError:
-        print(f"File not found: {file_path}")
+        logger.error(f"Schema file not found: {file_path}")
         return None
     except json.JSONDecodeError as e:
-        print(f"Error decoding JSON in {file_path}: {e}")
+        logger.error(
+            f"Error decoding JSON: {str(e)}", exc_info=True, extra={"file": file_path}
+        )
         return None
 
 
@@ -55,7 +59,7 @@ def combine_schema(
     cwp_foreign_keys = load_json(cwp_foreign_keys_path)
 
     if not cwp_table_metadata and not cwp_foreign_keys:
-        print("No metadata or foreign keys found. Returning original schema.")
+        logger.info("No metadata or foreign keys found, returning original schema")
         return json_schema
 
     metadata_map = {entry["table_name"]: entry for entry in (cwp_table_metadata or [])}

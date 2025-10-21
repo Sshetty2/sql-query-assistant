@@ -1,13 +1,6 @@
 """Test script for SQLGlot-based SQL generation."""
 
-import json
-from agent.generate_query import (
-    build_sql_query,
-    build_select_columns,
-    build_join_expressions,
-    build_filter_expression,
-    get_database_context,
-)
+from agent.generate_query import build_sql_query, get_database_context
 
 
 def test_basic_select():
@@ -224,7 +217,12 @@ def test_complex_query():
                     {"column": "CreatedOn", "role": "projection"},
                 ],
                 "filters": [
-                    {"table": "Companies", "column": "Status", "op": "=", "value": "Active"}
+                    {
+                        "table": "Companies",
+                        "column": "Status",
+                        "op": "=",
+                        "value": "Active",
+                    }
                 ],
             },
             {
@@ -238,7 +236,12 @@ def test_complex_query():
                 "alias": "p",
                 "columns": [{"column": "ProductName", "role": "projection"}],
                 "filters": [
-                    {"table": "Products", "column": "Price", "op": "between", "value": [100, 500]}
+                    {
+                        "table": "Products",
+                        "column": "Price",
+                        "op": "between",
+                        "value": [100, 500],
+                    }
                 ],
             },
         ],
@@ -261,7 +264,11 @@ def test_complex_query():
         "global_filters": [],
     }
 
-    state = {"sort_order": "Ascending", "result_limit": 50, "time_filter": "Last 30 Days"}
+    state = {
+        "sort_order": "Ascending",
+        "result_limit": 50,
+        "time_filter": "Last 30 Days",
+    }
 
     db_context = get_database_context()
 

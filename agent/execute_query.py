@@ -5,6 +5,9 @@ from datetime import datetime, date
 from decimal import Decimal
 from agent.state import State
 from langchain_core.messages import AIMessage
+from utils.logger import get_logger, log_execution_time
+
+logger = get_logger()
 
 
 def json_serial(obj):
@@ -20,12 +23,15 @@ def json_serial(obj):
 
 def execute_query(state: State, db_connection):
     """Execute the SQL query and return the result."""
+    query = state["query"]
+    logger.info("Starting query execution", extra={"query": query[:200]})  # Log first 200 chars
+
     cursor = None
     try:
-        query = state["query"]
-        cursor = db_connection.cursor()
-        cursor.execute(query)
-        results = cursor.fetchall()
+        with log_execution_time(logger, "database_query_execution"):
+            cursor = db_connection.cursor()
+            cursor.execute(query)
+            results = cursor.fetchall()
 
         # Post-process results into JSON format
         columns = [column[0] for column in cursor.description]
@@ -38,6 +44,15 @@ def execute_query(state: State, db_connection):
         queries = state.get("queries", [])
         if query not in queries:  # Avoid duplicates
             queries = queries + [query]
+
+        logger.info(
+            "Query execution completed",
+            extra={
+                "row_count": len(data),
+                "column_count": len(columns),
+                "result_size_bytes": len(json_result)
+            }
+        )
 
         return {
             **state,
@@ -53,6 +68,12 @@ def execute_query(state: State, db_connection):
 
         error_history = state["error_history"]
         error_history.append(str(e))
+
+        logger.error(
+            "Query execution failed",
+            exc_info=True,
+            extra={"query": query[:200], "error": str(e)}
+        )
 
         return {
             **state,
