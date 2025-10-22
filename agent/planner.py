@@ -286,10 +286,26 @@ Focus only on: table selection, columns, filters, and joins.
 ### 10. Confidence Bounds
 All confidence values must be between 0.0 and 1.0.
 
-### 11. If Unclear → Clarify
-If critical information is missing:
-- Set `decision = "clarify"`
-- Populate `ambiguities` with concrete questions
+### 11. Decision Field
+Choose the appropriate decision value:
+
+**proceed** - Use when you can create a viable query plan
+- The query makes sense for the schema
+- You've identified relevant tables and columns
+- May still have minor ambiguities (document in `ambiguities`)
+
+**clarify** - Use when the query is answerable but has significant ambiguities
+- Critical details are missing but you can make reasonable assumptions
+- The intent is clear but parameters need refinement
+- Populate `ambiguities` with specific questions
+- Note: The system will still proceed with your plan but show clarification options to the user
+
+**terminate** - Use when the query is fundamentally invalid or impossible
+- The request is completely unrelated to the available schema
+- No tables or data exist that could answer the query
+- The query is nonsensical or a test/joke (e.g., "order me a pizza" in a security database)
+- MUST provide clear `termination_reason` explaining why
+- Example: "This database contains security and IT asset data. There are no tables for food ordering, delivery, or restaurant services."
 
 ---
 
@@ -323,6 +339,8 @@ If the user mentions a column you can't find:
 ## Final Checklist
 
 Before responding, validate:
+- ✓ Chosen appropriate `decision` value (proceed/clarify/terminate)
+- ✓ If decision='terminate', provided clear `termination_reason`
 - ✓ If 2+ tables in `selections`, `join_edges` must be populated with explicit joins
 - ✓ All tables in `join_edges` exist in `selections`
 - ✓ Each join edge specifies both from_column and to_column (not just table names)

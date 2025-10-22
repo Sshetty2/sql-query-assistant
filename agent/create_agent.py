@@ -71,16 +71,28 @@ def route_from_router(state: State) -> Literal["planner"]:
 def route_after_clarification(
     state: State,
 ) -> Literal["generate_query", "cleanup"]:
-    """Route after checking for clarification needs."""
-    needs_clarification = state["needs_clarification"]
+    """Route after checking for clarification needs.
 
+    - If decision='terminate': route to cleanup (invalid query)
+    - If decision='clarify': proceed to generate_query anyway (model may be overly cautious)
+    - If decision='proceed': continue to generate_query
+    """
+    planner_output = state.get("planner_output")
+
+    if planner_output:
+        decision = planner_output.get("decision", "proceed")
+
+        if decision == "terminate":
+            termination_reason = planner_output.get("termination_reason", "Query cannot be answered with available schema")
+            logger.info(f"Query terminated by planner: {termination_reason}")
+            return "cleanup"
+
+    needs_clarification = state.get("needs_clarification", False)
     if needs_clarification:
-        # Skip to cleanup if clarification is needed
-        logger.info("Clarification needed, skipping to cleanup")
-        return "cleanup"
-    else:
-        # Continue to query generation
-        return "generate_query"
+        logger.info("Clarification flagged but proceeding with query generation anyway")
+
+    # Continue to query generation for 'proceed' and 'clarify' decisions
+    return "generate_query"
 
 
 def should_continue(state: State) -> Literal["handle_error", "refine_query", "cleanup"]:

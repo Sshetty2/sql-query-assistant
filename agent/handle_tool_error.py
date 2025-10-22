@@ -139,11 +139,30 @@ def handle_tool_error(state) -> dict:
         ErrorCorrection, model_name=os.getenv("AI_MODEL"), temperature=0.3
     )
 
-    with log_execution_time(logger, "llm_plan_correction_invocation"):
-        response = structured_llm.invoke(prompt)
+    try:
+        with log_execution_time(logger, "llm_plan_correction_invocation"):
+            response = structured_llm.invoke(prompt)
 
-    # Convert the corrected plan to dict for state storage
-    corrected_plan_dict = response.corrected_plan.model_dump()
+        # Convert the corrected plan to dict for state storage
+        corrected_plan_dict = response.corrected_plan.model_dump()
+    except Exception as e:
+        logger.error(
+            "Failed to parse error correction response from LLM",
+            exc_info=True,
+            extra={
+                "retry_count": retry_count,
+                "error": str(e)
+            }
+        )
+        # Return state with error message - this will trigger cleanup on next iteration
+        # since retry_count will exceed max attempts
+        return {
+            **state,
+            "messages": [AIMessage(content=f"Error correcting query plan: {str(e)}")],
+            "last_step": "handle_error",
+            "retry_count": state["retry_count"] + 1,
+            "error_history": state.get("error_history", []) + [f"Correction parsing error: {str(e)}"],
+        }
 
     logger.info(
         "Plan correction completed",

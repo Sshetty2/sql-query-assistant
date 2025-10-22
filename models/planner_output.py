@@ -28,7 +28,7 @@ Op = Literal[
     "is_not_null",
     "exists",
 ]
-Decision = Literal["proceed", "clarify"]
+Decision = Literal["proceed", "clarify", "terminate"]
 AggregateFunc = Literal[
     "COUNT", "SUM", "AVG", "MIN", "MAX", "COUNT_DISTINCT"
 ]
@@ -278,6 +278,9 @@ class PlannerOutput(BaseModel):
 
     ambiguities: List[str] = Field(
         default_factory=list, description="Questions to resolve or assumptions made"
+    )
+    termination_reason: Optional[str] = Field(
+        None, description="Explanation for why the query should be terminated (only when decision='terminate')"
     )
     confidence: float = Field(0.7, ge=0.0, le=1.0)
 

@@ -88,18 +88,30 @@ def render_query_results(
     Returns:
         pandas DataFrame of results, or empty DataFrame if no results
     """
+    # Check if query was terminated
+    planner_output = output.get("planner_output", {})
+    if planner_output.get("decision") == "terminate":
+        st.error("🚫 Query Terminated")
+        termination_reason = planner_output.get(
+            "termination_reason",
+            "The query cannot be answered with the available database schema."
+        )
+        st.warning(termination_reason)
+        st.info("💡 **Tip:** Try asking a question related to the data in this database.")
+        return None  # Return early, no results to display
+
     # Check if clarification is needed
     if output.get("needs_clarification"):
         st.warning(
-            "⚠️ Your question is ambiguous. Please select one of the "
-            "suggestions below or rephrase your question."
+            "⚠️ Your question may benefit from clarification. "
+            "The query was executed, but you can select a clarification below to refine it."
         )
 
         # Display clarification suggestions
         suggestions = output.get("clarification_suggestions", [])
         if suggestions:
-            st.subheader("💡 Suggested Query Rewrites")
-            st.write("Click on a suggestion to use it:")
+            st.subheader("💡 Clarification Options")
+            st.write("Click on a clarification to refine your query:")
 
             # Display each suggestion as a button
             for i, suggestion in enumerate(suggestions, 1):
@@ -107,10 +119,12 @@ def render_query_results(
                     f"{i}. {suggestion}",
                     key=f"suggestion_{i}_{output.get('timestamp', '')}",
                     use_container_width=True,
-                    type="primary",
+                    type="secondary",
                 ):
-                    # Set the suggestion as the new question in session state
-                    st.session_state.question_input = suggestion
+                    # Combine the original question with the clarification
+                    original_question = output.get("user_question", st.session_state.question_input)
+                    combined_question = f"{original_question}. {suggestion}"
+                    st.session_state.question_input = combined_question
                     st.session_state.selected_query_id = None
                     st.rerun()
 
@@ -545,8 +559,11 @@ def main():
                 reload_thread_states()
 
                 # Update status based on result
-                if output.get("needs_clarification"):
-                    status.update(label="Clarification needed", state="error")
+                planner_output = output.get("planner_output", {})
+                if planner_output.get("decision") == "terminate":
+                    status.update(label="Query terminated", state="error")
+                elif output.get("needs_clarification"):
+                    status.update(label="Query executed (clarification suggested)", state="complete")
                 elif not output.get("query"):
                     status.update(
                         label=output.get("result", "Query error"), state="error"

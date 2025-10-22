@@ -18,7 +18,7 @@ class ClarificationSuggestions(BaseModel):
     """Pydantic model for clarification suggestions."""
 
     suggestions: list[str] = Field(
-        description="List of 3-5 suggested query rewrites to help clarify the user's intent",
+        description="List of 3-5 declarative clarification statements that can augment the original query",
         min_length=3,
         max_length=5,
     )
@@ -43,6 +43,18 @@ def check_clarification(state: State) -> Dict[str, Any]:
     decision = planner_output["decision"]
 
     # Check if clarification is needed
+    if decision == "terminate":
+        # Query is being terminated - no clarification suggestions needed
+        logger.info(
+            "Planner terminated query, skipping clarification suggestions",
+            extra={"decision": decision, "termination_reason": planner_output.get("termination_reason")}
+        )
+        return {
+            **state,
+            "needs_clarification": False,
+            "last_step": "check_clarification",
+        }
+
     if decision != "clarify":
         # No clarification needed, continue normally
         return {
@@ -53,7 +65,7 @@ def check_clarification(state: State) -> Dict[str, Any]:
 
     # Clarification is needed - generate suggestions
     logger.info(
-        "Planner requested clarification, generating query suggestions",
+        "Planner flagged clarification, generating declarative clarification statements",
         extra={"decision": decision},
     )
 
@@ -87,35 +99,47 @@ def check_clarification(state: State) -> Dict[str, Any]:
 
         ## Task
 
-        The planner identified ambiguities in the user's question that prevent generating a precise query.
+        The planner identified potential ambiguities in the user's question.
 
-        Generate 3-5 suggested query rewrites that:
+        Generate 3-5 declarative clarification statements that:
         - Address the specific ambiguities mentioned
-        - Are clear, specific, and unambiguous
-        - Maintain the user's original intent where possible
-        - Provide different interpretations of what the user might mean
-        - Are phrased as natural questions the user could ask
+        - Are phrased as DECLARATIVE STATEMENTS (not questions)
+        - Can be combined or selected by the user to augment/clarify their original query
+        - Provide different interpretations or specifications of what the user might mean
+        - Will be sent back to refine the plan, not create a new query
 
         ## Examples of Good Suggestions
 
         **Original:** "Show me users"
-        **Suggestions:**
-        - "Show me all active users"
-        - "Show me users created in the last 30 days"
-        - "Show me users with admin role"
+        **Clarification Statements:**
+        - "Only include active users"
+        - "Users created in the last 30 days"
+        - "Filter to users with admin role"
+        - "Include all user statuses"
 
         **Original:** "Get computer data"
-        **Suggestions:**
-        - "Get all computers with their operating system details"
-        - "Get computers scanned in the last 7 days"
-        - "Get computers with installed applications"
+        **Clarification Statements:**
+        - "Include operating system details"
+        - "Only computers scanned in the last 7 days"
+        - "Show installed applications for each computer"
+        - "Include hardware specifications"
+
+        **Original:** "Show vulnerabilities"
+        **Clarification Statements:**
+        - "Only critical and high severity vulnerabilities"
+        - "Vulnerabilities discovered in the last 30 days"
+        - "Group by affected application"
+        - "Include remediation status"
 
         ---
 
         ## Instructions
 
         Return a JSON object with:
-        - `suggestions`: A list of 3-5 suggested query rewrites
+        - `suggestions`: A list of 3-5 declarative clarification statements (NOT questions)
+
+        Remember: These are clarifications that augment the original query, not new query suggestions.
+        They should be combinable and will be used to refine the existing plan.
         """  # noqa: E501
     )
 
@@ -132,13 +156,13 @@ def check_clarification(state: State) -> Dict[str, Any]:
     suggestions = response.suggestions
 
     logger.info(
-        "Generated clarification suggestions",
+        "Generated clarification statements",
         extra={"suggestion_count": len(suggestions)},
     )
 
     return {
         **state,
-        "messages": [AIMessage(content="Clarification needed - generated suggestions")],
+        "messages": [AIMessage(content="Clarification flagged - generated statements for user review")],
         "needs_clarification": True,
         "clarification_suggestions": suggestions,
         "last_step": "check_clarification",
