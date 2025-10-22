@@ -54,6 +54,41 @@ def handle_tool_error(state) -> dict:
 
     original_plan_json = json.dumps(original_plan_dict, indent=2)
 
+    # Extract helpful hints from error message for common errors
+    error_hints = ""
+    if "Invalid column name" in error_message:
+        error_hints = """
+## ⚠️ Column Name Error Detected
+
+The error indicates one or more columns don't exist in the specified tables.
+
+**Common Causes:**
+1. **Wrong Table Reference** - Column exists but in a different table than referenced
+   - Example: Referencing tb_MainTable.Status when Status is actually in tb_JoinedTable
+   - Solution: Check the schema and use the correct table name where the column exists
+
+2. **Column Name Typo** - Column name is misspelled
+   - Solution: Match the exact column name from the schema (case-sensitive)
+
+3. **Missing JOIN** - Column is in a table that wasn't joined
+   - Solution: Add the table containing the column to selections and create appropriate join_edges
+
+**Action:** Review the schema carefully and ensure all column references use the correct table name.
+"""
+    elif "same exposed names" in error_message or "duplicate" in error_message.lower():
+        error_hints = """
+## ⚠️ Duplicate Table Error Detected
+
+The same table appears multiple times in the query without proper distinction.
+
+**Cause:** The plan includes the same table multiple times in selections or creates redundant joins.
+
+**Solution:**
+- Remove duplicate tables from selections (keep only one instance)
+- Ensure join_edges don't create redundant paths to the same table
+- If you truly need the same table twice, the system doesn't support aliases yet
+"""
+
     prompt = dedent(
         f"""
         # Query Plan Error Correction
@@ -80,6 +115,7 @@ def handle_tool_error(state) -> dict:
         ```
         {error_message}
         ```
+        {error_hints}
 
         ## Previous Error History
 
@@ -95,24 +131,36 @@ def handle_tool_error(state) -> dict:
 
         ## IMPORTANT: Plan Correction Strategy
 
-        **First Priority - MAINTAIN THE ORIGINAL INTENT:**
+        **CRITICAL: Never Give Up!**
+        - NEVER set `decision="terminate"` - always provide a corrected plan with `decision="proceed"`
+        - If you can't fix the error, simplify the query but still answer the user's question
+        - Error correction is about fixing the plan, not terminating the query
+
+        **First Priority - FIX COLUMN/TABLE MISMATCHES:**
+        - **Invalid column errors:** Check if column exists in a different table
+        - **Join errors:** Foreign keys often join to primary keys with different names
+          - Example: `tb_ApplicationTagMap.TagID` joins to `tb_SoftwareTagsAndColors.ID` (not TagID!)
+        - **WHERE clause errors:** Check if column is in a joined table, not the main table
+        - Use the schema to find correct table and column combinations
+
+        **Second Priority - MAINTAIN THE ORIGINAL INTENT:**
         - Keep the user's original question and intent in mind
         - Don't remove essential columns or tables unless they're causing errors
 
-        **Second Priority - Fix Data Type Mismatches:**
+        **Third Priority - Verify Schema Accuracy:**
+        - Ensure all columns exist in their respective tables
+        - Verify column names match exactly (check data types in schema)
+        - Check that selected columns are valid
+        - Use schema foreign_keys to identify correct join relationships
+
+        **Fourth Priority - Fix Data Type Mismatches:**
         - **Check JOIN columns** - ensure joined columns have compatible data types
         - Review foreign key relationships in the schema to identify correct join columns
         - For example, if joining `tb_Users` to `tb_UserLoginInfo`, check:
           - `tb_UserLoginInfo.UserID` (bigint) should join to `tb_Users.ID` (bigint)
           - NOT `tb_Users.UserID` (nvarchar) - this would cause type conversion errors
 
-        **Third Priority - Verify Schema Accuracy:**
-        - Ensure all columns exist in their respective tables
-        - Verify column names match exactly (check data types in schema)
-        - Remove any malformed table/column references
-        - Check that selected columns are valid
-
-        **Fourth Priority - Simplify if Needed:**
+        **Fifth Priority - Simplify if Needed:**
         - Consider simplifying complex joins if they're causing issues
         - Remove problematic filters that might be incorrect
         - Sometimes a simpler plan is better than a complex failing one
@@ -149,10 +197,7 @@ def handle_tool_error(state) -> dict:
         logger.error(
             "Failed to parse error correction response from LLM",
             exc_info=True,
-            extra={
-                "retry_count": retry_count,
-                "error": str(e)
-            }
+            extra={"retry_count": retry_count, "error": str(e)},
         )
         # Return state with error message - this will trigger cleanup on next iteration
         # since retry_count will exceed max attempts
@@ -161,7 +206,8 @@ def handle_tool_error(state) -> dict:
             "messages": [AIMessage(content=f"Error correcting query plan: {str(e)}")],
             "last_step": "handle_error",
             "retry_count": state["retry_count"] + 1,
-            "error_history": state.get("error_history", []) + [f"Correction parsing error: {str(e)}"],
+            "error_history": state.get("error_history", [])
+            + [f"Correction parsing error: {str(e)}"],
         }
 
     logger.info(
@@ -173,10 +219,31 @@ def handle_tool_error(state) -> dict:
         },
     )
 
+    # Check if error correction gave up (shouldn't happen with new prompt guidance)
+    corrected_decision = corrected_plan_dict.get("decision", "proceed")
+    if corrected_decision == "terminate":
+        logger.error(
+            "Error correction returned 'terminate' decision - this indicates the LLM "
+            "couldn't fix the error. Routing to refinement instead.",
+            extra={
+                "termination_reason": corrected_plan_dict.get("termination_reason"),
+                "reasoning": response.reasoning,
+            }
+        )
+        # Return error state - this will route to refinement if retry_count exhausted
+        return {
+            **state,
+            "messages": [AIMessage(content=f"Error correction failed: {response.reasoning}")],
+            "retry_count": state["retry_count"] + 1,
+            "error_history": state.get("error_history", [])
+            + ["Error correction returned terminate decision"],
+            "last_step": "handle_error",
+        }
+
     # Debug: Save the corrected planner output to a file
     debug_output_path = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
-        "debug/corrected_planner_output.json",
+        "debug/debug_corrected_planner_output.json",
     )
     try:
         with open(debug_output_path, "w", encoding="utf-8") as f:

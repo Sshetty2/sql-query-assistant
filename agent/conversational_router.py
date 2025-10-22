@@ -54,12 +54,38 @@ Decision Types - Choose one of two routing decisions:
    For this decision, provide high-level guidance in `routing_instructions` about
    the new direction.
 
+Examples to Guide Your Decision:
+
+**Use update_plan for:**
+- "Can you show the name/description?" → Add column to selections (and to GROUP BY if aggregating)
+- "Filter by status = Active" → Add filter predicate
+- "Sort by date descending" → Add/modify sort instructions
+- "Show only top 10" → Add LIMIT constraint
+- "Include deleted records too" → Remove or modify IsDeleted filter
+- "Break it down by department as well" → Add column to GROUP BY
+- "Exclude admins" → Add NOT filter
+
+**Use rewrite_plan for:**
+- "Now show me products instead of users" → Different primary tables/entities
+- "What are the top vulnerabilities by severity?" → Completely different question/domain
+- "Count by company and date instead" → Fundamental restructuring of grouping logic
+- "Switch to analyzing services instead of computers" → Different data set entirely
+- "Show me the users who created these records" → Requires joining to different tables
+
+**Important:** When the user asks to "show" or "include" a field that's already referenced in joins
+or GROUP BY (like showing a Name when only ID was grouped), this is update_plan because you're
+just exposing an already-available column, not changing the query structure.
+
 Guidelines:
+
+- **Review the generated SQL**: Examine the actual SQL query that was executed to understand
+  what might be missing or incorrect. If the user's follow-up suggests incomplete results
+  (like "show the name"), check if the SQL is missing that column in the SELECT or GROUP BY.
 
 - **Be specific in instructions**: Provide actionable guidance for the planner.
   Bad: "Update the query"
   Good: "Add a filter on the Status column to only show records where Status = 'Active'"
-  Good: "Add ProductName column to the selections"
+  Good: "Add ProductName column to the selections AND to group_by_columns (since we're aggregating)"
   Good: "Remove the DateCreated filter and add sorting by Price descending"
 
 - **Context is key**: Consider the entire conversation history, not just the latest request.
@@ -118,15 +144,22 @@ def format_conversation_history(user_questions: list[str]) -> str:
 
 
 def format_query_history(queries: list[str]) -> str:
-    """Format the SQL query history for the prompt."""
+    """Format the SQL query history for the prompt.
+
+    Shows full SQL for the most recent query (to help identify what needs fixing),
+    and truncated previews for older queries.
+    """
     if not queries:
         return "No previous queries"
 
     history = []
     for i, query in enumerate(queries, 1):
-        # Truncate long queries for readability
-        query_preview = query if len(query) <= 200 else query[:197] + "..."
-        history.append(f"Query {i}:\n{query_preview}\n")
+        # Show full SQL for the most recent query, truncate others
+        if i == len(queries):
+            history.append(f"Most Recent Query (Full SQL):\n{query}\n")
+        else:
+            query_preview = query if len(query) <= 200 else query[:197] + "..."
+            history.append(f"Query {i}:\n{query_preview}\n")
 
     return "\n".join(history)
 

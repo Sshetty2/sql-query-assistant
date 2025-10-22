@@ -257,6 +257,7 @@ Choose the appropriate decision value:
 - The query makes sense for the schema
 - You've identified relevant tables and columns
 - May still have minor ambiguities (document in `ambiguities`)
+- **DEFAULT CHOICE** - Use this unless the query is truly impossible
 
 **clarify** - Use when the query is answerable but has significant ambiguities
 - Critical details are missing but you can make reasonable assumptions
@@ -264,12 +265,73 @@ Choose the appropriate decision value:
 - Populate `ambiguities` with specific questions
 - Note: The system will still proceed with your plan but show clarification options to the user
 
-**terminate** - Use when the query is fundamentally invalid or impossible
-- The request is completely unrelated to the available schema
-- No tables or data exist that could answer the query
-- The query is nonsensical or a test/joke (e.g., "order me a pizza" in a security database)
-- MUST provide clear `termination_reason` explaining why
-- Example: "This database contains security and IT asset data. There are no tables for food ordering, delivery, or restaurant services."
+**terminate** - EXTREMELY RARE - Use with extreme caution
+
+> **"With great power comes great responsibility."**
+
+Using `decision="terminate"` will **immediately end the entire workflow** and return an error to the user. Please only decide to terminate if there is **no way that a potentially valid query can be executed** against the available schema.
+
+**CRITICAL Rules:**
+- If you identified ANY relevant tables, columns, or joins → use "proceed" instead!
+- If you created a plan structure with selections/joins → you MUST use "proceed"!
+- Do NOT terminate just because the query is complex, uncertain, or requires assumptions!
+- When in doubt, use "proceed" with a lower confidence score and document concerns in `ambiguities`
+
+Only use "terminate" when ALL of these are true:
+1. The request has ZERO overlap with the available schema
+2. NO tables exist that could possibly answer any part of the query
+3. The query is completely nonsensical for this database domain
+4. You cannot create even a partial plan
+
+Examples of VALID "terminate" usage (query truly impossible):
+- "Order me a pizza" in a security/IT database → No food/restaurant tables exist
+- "Show me cat photos" in a financial database → No image/media tables exist
+- "What's the weather today?" in a user management database → No weather/location data
+
+Examples of INVALID "terminate" usage (use "proceed" instead):
+- ❌ "Show applications with security risk tag" when tag tables exist → Use "proceed"
+- ❌ "List vulnerable computers" when CVE/computer tables exist → Use "proceed"
+- ❌ Query is complex or requires multiple joins → Use "proceed"
+- ❌ Column names are uncertain but tables are relevant → Use "proceed" with ambiguities
+- ❌ You're not 100% confident in the plan → Use "proceed" with lower confidence score
+
+**Rule of thumb:** If you wrote ANY `selections`, `join_edges`, or `filters` in your plan, you MUST use `decision="proceed"`, NOT "terminate".
+
+### 12. GROUP BY Completeness Rule
+**CRITICAL SQL RULE:** When using aggregations (COUNT, SUM, AVG, etc.):
+- ALL columns with `role="projection"` MUST be included in `group_by_columns`
+- Exception: Columns from tables with `include_only_for_join=true` are excluded
+- This is a SQL requirement - non-aggregated columns in SELECT must be in GROUP BY
+- Failure to follow this will cause SQL errors
+
+**Examples:**
+
+✓ **Correct:**
+- Selections: tb_Company.ID (projection), tb_Company.Name (projection)
+- Group by: [tb_Company.ID, tb_Company.Name]
+- Aggregates: COUNT(tb_Sales.ID)
+- Result: Both ID and Name are in GROUP BY ✓
+
+✗ **Incorrect:**
+- Selections: tb_Company.ID (projection), tb_Company.Name (projection)
+- Group by: [tb_Company.ID] ONLY
+- Aggregates: COUNT(tb_Sales.ID)
+- Result: Name is missing from GROUP BY - SQL ERROR!
+
+**Action Required:**
+When you add aggregates to `group_by`, review ALL projection columns and ensure each one appears in `group_by_columns`.
+
+### 13. HAVING Clause Table References
+When using HAVING filters in aggregated queries:
+- HAVING filters must reference the correct table where the column exists
+- If filtering on a joined table's column, use that table name (not the main table)
+- Check the schema to verify which table contains the column you're filtering on
+
+**Example:**
+- ✗ WRONG: Main table is tb_SaasComputerCVEMap, filtering on Impact (which is in tb_CVE_PatchImpact)
+  - `having_filters: [{{"table": "tb_SaasComputerCVEMap", "column": "Impact"}}]` ← Error!
+- ✓ CORRECT: Reference the table that actually has the Impact column
+  - `having_filters: [{{"table": "tb_CVE_PatchImpact", "column": "Impact"}}]` ← Correct
 
 ---
 
@@ -281,8 +343,11 @@ For every pair of related tables in `selections`, add a `join_edges` entry speci
 
 ### Prefer Foreign Keys
 Use the `foreign_keys` arrays and `...ID` column naming patterns to identify relationships.
+- **IMPORTANT:** Foreign keys often have different names than the primary keys they reference
 - Example: If Table A has foreign key "CompanyID" and Table B has primary key "ID"
 - Create join edge: `{{from_table: "TableA", from_column: "CompanyID", to_table: "TableB", to_column: "ID"}}`
+- **Common pattern:** `tb_ApplicationTagMap.TagID` joins to `tb_SoftwareTagsAndColors.ID` (NOT TagID!)
+- Check the schema's `foreign_keys` array to find the correct column mappings
 
 ### Auto-Join for Human-Readable Names
 When a table has a foreign key (e.g., CompanyID, UserID, ProductID):
@@ -384,6 +449,53 @@ Before responding, validate:
 
     # Return as a tuple (system, user) for proper message structure
     return (formatted_system, formatted_user)
+
+
+def validate_group_by_completeness(plan_dict: dict) -> list[str]:
+    """Validate that all projection columns are included in GROUP BY when aggregating.
+
+    This catches a common SQL error where columns are selected but not grouped,
+    which violates the SQL standard and causes query execution failures.
+
+    Args:
+        plan_dict: The planner output dictionary
+
+    Returns:
+        List of validation issue messages (empty if valid)
+    """
+    issues = []
+
+    # Only validate if there are aggregates (indicating a GROUP BY query)
+    group_by = plan_dict.get("group_by")
+    if not group_by or not group_by.get("aggregates"):
+        return issues  # No grouping, nothing to validate
+
+    # Collect all projection columns from selections
+    projection_cols = []
+    for selection in plan_dict.get("selections", []):
+        # Skip tables that are only used for joins
+        if selection.get("include_only_for_join"):
+            continue
+
+        for col in selection.get("columns", []):
+            if col.get("role") == "projection":
+                projection_cols.append((col["table"], col["column"]))
+
+    # Collect all group_by columns
+    group_by_cols = []
+    for col in group_by.get("group_by_columns", []):
+        group_by_cols.append((col["table"], col["column"]))
+
+    # Check if all projection columns are in group_by
+    for table, column in projection_cols:
+        if (table, column) not in group_by_cols:
+            issues.append(
+                f"⚠️  GROUP BY Validation Issue: Column {table}.{column} has role='projection' "
+                f"but is not in group_by_columns. This will cause a SQL error. "
+                f"SQL requires all non-aggregated columns in SELECT to be in GROUP BY."
+            )
+
+    return issues
 
 
 def plan_query(state: State):
@@ -556,6 +668,20 @@ def plan_query(state: State):
         plan_dict = plan.model_dump() if hasattr(plan, "model_dump") else plan
         planner_outputs = planner_outputs + [plan_dict]
 
+        # Validate the plan for GROUP BY completeness
+        validation_issues = validate_group_by_completeness(plan_dict)
+        if validation_issues:
+            logger.warning(
+                "Plan validation issues detected",
+                extra={
+                    "validation_issues": validation_issues,
+                    "issue_count": len(validation_issues),
+                },
+            )
+            # Log each issue separately for visibility
+            for issue in validation_issues:
+                logger.warning(issue)
+
         logger.info(
             "Query planning completed",
             extra={
@@ -566,17 +692,25 @@ def plan_query(state: State):
                     if hasattr(plan, "selections") and plan.selections
                     else 0
                 ),
+                "validation_passed": len(validation_issues) == 0,
             },
         )
 
-        # Debug: Save the planner output to a file
+        # Debug: Save the planner output to a file (with validation results)
         debug_output_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "debug/debug_generated_planner_output.json",
         )
         try:
             with open(debug_output_path, "w", encoding="utf-8") as f:
-                json.dump(plan_dict, f, indent=2)
+                debug_data = {
+                    "plan": plan_dict,
+                    "validation": {
+                        "passed": len(validation_issues) == 0,
+                        "issues": validation_issues,
+                    },
+                }
+                json.dump(debug_data, f, indent=2)
         except Exception as e:
             logger.warning(
                 f"Could not save debug planner output: {str(e)}",

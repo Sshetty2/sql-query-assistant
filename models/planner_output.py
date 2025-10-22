@@ -245,7 +245,7 @@ class PlannerOutput(BaseModel):
 
     decision: Decision = Field(
         ...,
-        description="Decision on how to proceed: 'proceed' for executable plan, 'clarify' for ambiguous but viable plan, 'terminate' for invalid/impossible query"
+        description="Decision: 'proceed' (default - use when you created a plan with tables/joins), 'clarify' (ambiguous but answerable), 'terminate' (RARE - only when query is COMPLETELY impossible and you have ZERO relevant tables)"
     )
     intent_summary: str = Field(
         ..., description="One sentence summary of what the user wants"
@@ -253,7 +253,7 @@ class PlannerOutput(BaseModel):
 
     selections: Annotated[
         List[TableSelection],
-        Field(min_length=1, description="List of tables to include in the query with their columns and filters")
+        Field(description="List of tables to include in the query with their columns and filters. Must have at least 1 item unless decision='terminate'.")
     ]
     global_filters: List[FilterPredicate] = Field(
         default_factory=list,
@@ -330,4 +330,38 @@ class PlannerOutput(BaseModel):
             if not s.columns and not s.include_only_for_join:
                 # If no columns provided, mark as join-only to be explicit.
                 s.include_only_for_join = True
+        return self
+
+    @model_validator(mode="after")
+    def _validate_terminate_decision(self):
+        """
+        Validate that 'terminate' decision is only used when no plan exists.
+        If there are selections, joins, filters, or CTEs, decision should be 'proceed' not 'terminate'.
+        Also validates that non-terminate decisions have at least 1 selection.
+        """
+        if self.decision == "terminate":
+            has_plan_structure = (
+                len(self.selections) > 0 or
+                len(self.join_edges) > 0 or
+                len(self.global_filters) > 0 or
+                len(self.ctes) > 0 or
+                self.group_by is not None
+            )
+            if has_plan_structure:
+                raise ValueError(
+                    "Invalid use of decision='terminate': A query plan was created with tables/joins/filters. "
+                    "Use decision='proceed' instead. Only use 'terminate' when the query is completely "
+                    "impossible and you have ZERO relevant tables or plan structure."
+                )
+            if not self.termination_reason:
+                raise ValueError(
+                    "decision='terminate' requires a termination_reason explaining why the query is impossible"
+                )
+        else:
+            # For 'proceed' and 'clarify', require at least 1 selection
+            if len(self.selections) == 0:
+                raise ValueError(
+                    f"decision='{self.decision}' requires at least 1 table in selections. "
+                    "If the query is impossible, use decision='terminate' instead."
+                )
         return self

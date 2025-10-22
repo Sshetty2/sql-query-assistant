@@ -10,6 +10,7 @@ from agent.filter_schema import filter_schema
 from agent.format_schema_markdown import convert_schema_to_markdown
 from agent.execute_query import execute_query
 from agent.planner import plan_query
+from agent.plan_audit import plan_audit
 from agent.check_clarification import check_clarification
 from agent.generate_query import generate_query
 from agent.handle_tool_error import handle_tool_error
@@ -109,10 +110,18 @@ def should_continue(state: State) -> Literal["handle_error", "refine_query", "cl
         int(os.getenv("REFINE_COUNT")) if os.getenv("REFINE_COUNT") else 2
     )
     none_result = is_none_result(result)
+    has_error = "Error" in last_message.content
 
-    # Handle errors
-    if "Error" in last_message.content and retry_count < env_retry_count:
+    # Handle errors - try error correction first
+    if has_error and retry_count < env_retry_count:
         return "handle_error"
+
+    # If we hit max retries with errors, try refinement as last resort
+    if has_error and retry_count >= env_retry_count and refined_count < env_refine_count:
+        logger.info(
+            "Max error correction retries reached, routing to refinement as fallback"
+        )
+        return "refine_query"
 
     # If result is None and refinement is not exhausted, refine
     if none_result and refined_count < env_refine_count:
@@ -136,6 +145,7 @@ def create_sql_agent():
     workflow.add_node("format_schema_markdown", convert_schema_to_markdown)
     workflow.add_node("conversational_router", conversational_router)
     workflow.add_node("planner", plan_query)
+    workflow.add_node("plan_audit", plan_audit)  # Audit plan before SQL generation
     workflow.add_node("check_clarification", check_clarification)
     workflow.add_node("generate_query", generate_query)
     workflow.add_node(
@@ -152,7 +162,8 @@ def create_sql_agent():
     workflow.add_edge("analyze_schema", "filter_schema")
     workflow.add_edge("filter_schema", "format_schema_markdown")
     workflow.add_edge("format_schema_markdown", "planner")
-    workflow.add_edge("planner", "check_clarification")
+    workflow.add_edge("planner", "plan_audit")  # Audit plan before clarification
+    workflow.add_edge("plan_audit", "check_clarification")  # Continue to clarification after audit
     workflow.add_conditional_edges("check_clarification", route_after_clarification)
     workflow.add_edge("generate_query", "execute_query")
 

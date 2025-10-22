@@ -797,6 +797,15 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
     if not selections:
         raise ValueError("No table selections in planner output")
 
+    # Check for duplicate tables in selections (potential issue)
+    table_names = [sel.get("table") for sel in selections]
+    duplicate_tables = [t for t in table_names if table_names.count(t) > 1]
+    if duplicate_tables:
+        logger.warning(
+            f"Duplicate tables in selections: {set(duplicate_tables)}. "
+            f"This may cause join issues. Consider using aliases in the planner."
+        )
+
     # Build SELECT column list as strings (with column aliases to avoid duplicates)
     select_cols = []
 
@@ -916,14 +925,24 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         join_type = edge.get("join_type", "inner")
 
         # Determine which table to join (the one NOT already in the query)
-        # If to_table is already in the query, join from_table instead
-        if to_table in tables_in_query and from_table not in tables_in_query:
-            # Join from_table
+        # Handle three cases: both in query, one in query, neither in query
+        if from_table in tables_in_query and to_table in tables_in_query:
+            # Both tables already in query - skip this join to avoid duplicates
+            logger.warning(
+                f"Skipping redundant join: both {from_table} and {to_table} already in query. "
+                f"This might indicate a complex join pattern that needs aliases."
+            )
+            continue
+        elif to_table in tables_in_query and from_table not in tables_in_query:
+            # Join from_table (to_table already exists)
             join_table_name = from_table
-            # Swap the ON condition columns
             on_condition = f"{to_table}.{to_column} = {from_table}.{from_column}"
+        elif from_table in tables_in_query and to_table not in tables_in_query:
+            # Join to_table (from_table already exists)
+            join_table_name = to_table
+            on_condition = f"{from_table}.{from_column} = {to_table}.{to_column}"
         else:
-            # Join to_table (default behavior)
+            # Neither table in query yet - add to_table by default
             join_table_name = to_table
             on_condition = f"{from_table}.{from_column} = {to_table}.{to_column}"
 

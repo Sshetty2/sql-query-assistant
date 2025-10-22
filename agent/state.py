@@ -54,3 +54,9 @@ class State(TypedDict):
     last_attempt_time: Optional[str]  # Last time the query was attempted
     needs_clarification: bool  # Flag indicating planner needs clarification
     clarification_suggestions: list[str]  # LLM-generated query rewrite suggestions
+
+    # Plan audit fields
+    audit_passed: bool  # Whether plan audit passed validation
+    audit_issues: list[str]  # List of issues detected by plan audit
+    audit_corrections: list[str]  # List of corrections applied by plan audit
+    audit_reasoning: Optional[str]  # Explanation of audit fixes

@@ -34,7 +34,7 @@ def get_embedding_model():
         return OpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL"))
 
 
-top_most_relevant_tables = int(os.getenv("TOP_MOST_RELEVANT_TABLES", "6"))
+top_most_relevant_tables = int(os.getenv("TOP_MOST_RELEVANT_TABLES", "8"))
 
 
 def get_page_content(entry):

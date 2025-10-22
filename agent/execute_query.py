@@ -180,56 +180,23 @@ def execute_query(state: State, db_connection):
             if error_code == "42S22":  # Invalid column name
                 is_column_error = True
 
-        # Handle inline column removal if applicable
+        # Column removal disabled - it only removes from SELECT but errors often in JOIN/WHERE
+        # Let error correction handle column issues by fixing the plan instead
         if is_column_error:
-            column_removal_count = state.get("column_removal_count", 0)
-
-            # Parse the invalid column name from the error message
             error_message = str(e)
             invalid_column = parse_invalid_column_name(error_message)
 
-            if invalid_column and column_removal_count < MAX_COLUMN_REMOVALS:
-                # Try to remove the invalid column
-                modified_query = remove_column_from_query(query, invalid_column)
-
-                if modified_query:
-                    # Successfully removed the column, log warning and retry
-                    removal_msg = (
-                        f"Removed invalid column '{invalid_column}' from query "
-                        f"(attempt {column_removal_count + 1}/{MAX_COLUMN_REMOVALS})"
-                    )
-                    logger.warning(
-                        removal_msg,
-                        extra={
-                            "original_query": query,
-                            "modified_query": modified_query,
-                            "invalid_column": invalid_column,
-                            "removal_count": column_removal_count + 1,
-                        },
-                    )
-
-                    # Update state with the modified query and incremented counter
-                    removed_columns = state.get("removed_columns", [])
-                    updated_state = {
-                        **state,
-                        "query": modified_query,
-                        "column_removal_count": column_removal_count + 1,
-                        "removed_columns": removed_columns + [invalid_column],
-                    }
-
-                    # Recursively call execute_query with the modified state
-                    return execute_query(updated_state, db_connection)
-
-            # If we couldn't remove the column or hit the limit, treat as regular error
-            if column_removal_count >= MAX_COLUMN_REMOVALS:
-                logger.error(
-                    f"Hit maximum column removal limit ({MAX_COLUMN_REMOVALS}) for invalid column errors",
-                    extra={
-                        "query": query,
-                        "error": str(e),
-                        "removed_columns": state.get("removed_columns", []),
-                    },
+            if invalid_column:
+                logger.warning(
+                    f"Invalid column '{invalid_column}' detected. "
+                    f"Skipping inline removal - letting error correction fix the plan.",
+                    extra={"query": query, "invalid_column": invalid_column}
                 )
+
+        # Note: Column removal logic disabled because it's incomplete
+        # - Only removes from SELECT clause, not JOIN/WHERE/GROUP BY
+        # - Often causes infinite loops when column appears in multiple clauses
+        # - Error correction can fix the underlying plan issue instead
 
         # Regular error handling for all other errors or when inline fix failed
         error_history = state["error_history"]
