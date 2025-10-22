@@ -12,3 +12,5 @@ cwp_*
 .claude/
 
 models/domain_guidance.json
+
+thread_states.json

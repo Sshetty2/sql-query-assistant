@@ -9,6 +9,9 @@ class State(TypedDict):
 
     messages: Annotated[list[AnyMessage], add_messages]
 
+    # Thread management
+    thread_id: str  # Unique identifier for this conversation thread
+
     # Conversation history fields
     user_questions: list[str]  # History of all user questions in conversation
     user_question: str  # Current/latest user question (convenience field)
