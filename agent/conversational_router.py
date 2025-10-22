@@ -5,7 +5,7 @@ import json
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
 from models.router_output import RouterOutput
-from utils.llm_factory import get_structured_llm
+from utils.llm_factory import get_structured_llm, invoke_with_timeout
 from utils.logger import get_logger, log_execution_time
 from agent.state import State
 
@@ -181,13 +181,16 @@ def conversational_router(state: State):
             latest_request=latest_request,
         )
 
-        # Get structured LLM (handles method="json_schema" for Ollama automatically)
+        # Get structured LLM
+        # (handles method="json_schema" for Ollama automatically)
         structured_llm = get_structured_llm(
             RouterOutput, model_name=os.getenv("AI_MODEL"), temperature=0.3
         )
 
         with log_execution_time(logger, "llm_router_invocation"):
-            router_output = structured_llm.invoke(prompt)
+            # Use invoke_with_timeout for proper timeout handling (especially for Ollama)
+            # 75s timeout, 2 retries = up to 150s total before failing
+            router_output = invoke_with_timeout(structured_llm, prompt)
 
         if router_output is None:
             logger.warning("Router failed to make a decision")
@@ -208,6 +211,31 @@ def conversational_router(state: State):
         )
 
         if decision == "revise_query_inline":
+            # Validate that revised_query was actually provided
+            if (
+                router_output.revised_query is None
+                or not router_output.revised_query.strip()
+            ):
+                logger.warning(
+                    "Router chose 'revise_query_inline' but did not provide a revised_query. "
+                    "Falling back to 'rewrite_plan' routing."
+                )
+                # Fall back to rewrite_plan to avoid null query execution
+                return {
+                    **state,
+                    "messages": [
+                        AIMessage(
+                            content=f"Router fallback: Rewriting plan due to missing query - {router_output.reasoning}"
+                        )
+                    ],
+                    "router_mode": "rewrite",
+                    "router_instructions": (
+                        "Router attempted inline revision but failed to generate query. "
+                        "Please generate a new plan and query based on the user's request."
+                    ),
+                    "last_step": "conversational_router",
+                }
+
             # Set the revised query directly
             return {
                 **state,
@@ -256,6 +284,24 @@ def conversational_router(state: State):
                 "messages": [AIMessage(content=f"Unknown router decision: {decision}")],
                 "last_step": "conversational_router",
             }
+
+    except TimeoutError as e:
+        logger.error(f"Router LLM timeout: {str(e)}", exc_info=True)
+        # Return state that routes to planner with fallback instructions
+        return {
+            **state,
+            "messages": [
+                AIMessage(
+                    content=f"Router timeout - falling back to full planning: {str(e)}"
+                )
+            ],
+            "router_mode": "rewrite",
+            "router_instructions": (
+                "Router timed out while analyzing the conversation. "
+                "Please generate a new plan and query based on the user's request."
+            ),
+            "last_step": "conversational_router",
+        }
 
     except Exception as e:
         logger.error(f"Error in conversational router: {str(e)}", exc_info=True)

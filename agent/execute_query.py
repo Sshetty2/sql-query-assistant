@@ -108,6 +108,20 @@ def json_serial(obj):
 def execute_query(state: State, db_connection):
     """Execute the SQL query and return the result."""
     query = state["query"]
+
+    # Defensive check: ensure query is not None or empty
+    if query is None or (isinstance(query, str) and not query.strip()):
+        error_msg = (
+            "Cannot execute query: query is None or empty. "
+            "This indicates a bug in the workflow routing or query generation."
+        )
+        logger.error(error_msg, extra={"state_keys": list(state.keys())})
+        return {
+            **state,
+            "result": None,
+            "messages": state["messages"] + [AIMessage(content=f"Error: {error_msg}")],
+        }
+
     logger.info(
         "Starting query execution", extra={"query": query}
     )  # Log first 200 chars
