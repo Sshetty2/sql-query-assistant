@@ -56,16 +56,16 @@ def route_from_start(
         return "analyze_schema"
 
 
-def route_from_router(state: State) -> Literal["planner", "execute_query"]:
-    """Route from conversational_router based on decision."""
-    router_mode = state.get("router_mode")
+def route_from_router(state: State) -> Literal["planner"]:
+    """
+    Route from conversational_router based on decision.
 
-    if router_mode in ["update", "rewrite"]:
-        # Need to go through planner
-        return "planner"
-    else:
-        # Inline revision - query is already set, go straight to execute
-        return "execute_query"
+    All conversational routing now goes through the planner to ensure
+    SQL is generated safely via the join synthesizer (prevents SQL injection).
+    """
+    # Router always sets router_mode to "update" or "rewrite"
+    # Both go through planner -> join synthesizer pipeline
+    return "planner"
 
 
 def route_after_clarification(

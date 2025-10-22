@@ -27,56 +27,56 @@ def create_router_prompt(**format_params):
 
 Analyze follow-up user requests in context of previous queries and decide how to handle them.
 
-Decision Types - Choose one of three routing decisions:
+IMPORTANT SECURITY NOTE: You NEVER generate SQL directly. All SQL generation goes through
+the planner → join synthesizer pipeline to prevent SQL injection. Your job is to route the
+request and provide instructions to the planner.
 
-1. **revise_query_inline**: Use when the user wants a SMALL change to the SQL query itself:
-   - Adding or removing a single column
-   - Changing LIMIT/TOP value
-   - Minor syntax adjustments
-   - Simple query modifications that don't require replanning
+Decision Types - Choose one of two routing decisions:
 
-   For this decision, generate the complete revised SQL query in `revised_query`.
-
-2. **update_plan**: Use when the user wants MINOR modifications to the query plan:
+1. **update_plan**: Use when the user wants MINOR modifications to the existing query plan:
    - Adding/removing/modifying filters
+   - Adding or removing columns from the selection
    - Changing sort order or grouping
    - Adjusting existing joins
-   - Changes that affect the plan but use the same core tables
+   - Changing LIMIT/TOP values
+   - Minor adjustments that build on the existing plan
 
    For this decision, provide clear instructions in `routing_instructions` describing
-   what the planner should modify.
+   exactly what the planner should modify.
 
-3. **rewrite_plan**: Use when the user wants MAJOR changes requiring a new plan:
+2. **rewrite_plan**: Use when the user wants MAJOR changes requiring a new plan:
    - Querying different tables or entities
    - Completely different business question
    - Adding tables that require new join logic
    - Fundamental shift in query intent
+   - Starting fresh with a new approach
 
    For this decision, provide high-level guidance in `routing_instructions` about
    the new direction.
 
 Guidelines:
 
-- **Be conservative with revise_query_inline**: Only use for trivial SQL modifications.
-  If unsure whether the change affects the plan, choose update_plan instead.
+- **Be specific in instructions**: Provide actionable guidance for the planner.
+  Bad: "Update the query"
+  Good: "Add a filter on the Status column to only show records where Status = 'Active'"
+  Good: "Add ProductName column to the selections"
+  Good: "Remove the DateCreated filter and add sorting by Price descending"
 
 - **Context is key**: Consider the entire conversation history, not just the latest request.
   The user might reference earlier queries or results.
 
-- **Be specific in instructions**: When routing to the planner, provide actionable guidance.
-  Bad: "Update the query"
-  Good: "Add a filter on the Status column to only show records where Status = 'Active'"
-
 - **Preserve intent**: Ensure the decision maintains the user's original intent while
   incorporating their requested changes.
+
+- **When in doubt, use update_plan**: For most follow-up requests, update_plan is appropriate.
+  Only use rewrite_plan when the user is asking a fundamentally different question.
 
 Output Format:
 
 Return ONLY a valid RouterOutput JSON object with:
-- decision: Routing choice
-- reasoning: Clear explanation of decision
-- revised_query: Complete SQL (only if decision = "revise_query_inline")
-- routing_instructions: Instructions for planner (only if decision = "update_plan" or "rewrite_plan")
+- decision: Routing choice ("update_plan" or "rewrite_plan")
+- reasoning: Clear explanation of why you chose this decision
+- routing_instructions: Specific instructions for the planner on what to change
 """
 
     user_input = """USER INPUT:
@@ -210,47 +210,9 @@ def conversational_router(state: State):
             extra={"decision": decision, "reasoning": router_output.reasoning},
         )
 
-        if decision == "revise_query_inline":
-            # Validate that revised_query was actually provided
-            if (
-                router_output.revised_query is None
-                or not router_output.revised_query.strip()
-            ):
-                logger.warning(
-                    "Router chose 'revise_query_inline' but did not provide a revised_query. "
-                    "Falling back to 'rewrite_plan' routing."
-                )
-                # Fall back to rewrite_plan to avoid null query execution
-                return {
-                    **state,
-                    "messages": [
-                        AIMessage(
-                            content=f"Router fallback: Rewriting plan due to missing query - {router_output.reasoning}"
-                        )
-                    ],
-                    "router_mode": "rewrite",
-                    "router_instructions": (
-                        "Router attempted inline revision but failed to generate query. "
-                        "Please generate a new plan and query based on the user's request."
-                    ),
-                    "last_step": "conversational_router",
-                }
-
-            # Set the revised query directly
-            return {
-                **state,
-                "messages": [
-                    AIMessage(
-                        content=f"Router decision: Inline query revision - {router_output.reasoning}"
-                    )
-                ],
-                "query": router_output.revised_query,
-                "router_mode": None,  # No need for planner
-                "router_instructions": None,
-                "last_step": "conversational_router",
-            }
-
-        elif decision == "update_plan":
+        # Route to planner based on decision type
+        # All routing goes through planner -> join synthesizer (no direct SQL generation)
+        if decision == "update_plan":
             # Route to planner with update instructions
             return {
                 **state,
@@ -264,7 +226,7 @@ def conversational_router(state: State):
                 "last_step": "conversational_router",
             }
 
-        elif decision == "rewrite_plan":
+        else:  # decision == "rewrite_plan"
             # Route to planner with rewrite instructions
             return {
                 **state,
@@ -275,13 +237,6 @@ def conversational_router(state: State):
                 ],
                 "router_mode": "rewrite",
                 "router_instructions": router_output.routing_instructions,
-                "last_step": "conversational_router",
-            }
-
-        else:
-            return {
-                **state,
-                "messages": [AIMessage(content=f"Unknown router decision: {decision}")],
                 "last_step": "conversational_router",
             }
 
