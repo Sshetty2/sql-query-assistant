@@ -90,7 +90,9 @@ def analyze_schema(state: State, db_connection):
             combined_schema_with_metadata = combine_schema(schema)
 
         # Debug: Write full_schema to a JSON file
-        with open("debug/combined_schema_with_metadata.json", "w") as f:
+        with open(
+            "debug/debug_combined_schema_with_metadata.json", "w", encoding="utf-8"
+        ) as f:
             json.dump(combined_schema_with_metadata, f, indent=2)
 
         logger.info(

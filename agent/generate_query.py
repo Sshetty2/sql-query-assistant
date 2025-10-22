@@ -1225,7 +1225,7 @@ def generate_query(state: State):
             query = build_sql_query(plan_dict, state, db_context)
 
         # Debug: Write generated SQL
-        with open("debug/generated_sql.txt", "w") as f:
+        with open("debug/debug_generated_sql.txt", "w", encoding="utf-8") as f:
             f.write(query)
 
         logger.info(

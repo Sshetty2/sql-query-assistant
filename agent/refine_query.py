@@ -154,7 +154,8 @@ def refine_query(state: State) -> Dict[str, Any]:
 
     # Debug: Save the refined planner output to a file
     debug_output_path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "debug/refined_planner_output.json"
+        os.path.dirname(os.path.dirname(__file__)),
+        "debug/debug_refined_planner_output.json",
     )
     try:
         with open(debug_output_path, "w", encoding="utf-8") as f:

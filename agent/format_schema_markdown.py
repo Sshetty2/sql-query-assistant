@@ -118,7 +118,7 @@ def convert_schema_to_markdown(state: State):
 
         # Debug: Write markdown to file for inspection
         debug_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "debug/schema_markdown.md"
+            os.path.dirname(os.path.dirname(__file__)), "debug/debug_schema_markdown.md"
         )
         try:
             with open(debug_path, "w", encoding="utf-8") as f:
