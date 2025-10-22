@@ -14,24 +14,6 @@ load_dotenv()
 logger = get_logger()
 
 
-def load_planner_output_example():
-    """Load the planner output example JSON structure."""
-    example_path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)),
-        "models",
-        "planner_output.json",
-    )
-    with open(example_path, "r") as f:
-        return json.load(f)
-
-
-def load_schema_model_description():
-    """Load the schema model description."""
-    schema_model_path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "models", "schema_model.json"
-    )
-    with open(schema_model_path, "r") as f:
-        return json.load(f)
 
 
 def load_domain_guidance():
@@ -98,10 +80,7 @@ Revise an existing SQL query execution plan based on user feedback.
 - Add/remove columns as requested
 - Adjust joins if needed for new requirements
 - Update confidence if assumptions have changed
-
-## Output Format
-Return ONLY a JSON object that conforms to the following json structure:
-{planner_example}"""
+"""
 
     elif mode == "rewrite":
         system_instructions = """# SYSTEM INSTRUCTIONS
@@ -131,10 +110,7 @@ Create a NEW SQL query execution plan based on an updated user request.
 - Start fresh but learn from previous assumptions/ambiguities
 - Use the full schema to make the best decisions
 - Don't force-fit the old plan structure onto the new request
-
-## Output Format
-Return ONLY a JSON object that conforms to the following json structure:
-{planner_example}"""  # noqa: E501
+"""  # noqa: E501
 
     else:  # Initial mode (None)
         system_instructions = """# SYSTEM INSTRUCTIONS
@@ -160,10 +136,7 @@ Multi-step SQL query generation system.
    - How tables might be related (based on foreign keys and context)
    - Any time-based constraints
    - Ambiguities or assumptions being made
-
-## Output Format
-Return ONLY a JSON object that conforms to the following json structure:
-{planner_example}"""  # noqa: E501
+"""  # noqa: E501
 
     # Common continuation of system instructions
     system_instructions += """
@@ -227,15 +200,6 @@ When creating FilterPredicate objects in the `filters` array:
 | `ends_with` | `{{"op": "ends_with", "value": ".com"}}` | String ends with |
 | `is_null` | `{{"op": "is_null", "value": null}}` | Check for NULL |
 | `is_not_null` | `{{"op": "is_not_null", "value": null}}` | Check for NOT NULL |
-
----
-
-# DATABASE SCHEMA
-
-## Schema Format
-The schema you'll receive follows this format:
-
-{schema_model}
 
 ---
 
@@ -457,9 +421,7 @@ def plan_query(state: State):
 
         parameters_text = "\n".join(params) if params else "No additional parameters"
 
-        # Load schemas
-        schema_model = load_schema_model_description()
-        planner_example = load_planner_output_example()
+        # Load domain guidance
         domain_guidance = load_domain_guidance()
 
         # Format domain guidance text
@@ -501,9 +463,7 @@ def plan_query(state: State):
 
         # Build format parameters
         format_params = {
-            "planner_example": json.dumps(planner_example, indent=2),
             "domain_guidance": domain_text,
-            "schema_model": json.dumps(schema_model, indent=2),
             "user_query": user_query,
             "parameters": parameters_text,
             "schema_note": schema_note,

@@ -128,9 +128,9 @@ def handle_tool_error(state) -> dict:
 
         Analyze the error and provide a **corrected plan** (not a query - the query will be regenerated).
 
-        Return a JSON object with:
-        - `reasoning`: Explanation of what caused the error and how the plan was corrected
-        - `corrected_plan`: A complete PlannerOutput object with the corrections applied
+        Provide:
+        - Reasoning explaining what caused the error and how the plan was corrected
+        - A complete corrected plan with the corrections applied
          """  # noqa: E501
     )
 

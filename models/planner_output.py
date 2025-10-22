@@ -243,12 +243,18 @@ class PlannerOutput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    decision: Decision
+    decision: Decision = Field(
+        ...,
+        description="Decision on how to proceed: 'proceed' for executable plan, 'clarify' for ambiguous but viable plan, 'terminate' for invalid/impossible query"
+    )
     intent_summary: str = Field(
         ..., description="One sentence summary of what the user wants"
     )
 
-    selections: Annotated[List[TableSelection], Field(min_length=1)]
+    selections: Annotated[
+        List[TableSelection],
+        Field(min_length=1, description="List of tables to include in the query with their columns and filters")
+    ]
     global_filters: List[FilterPredicate] = Field(
         default_factory=list,
         description="Filters that logically apply across tables (e.g., vendor='Cisco')",
@@ -282,7 +288,12 @@ class PlannerOutput(BaseModel):
     termination_reason: Optional[str] = Field(
         None, description="Explanation for why the query should be terminated (only when decision='terminate')"
     )
-    confidence: float = Field(0.7, ge=0.0, le=1.0)
+    confidence: float = Field(
+        0.7,
+        ge=0.0,
+        le=1.0,
+        description="Confidence level in the query plan (0.0 to 1.0)"
+    )
 
     @field_validator("selections")
     @classmethod

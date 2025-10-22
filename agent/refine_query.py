@@ -126,9 +126,9 @@ def refine_query(state: State) -> Dict[str, Any]:
 
         Analyze why the query returned no results and provide a **refined plan** (not a query - the query will be regenerated).
 
-        Return a JSON object with:
-        - `reasoning`: Explanation of why no results were returned and how the plan was refined
-        - `refined_plan`: A complete PlannerOutput object with the refinements applied
+        Provide:
+        - Reasoning explaining why no results were returned and how the plan was refined
+        - A complete refined plan with the refinements applied
         """  # noqa: E501
     )
 

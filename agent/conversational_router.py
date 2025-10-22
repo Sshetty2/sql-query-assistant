@@ -71,12 +71,14 @@ Guidelines:
 - **When in doubt, use update_plan**: For most follow-up requests, update_plan is appropriate.
   Only use rewrite_plan when the user is asking a fundamentally different question.
 
-Output Format:
+---
 
-Return ONLY a valid RouterOutput JSON object with:
-- decision: Routing choice ("update_plan" or "rewrite_plan")
-- reasoning: Clear explanation of why you chose this decision
-- routing_instructions: Specific instructions for the planner on what to change
+## Instructions
+
+Provide:
+- Your routing decision ("update_plan" or "rewrite_plan")
+- Clear reasoning for why you chose this decision
+- Specific routing instructions for the planner on what to change
 """
 
     user_input = """USER INPUT:

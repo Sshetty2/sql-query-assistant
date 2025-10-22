@@ -135,8 +135,7 @@ def check_clarification(state: State) -> Dict[str, Any]:
 
         ## Instructions
 
-        Return a JSON object with:
-        - `suggestions`: A list of 3-5 declarative clarification statements (NOT questions)
+        Generate 3-5 declarative clarification statements (NOT questions).
 
         Remember: These are clarifications that augment the original query, not new query suggestions.
         They should be combinable and will be used to refine the existing plan.
