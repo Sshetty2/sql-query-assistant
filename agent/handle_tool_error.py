@@ -157,7 +157,7 @@ def handle_tool_error(state) -> dict:
     # Debug: Save the corrected planner output to a file
     debug_output_path = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
-        "debug_corrected_planner_output.json",
+        "debug/corrected_planner_output.json",
     )
     try:
         with open(debug_output_path, "w", encoding="utf-8") as f:

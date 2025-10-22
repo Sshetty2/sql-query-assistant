@@ -37,7 +37,9 @@ def load_schema_model_description():
 def load_domain_guidance():
     """Load domain-specific guidance if available."""
     guidance_path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "models", "domain_guidance.json"
+        os.path.dirname(os.path.dirname(__file__)),
+        "domain-specific-guidance",
+        "domain-specific-guidance-instructions.json",
     )
     try:
         if os.path.exists(guidance_path):
@@ -529,7 +531,7 @@ def plan_query(state: State):
 
         # Debug: Save the prompt to a file
         debug_prompt_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "debug_planner_prompt.json"
+            os.path.dirname(os.path.dirname(__file__)), "debug/planner_prompt.json"
         )
         try:
             with open(debug_prompt_path, "w", encoding="utf-8") as f:
@@ -591,7 +593,7 @@ def plan_query(state: State):
         # Debug: Save the planner output to a file
         debug_output_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
-            "debug_generated_planner_output.json",
+            "debug/generated_planner_output.json",
         )
         try:
             with open(debug_output_path, "w", encoding="utf-8") as f:

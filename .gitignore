@@ -7,10 +7,11 @@ venv/
 
 *debug*
 
-cwp_*
+# Domain-specific configuration files (not committed)
+domain_specific_guidance/domain-specific-*.json
+# But keep the example files
+!domain_specific_guidance/domain-specific-*.example.json
 
 .claude/
-
-models/domain_guidance.json
 
 thread_states.json

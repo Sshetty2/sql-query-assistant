@@ -101,7 +101,7 @@ def filter_schema(state: State, vector_store=None):
 
     # Debug: Save the embedded content to a file
     debug_path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "debug_embedded_content.json"
+        os.path.dirname(os.path.dirname(__file__)), "debug/embedded_content.json"
     )
     try:
         with open(debug_path, "w", encoding="utf-8") as f:

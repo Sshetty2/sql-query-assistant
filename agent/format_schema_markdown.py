@@ -58,14 +58,13 @@ def format_schema_to_markdown(schema: list) -> str:
         if columns:
             markdown_lines.append("### Columns")
             markdown_lines.append("")
-            markdown_lines.append("| Column Name | Data Type | Nullable |")
-            markdown_lines.append("|-------------|-----------|----------|")
+            markdown_lines.append("| Column Name | Data Type |")
+            markdown_lines.append("|-------------|-----------|")
 
             for col in columns:
                 col_name = col.get("column_name", "")
                 data_type = col.get("data_type", "")
-                is_nullable = col.get("is_nullable", "")
-                markdown_lines.append(f"| {col_name} | {data_type} | {is_nullable} |")
+                markdown_lines.append(f"| {col_name} | {data_type} |")
 
             markdown_lines.append("")
 
@@ -85,13 +84,6 @@ def format_schema_to_markdown(schema: list) -> str:
                 if from_col and to_table:
                     markdown_lines.append(f"- **{from_col}** → `{to_table}.{to_col}`")
 
-            markdown_lines.append("")
-
-        # Add relationship description if available
-        if metadata.get("relationships"):
-            markdown_lines.append("### Relationships")
-            markdown_lines.append("")
-            markdown_lines.append(metadata["relationships"])
             markdown_lines.append("")
 
         markdown_lines.append("---")
@@ -126,7 +118,7 @@ def convert_schema_to_markdown(state: State):
 
         # Debug: Write markdown to file for inspection
         debug_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "debug_schema_markdown.md"
+            os.path.dirname(os.path.dirname(__file__)), "debug/schema_markdown.md"
         )
         try:
             with open(debug_path, "w", encoding="utf-8") as f:

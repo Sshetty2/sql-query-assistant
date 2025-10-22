@@ -1,0 +1,24 @@
+[
+  {
+    "table_name": "example_table_1",
+    "foreign_keys": [
+      {
+        "foreign_key": "CompanyID",
+        "primary_key_table": "tb_Company"
+      },
+      {
+        "foreign_key": "UserID",
+        "primary_key_table": "tb_Users"
+      }
+    ]
+  },
+  {
+    "table_name": "example_table_2",
+    "foreign_keys": [
+      {
+        "foreign_key": "ParentID",
+        "primary_key_table": "example_table_1"
+      }
+    ]
+  }
+]

@@ -1,0 +1,17 @@
+[
+  {
+    "question": "Example user question about your domain",
+    "sql": "SELECT column1, column2 FROM table_name WHERE condition = 'value'",
+    "description": "What this query demonstrates or why it's useful"
+  },
+  {
+    "question": "Another common question users might ask",
+    "sql": "SELECT t1.id, t2.name FROM table1 t1 JOIN table2 t2 ON t1.fk = t2.id",
+    "description": "Example of a JOIN query pattern"
+  },
+  {
+    "question": "Query with aggregation",
+    "sql": "SELECT category, COUNT(*) as count FROM items GROUP BY category ORDER BY count DESC",
+    "description": "Example showing aggregation and grouping"
+  }
+]

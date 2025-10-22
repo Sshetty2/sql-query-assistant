@@ -45,6 +45,29 @@ DB_PASSWORD=your_database_password
 AI_MODEL=gpt-4-turbo-preview
 ```
 
+4. **Configure domain-specific guidance** (Required for production use):
+
+The SQL Query Assistant uses domain-specific configuration files to understand your database schema and terminology. These files help the LLM generate accurate queries for your specific domain.
+
+```bash
+cd domain_specific_guidance
+
+# Copy example files
+cp domain-specific-guidance-instructions.example.json domain-specific-guidance-instructions.json
+cp domain-specific-table-metadata.example.json domain-specific-table-metadata.json
+cp domain-specific-foreign-keys.example.json domain-specific-foreign-keys.json
+
+# Edit these files to match your database schema and domain
+# See domain_specific_guidance/README.md for detailed instructions
+```
+
+**What these files do:**
+- **domain-specific-guidance-instructions.json**: Maps domain terminology (e.g., "vulnerabilities" → "CVE table")
+- **domain-specific-table-metadata.json**: Provides table descriptions and metadata
+- **domain-specific-foreign-keys.json**: Defines table relationships for accurate JOINs
+
+**📖 For detailed configuration instructions, see [domain_specific_guidance/README.md](domain_specific_guidance/README.md)**
+
 ## 🚀 Usage
 
 1. Start the application:

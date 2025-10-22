@@ -1,9 +1,9 @@
 import json
 import pytest
-from agent.combine_json_schema import (
+from domain_specific_guidance.combine_json_schema import (
     combine_schema,
     remove_empty_properties,
-    load_json,
+    load_domain_specific_json,
 )
 from unittest.mock import patch
 
@@ -13,9 +13,9 @@ def sample_schema():
     return [
         {
             "table_name": "users",
-            "c": [
-                {"name": "id", "type": "integer"},
-                {"name": "name", "type": "string"},
+            "columns": [
+                {"column_name": "id", "data_type": "integer"},
+                {"column_name": "name", "data_type": "string"},
             ],
         }
     ]
@@ -28,7 +28,6 @@ def sample_metadata():
             "table_name": "users",
             "description": "User table",
             "key_columns": "id\nname",
-            "row_count_estimate": 100,
         }
     ]
 
@@ -68,18 +67,19 @@ def test_combine_schema_with_test_db(mock_getenv):
 def test_combine_schema_full(
     sample_schema, sample_metadata, sample_foreign_keys, tmp_path
 ):
-    metadata_file = tmp_path / "metadata.json"
-    foreign_keys_file = tmp_path / "foreign_keys.json"
+    metadata_file = tmp_path / "domain-specific-table-metadata.json"
+    foreign_keys_file = tmp_path / "domain-specific-foreign-keys.json"
 
     with open(metadata_file, "w") as f:
         json.dump(sample_metadata, f)
     with open(foreign_keys_file, "w") as f:
         json.dump(sample_foreign_keys, f)
 
-    with patch("os.getenv", return_value="false"):
-        result = combine_schema(
-            sample_schema, str(metadata_file), str(foreign_keys_file)
-        )
+    # Mock the current directory to point to tmp_path and USE_TEST_DB=false
+    with patch("os.path.dirname", return_value=str(tmp_path)), patch(
+        "os.getenv", return_value="false"
+    ):
+        result = combine_schema(sample_schema)
 
     assert len(result) == 1
     assert result[0]["table_name"] == "users"
@@ -88,17 +88,23 @@ def test_combine_schema_full(
     assert "foreign_keys" in result[0]
     assert result[0]["metadata"]["description"] == "User table"
     assert result[0]["metadata"]["key_columns"] == ["id", "name"]
+    # Ensure extraneous fields are removed
+    assert "row_count_estimate" not in result[0]["metadata"]
+    assert "primary_key" not in result[0]["metadata"]
+    assert "primary_key_description" not in result[0]["metadata"]
 
 
-def test_load_json_file_not_found():
-    result = load_json("nonexistent_file.json")
-    assert result is None
+def test_load_domain_specific_json_file_not_found():
+    with patch("os.path.dirname", return_value="/nonexistent"):
+        result = load_domain_specific_json("nonexistent_file.json")
+        assert result is None
 
 
-def test_load_json_invalid_json(tmp_path):
+def test_load_domain_specific_json_invalid_json(tmp_path):
     invalid_json_file = tmp_path / "invalid.json"
     with open(invalid_json_file, "w") as f:
         f.write("{invalid json")
 
-    result = load_json(str(invalid_json_file))
-    assert result is None
+    with patch("os.path.dirname", return_value=str(tmp_path)):
+        result = load_domain_specific_json("invalid.json")
+        assert result is None

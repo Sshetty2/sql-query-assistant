@@ -1,0 +1,28 @@
+{
+  "domain": "Your Domain Name (e.g., Cyber Security, Healthcare, Finance)",
+  "terminology_mappings": {
+    "term1": {
+      "refers_to": "What this term means in your domain",
+      "primary_table": "main_table_name",
+      "description": "Detailed description of when users use this term",
+      "related_tables": ["related_table1", "related_table2"]
+    },
+    "term2": {
+      "refers_to": "Another domain-specific term",
+      "primary_table": "another_table",
+      "description": "How this term relates to your database"
+    }
+  },
+  "common_queries": {
+    "query_pattern_1": "Guidance on how to interpret this type of question",
+    "query_pattern_2": "Guidance on table joins or filters needed"
+  },
+  "important_fields": {
+    "FieldName1": "Description and format of this important field",
+    "FieldName2": "Typical values or ranges for this field"
+  },
+  "default_behaviors": {
+    "behavior_1": "Default assumption when users ask vague questions",
+    "time_relevance": "How to handle 'recent' or time-based queries"
+  }
+}

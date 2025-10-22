@@ -25,7 +25,11 @@ def load_sample_queries():
     """Load sample queries based on database type."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
 
-    filename = "test-db-queries.json" if use_test_db else "cwp_sample_queries.json"
+    filename = (
+        "test-db-queries.json"
+        if use_test_db
+        else "domain_specific_guidance/domain-specific-sample-queries.json"
+    )
     file_path = os.path.join(current_dir, filename)
 
     try:
@@ -70,7 +74,9 @@ def format_results(result):
         return pd.DataFrame()
 
 
-def render_query_results(output: dict, status_label: str = "Query executed successfully!") -> pd.DataFrame:
+def render_query_results(
+    output: dict, status_label: str = "Query executed successfully!"
+) -> pd.DataFrame:
     """
     Render query results UI elements based on output state.
     This function can be used for both fresh executions and loaded history.
@@ -116,9 +122,7 @@ def render_query_results(output: dict, status_label: str = "Query executed succe
         if output.get("planner_output"):
             with st.expander("Planner Analysis", icon="🔍"):
                 planner_output = output["planner_output"]
-                st.write(
-                    f"**Intent:** {planner_output.get('intent_summary', 'N/A')}"
-                )
+                st.write(f"**Intent:** {planner_output.get('intent_summary', 'N/A')}")
                 ambiguities = planner_output.get("ambiguities", [])
                 if ambiguities:
                     st.write("**Ambiguities:**")
@@ -140,19 +144,13 @@ def render_query_results(output: dict, status_label: str = "Query executed succe
     # Display the query plan that generated this query
     if output.get("planner_output"):
         with st.expander("Query Plan Used", icon="🗺️"):
-            st.write(
-                "This is the plan that was used to generate the executed query."
-            )
+            st.write("This is the plan that was used to generate the executed query.")
             planner_output = output["planner_output"]
 
             # Show key information at the top
             if isinstance(planner_output, dict):
-                st.write(
-                    f"**Intent:** {planner_output.get('intent_summary', 'N/A')}"
-                )
-                st.write(
-                    f"**Decision:** {planner_output.get('decision', 'N/A')}"
-                )
+                st.write(f"**Intent:** {planner_output.get('intent_summary', 'N/A')}")
+                st.write(f"**Decision:** {planner_output.get('decision', 'N/A')}")
 
                 # Show tables involved
                 selections = planner_output.get("selections", [])
@@ -184,13 +182,9 @@ def render_query_results(output: dict, status_label: str = "Query executed succe
                 if output.get("retry_count", 0) > 0:
                     st.subheader("Error Corrections")
                     st.write("Retry count:", output["retry_count"])
-                    for i, query in enumerate(
-                        output["corrected_queries"], 1
-                    ):
+                    for i, query in enumerate(output["corrected_queries"], 1):
                         st.write(f"**Attempt {i}:**")
-                        st.write(
-                            f"❌ Error: `{output['error_history'][i-1]}`"
-                        )
+                        st.write(f"❌ Error: `{output['error_history'][i-1]}`")
 
                         # Display error correction reasoning if available
                         if output.get("error_reasoning") and i <= len(
@@ -256,9 +250,7 @@ def render_query_results(output: dict, status_label: str = "Query executed succe
                 df,
                 hide_index=True,
                 column_config={
-                    col: st.column_config.TextColumn(
-                        col, help="", width="auto"
-                    )
+                    col: st.column_config.TextColumn(col, help="", width="auto")
                     for col in df.columns
                 },
             )
@@ -474,7 +466,9 @@ def main():
                     )
 
                     # Highlight if this query is currently selected
-                    is_query_selected = st.session_state.selected_query_id == query_item.get("query_id")
+                    is_query_selected = (
+                        st.session_state.selected_query_id == query_item.get("query_id")
+                    )
                     query_button_type = "primary" if is_query_selected else "secondary"
 
                     if st.button(
@@ -499,11 +493,16 @@ def main():
     button_col1, button_col2, button_col3 = st.columns([1, 1, 4])
 
     with button_col1:
-        generate_clicked = st.button("Generate Query", type="primary", use_container_width=True)
+        generate_clicked = st.button(
+            "Generate Query", type="primary", use_container_width=True
+        )
 
     with button_col2:
         # Only show download button if we have results
-        if st.session_state.current_dataframe is not None and not st.session_state.current_dataframe.empty:
+        if (
+            st.session_state.current_dataframe is not None
+            and not st.session_state.current_dataframe.empty
+        ):
             csv = st.session_state.current_dataframe.to_csv(index=False).encode("utf-8")
             st.download_button(
                 "Download CSV",
@@ -549,11 +548,15 @@ def main():
                 if output.get("needs_clarification"):
                     status.update(label="Clarification needed", state="error")
                 elif not output.get("query"):
-                    status.update(label=output.get("result", "Query error"), state="error")
+                    status.update(
+                        label=output.get("result", "Query error"), state="error"
+                    )
                 elif output.get("result") is None:
                     status.update(label="No results found", state="error")
                 else:
-                    status.update(label="Query executed successfully!", state="complete")
+                    status.update(
+                        label="Query executed successfully!", state="complete"
+                    )
 
                 # Render the results and store dataframe
                 df = render_query_results(output)
@@ -568,8 +571,12 @@ def main():
 
     # Display loaded state if a query from history is selected
     elif st.session_state.loaded_state:
-        st.info("📂 Viewing saved query results. Click 'Generate Query' to run a new query.")
-        df = render_query_results(st.session_state.loaded_state, status_label="Loaded from history")
+        st.info(
+            "📂 Viewing saved query results. Click 'Generate Query' to run a new query."
+        )
+        df = render_query_results(
+            st.session_state.loaded_state, status_label="Loaded from history"
+        )
         st.session_state.current_dataframe = df
         st.session_state.show_results = True
 

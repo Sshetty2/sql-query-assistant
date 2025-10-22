@@ -1,6 +1,6 @@
 """Router output model for conversational flow decisions."""
 
-from typing import Optional, Literal
+from typing import Literal
 from pydantic import BaseModel, Field, ConfigDict
 
 

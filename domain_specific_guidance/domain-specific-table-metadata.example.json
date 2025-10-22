@@ -1,0 +1,12 @@
+[
+  {
+    "table_name": "example_table_1",
+    "description": "Clear description of what this table stores and its purpose",
+    "key_columns": "Column1\nColumn2\nColumn3"
+  },
+  {
+    "table_name": "example_table_2",
+    "description": "Another table description",
+    "key_columns": "ImportantColumn1\nImportantColumn2"
+  }
+]
