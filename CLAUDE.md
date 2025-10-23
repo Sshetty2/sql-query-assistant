@@ -4,7 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **SQL Query Assistant** that converts natural language queries into SQL and executes them against a SQL Server database. It uses **LangGraph** for workflow orchestration, **LangChain** with **OpenAI** for query generation, and provides both a **Streamlit UI** and **FastAPI** backend.
+This is a **SQL Query Assistant** that converts natural language queries into SQL and executes them against a SQL Server database. It uses **LangGraph** for workflow orchestration, **LangChain** with **OpenAI/Ollama** for query planning, **SQLGlot** for deterministic SQL generation, and provides both a **Streamlit UI** and **FastAPI** backend.
+
+### Key Features
+
+- **Conversational Query Interface**: Refine queries through follow-up questions
+- **Deterministic SQL Generation**: SQLGlot-based join synthesizer (no LLM for SQL, zero cost)
+- **Schema Filtering**: Vector search reduces context to relevant tables only
+- **Planner Complexity Tiers**: Three levels optimized for different model sizes (minimal/standard/full)
+- **Plan Auditing**: Deterministic validation catches and fixes common mistakes
+- **Smart Error Handling**: Automatic SQL error correction and query refinement
+- **ORDER BY/LIMIT Support**: Planner generates ordering from requests like "last 10 logins"
+- **SQL Server Safety**: Automatic identifier quoting for reserved keywords
 
 ## Environment Setup
 
@@ -16,11 +27,11 @@ Required environment variables (see `.env` file):
 - `OLLAMA_BASE_URL` - Ollama server URL (default: `http://localhost:11434`, only used when `USE_LOCAL_LLM=true`)
 
 ### Model Selection
-- `AI_MODEL` - Primary model for query generation
+- `AI_MODEL` - Primary model for query planning
   - When using OpenAI: `gpt-4o-mini`, `gpt-4o`, etc.
   - When using Ollama: `qwen3:8b`, `llama3`, `mistral`, etc.
 - `AI_MODEL_REFINE` - Model for query refinement (same format as AI_MODEL)
-- `EMBEDDING_MODEL` - Model for vector search (deprecated - not currently used)
+- `PLANNER_COMPLEXITY` - Planner tier: `minimal` (8GB models), `standard` (13B-30B), `full` (GPT-4+)
 
 ### Database Configuration
 - `DB_SERVER`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - SQL Server connection details
@@ -29,7 +40,8 @@ Required environment variables (see `.env` file):
 ### Query Configuration
 - `RETRY_COUNT` - Max retries for query errors (default: 3)
 - `REFINE_COUNT` - Max refinement attempts for empty results (default: 3)
-- `TOP_MOST_RELEVANT_TABLES` - Number of tables to retrieve via vector search (default: 3)
+- `TOP_MOST_RELEVANT_TABLES` - Number of tables to retrieve via vector search (default: 8)
+- `EMBEDDING_MODEL` - Embedding model for vector search (default: `text-embedding-3-small`)
 
 ## Development Commands
 
@@ -59,7 +71,7 @@ pytest
 
 **Run specific test file:**
 ```bash
-pytest tests/unit/test_combine_json_schema.py
+pytest tests/unit/test_plan_audit.py
 ```
 
 **Run with verbose output:**
@@ -95,7 +107,8 @@ Flake8 config in `.flake8`:
 1. Set `USE_LOCAL_LLM=true` in `.env`
 2. Set `AI_MODEL=qwen3:8b` (or your preferred Ollama model)
 3. Set `AI_MODEL_REFINE=qwen3:8b`
-4. Optionally set `OLLAMA_BASE_URL` if using a non-default Ollama server
+4. Set `PLANNER_COMPLEXITY=minimal` (recommended for 8GB models)
+5. Optionally set `OLLAMA_BASE_URL` if using a non-default Ollama server
 
 **Benefits:**
 - No API costs (runs locally)
@@ -125,28 +138,62 @@ Note: When using Docker, set `DB_SERVER=host.docker.internal` to connect to loca
 
 ### LangGraph Workflow
 
-The agent uses a **state machine workflow** (defined in `agent/create_agent.py`) with the following nodes:
+The agent uses a **LangGraph state machine workflow** (defined in `agent/create_agent.py`). The workflow adapts based on whether the query is new or a conversational follow-up.
 
-1. **analyze_schema** - Retrieves full database schema with table/column metadata
-2. **filter_schema** - Uses **vector similarity search** to find the most relevant tables for the user's query
-3. **generate_query** - Generates SQL query using LLM with filtered schema context
-4. **execute_query** - Executes the query against the database
-5. **Conditional routing:**
-   - **handle_error** - Corrects SQL syntax/execution errors (loops back to execute)
-   - **refine_query** - Refines query if results are empty/None (loops back to execute)
+#### New Query Workflow
+
+1. **analyze_schema** - Retrieves full database schema with table/column metadata and foreign keys
+2. **filter_schema** - Uses **vector similarity search** to find the top-k most relevant tables (default: 8)
+3. **format_schema_markdown** - Converts filtered schema to markdown format optimized for LLM consumption
+4. **planner** - LLM generates structured query plan (PlannerOutput) with:
+   - Table selections with columns and filters
+   - Join edges (foreign key relationships)
+   - Aggregations (GROUP BY, HAVING)
+   - ORDER BY and LIMIT specifications
+   - Three operational modes: initial, update, rewrite
+   - Three complexity tiers: minimal, standard, full
+5. **plan_audit** - Deterministic validation and fixes:
+   - Validates column existence
+   - Fixes orphaned filter columns
+   - Completes GROUP BY clauses
+   - Removes invalid joins and filters
+6. **check_clarification** - Analyzes planner decision (proceed/clarify/terminate)
+7. **generate_query** - Deterministic join synthesizer using SQLGlot:
+   - No LLM calls - purely algorithmic transformation
+   - Builds SQL AST from PlannerOutput
+   - Automatic identifier quoting for reserved keywords
+   - Multi-dialect support (SQL Server, SQLite, PostgreSQL, MySQL)
+8. **execute_query** - Executes the query against the database
+9. **Conditional routing:**
+   - **handle_error** - LLM-based SQL error correction (loops back to generate_query)
+   - **refine_query** - LLM-based query improvement for empty results (loops back to generate_query)
    - **cleanup** - Closes database connection and exits
+
+#### Conversational Follow-up Workflow
+
+1. **conversational_router** - Analyzes follow-up request in context of conversation history
+   - Routes to planner with mode: "update" (minor changes) or "rewrite" (major changes)
+   - Prevents SQL injection by always using planner → join synthesizer pipeline
+2. **planner** (update/rewrite mode) - Generates updated plan
+3. **plan_audit** → **check_clarification** → **generate_query** → **execute_query** (same as above)
 
 ### State Management
 
 The `State` TypedDict (in `agent/state.py`) tracks:
-- `messages` - Conversation history for the agent
-- `user_question` - Original natural language query
+- `messages` - LangGraph message history
+- `user_questions` - List of natural language questions (conversation history)
+- `queries` - List of generated SQL queries
+- `planner_outputs` - List of PlannerOutput objects (plan history)
 - `schema` - Database schema (full, then filtered)
 - `query` - Current SQL query
 - `result` - Query execution results
 - `sort_order`, `result_limit`, `time_filter` - User preferences
-- `corrected_queries` - History of error corrections
-- `refined_queries` - History of query refinements
+- `is_continuation` - Flag for conversational routing
+- `router_mode` - Conversational router mode ("update" or "rewrite")
+- `router_instructions` - Instructions from router to planner
+- `planner_output` - Current PlannerOutput object
+- `needs_clarification` - Flag for ambiguous queries
+- `clarification_suggestions` - List of clarification questions
 - `retry_count`, `refined_count` - Iteration counters
 - `error_history` - List of errors encountered
 - `refined_reasoning` - Explanations for refinements
@@ -154,23 +201,84 @@ The `State` TypedDict (in `agent/state.py`) tracks:
 ### Key Components
 
 **Schema Filtering (`agent/filter_schema.py`):**
-- Creates in-memory vector store from table schemas
-- Uses embeddings to find top-k most relevant tables
-- Reduces context size for LLM, improving accuracy and cost
+- Creates in-memory FAISS vector store from table descriptions
+- Uses embeddings (default: text-embedding-3-small) to find top-k most relevant tables
+- Reduces context size by 60-90%, improving accuracy and reducing costs
 
-**Query Generation (`agent/generate_query.py`):**
-- Takes filtered schema + user question + preferences
-- Generates SQL with proper sorting, limits, time filtering
+**Query Planning (`agent/planner.py`):**
+- Three complexity tiers (configured via `PLANNER_COMPLEXITY`):
+  - **minimal** (8GB models): 93% token reduction, basic features
+  - **standard** (13B-30B models): 61% token reduction, includes reason fields
+  - **full** (GPT-4+ models): Complete feature set with window functions, CTEs, subqueries
+- Three operational modes:
+  - **initial**: New query, uses full filtered schema
+  - **update**: Minor plan modifications, omits schema
+  - **rewrite**: Major changes, uses full filtered schema
+- Outputs structured PlannerOutput Pydantic model
+
+**Plan Auditing (`agent/plan_audit.py`):**
+- Deterministic validation and fixes (no LLM calls)
+- Validates column existence against schema
+- Fixes orphaned filter columns (columns marked as "filter" but without filter predicates)
+- Completes GROUP BY clauses (adds missing projection columns)
+- Removes invalid joins and filters
+- Filters schema to only tables in plan
+
+**Clarification Detection (`agent/check_clarification.py`):**
+- Analyzes planner decision field: "proceed", "clarify", or "terminate"
+- Extracts ambiguities and clarification suggestions
+- Routes to cleanup if terminated, otherwise proceeds to SQL generation
+
+**Deterministic Join Synthesizer (`agent/generate_query.py`):**
+- Uses SQLGlot AST for SQL generation (zero LLM calls)
+- Builds SQL from PlannerOutput:
+  1. SELECT columns (projections and aggregates)
+  2. FROM clause with aliases
+  3. JOIN clauses from join edges
+  4. WHERE clause from filters (table-level, global, subquery, time)
+  5. GROUP BY and HAVING
+  6. ORDER BY (priority: plan.order_by > state.sort_order)
+  7. LIMIT (priority: plan.limit > state.result_limit)
+- Automatic identifier quoting: `identify=True` prevents SQL Server reserved keyword errors
+- Multi-dialect support via SQLGlot
+
+**Conversational Router (`agent/conversational_router.py`):**
+- Analyzes follow-up questions using LLM
+- Decides routing mode:
+  - **update**: Minor changes (add/remove columns, filters, ORDER BY)
+  - **rewrite**: Major changes (different tables, new domain)
+- Generates routing instructions for planner
+- Always routes through planner → join synthesizer (prevents SQL injection)
 
 **Error Handling (`agent/handle_tool_error.py`):**
 - Analyzes SQL execution errors
 - Uses LLM to correct syntax/semantic issues
+- Updates PlannerOutput with corrections
 - Tracks correction history
 
 **Query Refinement (`agent/refine_query.py`):**
-- Triggered when query returns no results
+- Triggered when query returns no/empty results
 - Analyzes why query failed (e.g., wrong filters, missing joins)
-- Generates improved query
+- Uses LLM to generate improved PlannerOutput
+- Tracks refinement history and reasoning
+
+### Planner Complexity Tiers
+
+The system supports three planner complexity levels (configured via `PLANNER_COMPLEXITY` environment variable):
+
+| Tier | Models | Prompt Tokens | Features |
+|------|--------|---------------|----------|
+| **minimal** | qwen3:8b, llama3:8b, mistral:7b | ~265 (93% reduction) | Selections, joins, filters, GROUP BY, ORDER BY, LIMIT |
+| **standard** | mixtral:8x7b, qwen2.5:14b, llama3.1:13b | ~1,500 (61% reduction) | + Reason fields for debugging |
+| **full** | gpt-4o, gpt-4o-mini, claude-3.5-sonnet | ~3,832 (baseline) | + Window functions, CTEs, subqueries |
+
+**Model Selection:**
+```python
+from agent.planner import get_planner_model_class
+
+# Gets appropriate model based on PLANNER_COMPLEXITY env var
+model_class = get_planner_model_class()  # PlannerOutputMinimal, PlannerOutputStandard, or PlannerOutput
+```
 
 ### Database Connection
 
@@ -183,44 +291,84 @@ The `State` TypedDict (in `agent/state.py`) tracks:
 - SQLite database for testing (`sample-db.db`, `chinook.db`)
 - Activated with `USE_TEST_DB=true`
 
-### Metadata Files
+### Domain-Specific Configuration
 
-- `cwp_table_metadata.json` - Table descriptions and column metadata for schema enrichment
-- `cwp_foreign_keys.json` - Foreign key relationships between tables
-- `test-db-queries.json`, `cwp_sample_queries.json` - Sample queries for testing
+Domain-specific guidance helps the system understand your database schema and terminology:
+
+**Configuration Files** (in `domain_specific_guidance/`):
+- `domain-specific-guidance-instructions.json` - Maps domain terminology to database concepts
+- `domain-specific-table-metadata.json` - Provides table descriptions and column metadata
+- `domain-specific-foreign-keys.json` - Defines table relationships for accurate JOINs
+- `domain-specific-sample-queries.json` - Sample queries for testing
+
+See `domain_specific_guidance/README.md` for detailed configuration instructions.
 
 ## Code Organization
 
 ```
 agent/
-├── create_agent.py         # Main LangGraph workflow setup
-├── state.py                # State TypedDict definition
-├── analyze_schema.py       # Retrieve database schema
-├── filter_schema.py        # Vector search for relevant tables
-├── generate_query.py       # LLM-based SQL generation
-├── execute_query.py        # Execute SQL against database
-├── handle_tool_error.py    # Error correction logic
-├── refine_query.py         # Query refinement for empty results
-├── query_database.py       # High-level query pipeline entry point
-└── combine_json_schema.py  # Utility to merge schema + metadata
+├── create_agent.py              # Main LangGraph workflow setup and routing logic
+├── state.py                     # State TypedDict definition
+├── query_database.py            # High-level query pipeline entry point
+│
+├── Schema Processing
+├── analyze_schema.py            # Retrieve full database schema
+├── filter_schema.py             # Vector search for relevant tables (top-k)
+├── format_schema_markdown.py    # Convert schema to markdown for LLM
+│
+├── Query Planning
+├── planner.py                   # LLM-based query planning (3 complexity tiers, 3 modes)
+├── plan_audit.py                # Deterministic plan validation and fixes
+├── check_clarification.py       # Detect ambiguities and route based on decision
+│
+├── Conversational Routing
+├── conversational_router.py     # Route follow-up queries (update/rewrite)
+│
+├── SQL Generation & Execution
+├── generate_query.py            # Deterministic join synthesizer (SQLGlot)
+├── execute_query.py             # Execute SQL against database
+│
+└── Error Handling & Refinement
+    ├── handle_tool_error.py     # LLM-based SQL error correction
+    └── refine_query.py          # LLM-based query improvement for empty results
+
+models/
+├── planner_output.py            # Full planner model (GPT-4+)
+├── planner_output_standard.py   # Standard planner model (13B-30B)
+├── planner_output_minimal.py    # Minimal planner model (8GB)
+└── router_output.py             # Conversational router output
 
 database/
-└── connection.py           # Database connection management
+└── connection.py                # Database connection management (SQL Server + SQLite)
 
 utils/
-└── llm_factory.py          # LLM provider factory (OpenAI/Ollama switcher)
+├── llm_factory.py               # LLM provider abstraction (OpenAI/Ollama switcher)
+├── logger.py                    # Structured logging configuration
+└── logging_config.py            # Log formatting and handlers
+
+domain_specific_guidance/
+├── README.md                    # Configuration guide
+├── domain-specific-guidance-instructions.json
+├── domain-specific-table-metadata.json
+├── domain-specific-foreign-keys.json
+└── domain-specific-sample-queries.json
 
 tests/
 └── unit/
-    └── test_combine_json_schema.py  # Unit tests for schema utilities
-
-server.py                   # FastAPI REST API
-streamlit_app.py            # Streamlit web UI
+    ├── test_combine_json_schema.py       # Schema combination tests
+    ├── test_orphaned_filter_columns.py   # Orphaned filter detection tests
+    ├── test_plan_audit.py                # Plan auditing tests
+    ├── test_advanced_sql_generation.py   # Advanced SQL features tests
+    ├── test_reserved_keywords.py         # Reserved keyword quoting tests
+    ├── test_openai_schema_validation.py  # OpenAI schema compatibility tests
+    ├── test_order_by_limit.py            # ORDER BY/LIMIT tests
+    └── test_sqlglot_generation.py        # SQLGlot generation tests
 ```
 
 ## Important Patterns
 
-**LLM Provider Factory:**
+### LLM Provider Factory
+
 The `utils/llm_factory.py` module provides a `get_chat_llm()` function that abstracts LLM provider selection:
 - Returns `ChatOpenAI` when `USE_LOCAL_LLM=false`
 - Returns `ChatOllama` when `USE_LOCAL_LLM=true`
@@ -235,46 +383,198 @@ llm = get_chat_llm(model_name=os.getenv("AI_MODEL"), temperature=0.7)
 structured_llm = llm.with_structured_output(PlannerOutput)
 ```
 
-**Conditional Routing:**
-The workflow uses `should_continue()` in `agent/create_agent.py` to decide next steps:
-- Checks if error occurred AND retry count < max → go to `handle_error`
-- Checks if result is None AND refined count < max → go to `refine_query`
-- Otherwise → go to `cleanup`
+### Structured Outputs with Pydantic
 
-**None Result Detection:**
-The `is_none_result()` function handles different database formats:
-- SQL Server: checks if `result[0][0] is None`
-- SQLite: checks if `result[0][0] == "[]"` (JSON array string)
+The planner and router use Pydantic models for structured LLM outputs:
+```python
+from models.planner_output import PlannerOutput
+from utils.llm_factory import get_structured_llm
 
-**Vector Search for Schema:**
-Instead of passing entire schema to LLM, the system:
-1. Embeds all table descriptions
-2. Embeds user query
-3. Retrieves top-k similar tables
-4. Only passes relevant tables to LLM
+# Get LLM with structured output support
+structured_llm = get_structured_llm(PlannerOutput, model_name="gpt-4o-mini")
 
-This significantly reduces token usage and improves query accuracy.
+# Invoke returns Pydantic model instance
+plan = structured_llm.invoke(messages)  # Returns PlannerOutput object
+```
+
+### Conditional Routing in LangGraph
+
+The workflow uses multiple conditional routing functions:
+
+**1. Initial Routing (START):**
+```python
+def route_from_start(state: State):
+    if state.get("is_continuation"):
+        return "conversational_router"
+    else:
+        return "analyze_schema"
+```
+
+**2. Router Routing:**
+```python
+def route_from_router(state: State):
+    # Router always goes to planner (no inline SQL revision)
+    return "planner"
+```
+
+**3. Clarification Routing:**
+```python
+def route_after_clarification(state: State):
+    if not state.get("planner_output"):
+        return "cleanup"  # Planner failed
+
+    decision = state["planner_output"].get("decision")
+    if decision == "terminate":
+        return "cleanup"  # Invalid query
+    else:
+        return "generate_query"  # Proceed or clarify
+```
+
+**4. Execute Query Routing:**
+```python
+def should_continue(state: State):
+    has_error = "Error" in state["messages"][-1].content
+    none_result = is_none_result(state["result"])
+
+    if has_error and state["retry_count"] < MAX_RETRY:
+        return "handle_error"
+    elif none_result and state["refined_count"] < MAX_REFINE:
+        return "refine_query"
+    else:
+        return "cleanup"
+```
+
+### Deterministic Plan Auditing
+
+The `plan_audit` node fixes common planner mistakes without LLM calls:
+- Validates all columns exist in schema
+- Removes orphaned filter columns (marked as "filter" but no FilterPredicate)
+- Completes GROUP BY clauses (adds missing projection columns)
+- Removes invalid joins (columns don't exist)
+- Filters schema to only tables in plan
+
+This catches 80-90% of errors before SQL generation, reducing retry cycles.
+
+### Reserved Keyword Handling
+
+SQL Server reserved keywords (like "Index", "Order", "Key", "Table") are automatically quoted:
+```python
+# In generate_query.py
+sql_str = query.sql(dialect="tsql", pretty=True, identify=True)
+# identify=True quotes all identifiers: Index → [Index]
+```
+
+### ORDER BY and LIMIT Support
+
+The planner can now generate ORDER BY and LIMIT directly from natural language:
+```python
+# User query: "Last 10 logins"
+planner_output = {
+    "order_by": [{"table": "tb_Logins", "column": "LoginDate", "direction": "DESC"}],
+    "limit": 10
+}
+
+# Join synthesizer uses priority:
+# 1. plan.order_by > state.sort_order
+# 2. plan.limit > state.result_limit
+```
 
 ## Testing Notes
 
 - `conftest.py` adds project root to Python path for imports
 - Unit tests use pytest fixtures
 - Test database queries available in `test-db-queries.json`
+- All 87 tests must pass before merging PRs
+
+### Running Specific Test Suites
+
+```bash
+# Plan auditing
+pytest tests/unit/test_plan_audit.py -v
+
+# Reserved keywords
+pytest tests/unit/test_reserved_keywords.py -v
+
+# ORDER BY/LIMIT
+pytest tests/unit/test_order_by_limit.py -v
+
+# OpenAI schema validation
+pytest tests/unit/test_openai_schema_validation.py -v
+```
 
 ## Additional Documentation
 
-### JOIN Synthesizer
-For detailed information about the SQL generation component (the "join synthesizer"), see **[JOIN_SYNTHESIZER.md](JOIN_SYNTHESIZER.md)**. This document covers:
-- How the planner output is transformed into SQL deterministically
-- Multi-dialect support (SQL Server, SQLite, PostgreSQL, MySQL)
-- Advanced SQL features (aggregations, window functions, subqueries, CTEs)
-- Performance characteristics and cost savings
-- SQL injection prevention and security
+### Core Documentation
+- **[README.md](README.md)**: Comprehensive project overview, installation, and usage guide
+- **[WORKFLOW_DIAGRAM.md](WORKFLOW_DIAGRAM.md)**: Visual workflow diagrams and architecture explanation
+- **[JOIN_SYNTHESIZER.md](JOIN_SYNTHESIZER.md)**: Detailed SQL generation architecture and join synthesis
 
-### Dialect Compatibility
-See **[DIALECT_FIXES_SUMMARY.md](DIALECT_FIXES_SUMMARY.md)** for:
-- Recent fixes for SQL Server compatibility
-- ILIKE → LIKE conversion
-- DATEADD syntax corrections
-- SQL injection prevention measures
-- Dialect-specific handling strategies
+### Specialized Topics
+- **[domain_specific_guidance/README.md](domain_specific_guidance/README.md)**: Configuration guide for domain-specific customization
+
+### Key Architectural Concepts
+
+🔹 **Deterministic Join Synthesizer**: SQLGlot-based SQL generation (no LLM, instant, zero cost)
+🔹 **Schema Filtering**: Vector search reduces context from full schema to top-k relevant tables
+🔹 **Planner Complexity Tiers**: Three levels optimized for different model sizes (93% token reduction for minimal)
+🔹 **Plan Auditing**: Automatic validation and fixing of common planner mistakes (catches 80-90% of errors)
+🔹 **Conversational Flow**: Stateful query refinement through follow-up questions
+🔹 **SQL Server Safety**: Automatic identifier quoting prevents reserved keyword errors
+🔹 **LLM Provider Abstraction**: Seamless switching between OpenAI and Ollama
+
+## Common Development Tasks
+
+### Adding a New Planner Feature
+
+1. Update Pydantic model in `models/planner_output.py` (and minimal/standard variants)
+2. Update planner prompt in `agent/planner.py`
+3. Update join synthesizer in `agent/generate_query.py` to handle new feature
+4. Add unit tests in `tests/unit/`
+5. Update documentation in `WORKFLOW_DIAGRAM.md` and `JOIN_SYNTHESIZER.md`
+
+### Adding a New Workflow Node
+
+1. Create node function in `agent/your_node.py`
+2. Add node to workflow in `agent/create_agent.py`:
+   ```python
+   workflow.add_node("your_node", your_node_function)
+   workflow.add_edge("previous_node", "your_node")
+   ```
+3. Update `State` TypedDict in `agent/state.py` if needed
+4. Add tests and update `WORKFLOW_DIAGRAM.md`
+
+### Debugging Workflow Issues
+
+1. Check debug files in `debug/`:
+   - `debug_generated_planner_output.json` - Raw planner output
+   - `debug_generated_sql.txt` - Generated SQL
+   - `debug_schema_markdown.md` - Filtered schema sent to planner
+
+2. Enable verbose logging:
+   ```python
+   logger.setLevel(logging.DEBUG)
+   ```
+
+3. Use LangGraph visualization:
+   ```python
+   from agent.create_agent import create_sql_agent
+   agent = create_sql_agent()
+   # Visualize workflow graph
+   agent.get_graph().print_ascii()
+   ```
+
+## Performance Considerations
+
+- Schema filtering reduces planner token usage by 60-90%
+- Deterministic join synthesizer has zero LLM cost and <10ms latency
+- Plan auditing prevents 80-90% of errors, reducing retry cycles
+- Planner complexity tiers reduce token usage by up to 93% for small models
+
+## Security Considerations
+
+- SQL injection prevented by:
+  1. No inline SQL revision (all queries go through planner → join synthesizer)
+  2. SQLGlot AST-based SQL generation (no string concatenation)
+  3. Automatic identifier quoting
+- Database credentials stored in `.env` (not committed to git)
+- OpenAI API key stored in `.env` (not committed to git)
