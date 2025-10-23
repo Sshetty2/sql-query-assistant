@@ -197,6 +197,20 @@ def render_query_results(
     with st.expander("Executed SQL Query", icon="📝", expanded=True):
         st.code(output["query"], language="sql")
 
+    # Display planner ambiguities if they exist
+    planner_output = output.get("planner_output", {})
+    if isinstance(planner_output, dict):
+        ambiguities = planner_output.get("ambiguities", [])
+        if ambiguities:
+            with st.expander("⚠️ Planner Ambiguities & Assumptions", icon="💭", expanded=False):
+                st.write("The query planner detected the following ambiguities or made assumptions:")
+                for i, ambiguity in enumerate(ambiguities, 1):
+                    st.write(f"{i}. {ambiguity}")
+                st.info(
+                    "💡 **Tip:** If the results don't match your expectations, "
+                    "try asking a follow-up question to clarify these points."
+                )
+
     # Display the query plan that generated this query
     if output.get("planner_output"):
         with st.expander("Query Plan Used", icon="🗺️"):
