@@ -132,9 +132,19 @@ The same table appears multiple times in the query without proper distinction.
         ## IMPORTANT: Plan Correction Strategy
 
         **CRITICAL: Never Give Up!**
-        - NEVER set `decision="terminate"` - always provide a corrected plan with `decision="proceed"`
-        - If you can't fix the error, simplify the query but still answer the user's question
-        - Error correction is about fixing the plan, not terminating the query
+
+        > **"With great power comes great responsibility."**
+
+        **YOU MUST USE `decision="proceed"` IN YOUR CORRECTED PLAN!**
+
+        - **NEVER EVER use `decision="terminate"`** - This will cause the entire workflow to fail
+        - If you identified tables and columns to fix → you MUST use `decision="proceed"`
+        - If you created a corrected plan structure → you MUST use `decision="proceed"`
+        - If you can't fix the error perfectly → simplify the query but still use `decision="proceed"`
+        - Error correction is about **fixing the plan**, not giving up on the query
+        - Using `decision="terminate"` will trigger a validation error and waste the correction attempt
+
+        **Rule of thumb:** If you wrote ANY corrected `selections`, `join_edges`, or `filters`, you MUST use `decision="proceed"`.
 
         **First Priority - FIX COLUMN/TABLE MISMATCHES:**
         - **Invalid column errors:** Check if column exists in a different table

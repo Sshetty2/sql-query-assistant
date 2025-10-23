@@ -10,6 +10,7 @@ from agent.plan_audit import (
     filter_schema_to_plan_tables,
     run_deterministic_checks,
     fix_group_by_completeness,
+    fix_having_filters,
 )
 
 
@@ -518,3 +519,97 @@ class TestFixGroupByCompleteness:
         assert {"table": "tb_Company", "column": "Name"} in group_by_cols
         assert {"table": "tb_Users", "column": "UserID"} in group_by_cols
         assert {"table": "tb_Users", "column": "Email"} in group_by_cols
+
+
+class TestFixHavingFilters:
+    """Test HAVING filter migration to WHERE."""
+
+    def test_moves_non_aggregated_having_to_where(self):
+        """Test that HAVING filters on non-aggregated columns move to WHERE."""
+        plan = {
+            "selections": [
+                {
+                    "table": "tb_Company",
+                    "columns": [
+                        {"table": "tb_Company", "column": "ID", "role": "projection"},
+                    ]
+                }
+            ],
+            "global_filters": [],
+            "group_by": {
+                "group_by_columns": [
+                    {"table": "tb_Company", "column": "ID"}
+                ],
+                "aggregates": [
+                    {"table": "tb_Users", "column": "ID", "function": "COUNT", "alias": "user_count"}
+                ],
+                "having_filters": [
+                    {"table": "tb_Company", "column": "Name", "op": "=", "value": "Test"}  # Not in GROUP BY!
+                ]
+            }
+        }
+
+        fixed_plan = fix_having_filters(plan)
+
+        # HAVING filter should be moved to global_filters
+        assert len(fixed_plan["global_filters"]) == 1
+        assert fixed_plan["global_filters"][0]["column"] == "Name"
+
+        # HAVING filters should be empty now
+        assert len(fixed_plan["group_by"]["having_filters"]) == 0
+
+    def test_keeps_valid_having_filters(self):
+        """Test that HAVING filters on GROUP BY columns or aggregates stay in HAVING."""
+        plan = {
+            "selections": [],
+            "global_filters": [],
+            "group_by": {
+                "group_by_columns": [
+                    {"table": "tb_Company", "column": "ID"}
+                ],
+                "aggregates": [
+                    {"table": "tb_Users", "column": "ID", "function": "COUNT", "alias": "user_count"}
+                ],
+                "having_filters": [
+                    {"table": "tb_Company", "column": "ID", "op": ">", "value": 100},  # In GROUP BY - valid
+                    {"table": "tb_Users", "column": "ID", "op": ">", "value": 5}  # Aggregated - valid
+                ]
+            }
+        }
+
+        fixed_plan = fix_having_filters(plan)
+
+        # Both filters should stay in HAVING
+        assert len(fixed_plan["group_by"]["having_filters"]) == 2
+        assert len(fixed_plan.get("global_filters", [])) == 0
+
+    def test_no_change_when_no_having_filters(self):
+        """Test that plans without HAVING filters are unchanged."""
+        plan = {
+            "selections": [],
+            "global_filters": [],
+            "group_by": {
+                "group_by_columns": [
+                    {"table": "tb_Company", "column": "ID"}
+                ],
+                "aggregates": [
+                    {"table": "tb_Users", "column": "ID", "function": "COUNT", "alias": "user_count"}
+                ],
+                "having_filters": []
+            }
+        }
+
+        fixed_plan = fix_having_filters(plan)
+        assert len(fixed_plan["group_by"]["having_filters"]) == 0
+        assert len(fixed_plan.get("global_filters", [])) == 0
+
+    def test_no_change_when_no_group_by(self):
+        """Test that plans without GROUP BY are unchanged."""
+        plan = {
+            "selections": [],
+            "global_filters": [],
+            "group_by": None
+        }
+
+        fixed_plan = fix_having_filters(plan)
+        assert fixed_plan["group_by"] is None

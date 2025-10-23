@@ -100,7 +100,7 @@ class ColoredFormatter(logging.Formatter):
         DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
         # Check if execution time is in the record (from log_execution_time)
-        execution_time = getattr(record, 'execution_time_ms', None)
+        execution_time = getattr(record, "execution_time_ms", None)
         if execution_time is not None:
             # Add execution time to the message
             original_msg = record.getMessage()
@@ -135,8 +135,14 @@ def log_execution_time(logger: logging.Logger, operation: str):
         )
 
 
-def configure_logging() -> logging.Logger:
-    """Configure logging for the application with structured JSON logging and colored console output"""
+def configure_logging(process_name: str = "app") -> logging.Logger:
+    """Configure logging for the application with structured JSON logging and colored console output
+
+    Args:
+        process_name: Name of the process for log file naming (default: "app")
+                     This allows multiple processes to have separate log files.
+                     Examples: "app", "streamlit", "api"
+    """
     global _is_configured, _queue_listener
 
     if _is_configured:
@@ -144,7 +150,7 @@ def configure_logging() -> logging.Logger:
 
     # Get configuration from environment variables
     log_dir = Path(os.getenv("LOG_DIR", "logs"))
-    log_file = log_dir / os.getenv("LOG_FILE", "app.log")
+    log_file = log_dir / f"{process_name}.log"
     log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
 
@@ -177,7 +183,7 @@ def configure_logging() -> logging.Logger:
     app_handler.setLevel(log_level)
 
     error_handler = logging.handlers.TimedRotatingFileHandler(
-        str(log_dir / "error.log"),
+        str(log_dir / f"{process_name}_error.log"),
         when="midnight",
         interval=1,
         backupCount=90,

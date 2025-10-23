@@ -9,14 +9,12 @@ import pandas as pd
 from agent.query_database import query_database
 from utils.logger import get_logger
 from utils.thread_manager import (
-    get_all_threads,
     load_thread_states,
     get_thread_queries,
-    get_query_state,
 )
 
 load_dotenv()
-logger = get_logger()
+logger = get_logger("streamlit")
 
 use_test_db = os.getenv("USE_TEST_DB").lower() == "true"
 
@@ -48,6 +46,43 @@ SAMPLE_QUERIES = load_sample_queries()
 
 st.set_page_config(
     page_title="SQL Query Assistant", layout="wide", initial_sidebar_state="auto"
+)
+
+# Custom CSS for layout and styling
+st.markdown(
+    """
+    <style>
+    /* Reduce main container vertical padding */
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 2rem !important;
+    }
+
+    /* Scrollable container styling */
+    .scrollable-container {
+        height: 200px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding-right: 10px;
+    }
+    /* Customize scrollbar */
+    .scrollable-container::-webkit-scrollbar {
+        width: 8px;
+    }
+    .scrollable-container::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 10px;
+    }
+    .scrollable-container::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 10px;
+    }
+    .scrollable-container::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 st.title("SQL Query Assistant")
@@ -94,17 +129,21 @@ def render_query_results(
         st.error("🚫 Query Terminated")
         termination_reason = planner_output.get(
             "termination_reason",
-            "The query cannot be answered with the available database schema."
+            "The query cannot be answered with the available database schema.",
         )
         st.warning(termination_reason)
-        st.info("💡 **Tip:** Try asking a question related to the data in this database.")
+        st.info(
+            "💡 **Tip:** Try asking a question related to the data in this database."
+        )
         return None  # Return early, no results to display
 
     # Check if clarification is needed
-    if output.get("needs_clarification"):
+    has_clarification = output.get("needs_clarification")
+    if has_clarification:
         st.warning(
             "⚠️ Your question may benefit from clarification. "
-            "The query was executed, but you can select a clarification below to refine it."
+            "The query was executed with best-guess assumptions - results are shown below. "
+            "You can select a clarification to refine the query."
         )
 
         # Display clarification suggestions
@@ -122,19 +161,21 @@ def render_query_results(
                     type="secondary",
                 ):
                     # Combine the original question with the clarification
-                    original_question = output.get("user_question", st.session_state.question_input)
+                    original_question = output.get(
+                        "user_question", st.session_state.question_input
+                    )
                     combined_question = f"{original_question}. {suggestion}"
                     st.session_state.question_input = combined_question
                     st.session_state.selected_query_id = None
                     st.rerun()
 
             st.divider()
-            st.write("**Or modify your original question:**")
-            st.code(output.get("user_question", ""), language="text")
 
         # Show planner output for debugging
         if output.get("planner_output"):
-            with st.expander("Planner Analysis", icon="🔍"):
+            with st.expander(
+                "Planner Analysis (Ambiguities Detected)", icon="🔍", expanded=False
+            ):
                 planner_output = output["planner_output"]
                 st.write(f"**Intent:** {planner_output.get('intent_summary', 'N/A')}")
                 ambiguities = planner_output.get("ambiguities", [])
@@ -144,7 +185,8 @@ def render_query_results(
                         st.write(f"  - {amb}")
                 st.json(planner_output)
 
-        return pd.DataFrame()
+        # Continue to show query and results below
+        # (Don't return early - let the rest of the function display results)
 
     if not output.get("query"):
         st.error("Query error.")
@@ -258,7 +300,13 @@ def render_query_results(
 
     with tab1:
         if not df.empty:
-            st.success(status_label)
+            # Adjust status message if clarification was suggested
+            if has_clarification:
+                st.info(
+                    "✅ Query executed successfully (with assumptions - see clarifications above)"
+                )
+            else:
+                st.success(status_label)
 
             st.dataframe(
                 df,
@@ -331,42 +379,44 @@ def main():
             st.session_state.question_input = ""
             st.rerun()
 
-        st.divider()
-
-        # Display thread list
+        # Display thread list in scrollable container
         threads = st.session_state.thread_states.get("threads", {})
 
         if threads:
-            # Sort threads by last_updated descending
-            sorted_threads = sorted(
-                threads.items(),
-                key=lambda x: x[1].get("last_updated", ""),
-                reverse=True,
-            )
+            # Use container with max height for scrolling
+            thread_container = st.container(height=200)
 
-            for thread_id, thread_info in sorted_threads:
-                original_query = thread_info.get("original_query", "Untitled")
-                query_count = len(thread_info.get("queries", []))
-
-                # Truncate query for display
-                display_query = (
-                    original_query[:47] + "..."
-                    if len(original_query) > 50
-                    else original_query
+            with thread_container:
+                # Sort threads by last_updated descending
+                sorted_threads = sorted(
+                    threads.items(),
+                    key=lambda x: x[1].get("last_updated", ""),
+                    reverse=True,
                 )
 
-                # Highlight selected thread
-                is_selected = st.session_state.selected_thread_id == thread_id
-                button_type = "primary" if is_selected else "secondary"
+                for thread_id, thread_info in sorted_threads:
+                    original_query = thread_info.get("original_query", "Untitled")
+                    query_count = len(thread_info.get("queries", []))
 
-                if st.button(
-                    f"{'🔵 ' if is_selected else ''}{display_query}\n({query_count} queries)",
-                    key=f"thread_{thread_id}",
-                    use_container_width=True,
-                    type=button_type,
-                ):
-                    st.session_state.selected_thread_id = thread_id
-                    st.rerun()
+                    # Truncate query for display
+                    display_query = (
+                        original_query[:47] + "..."
+                        if len(original_query) > 50
+                        else original_query
+                    )
+
+                    # Highlight selected thread
+                    is_selected = st.session_state.selected_thread_id == thread_id
+                    button_type = "primary" if is_selected else "secondary"
+
+                    if st.button(
+                        f"{'🔵 ' if is_selected else ''}{display_query}\n({query_count} queries)",
+                        key=f"thread_{thread_id}",
+                        use_container_width=True,
+                        type=button_type,
+                    ):
+                        st.session_state.selected_thread_id = thread_id
+                        st.rerun()
         else:
             st.info("No conversations yet. Click 'New Conversation' to start!")
 
@@ -432,7 +482,7 @@ def main():
                 "Limit Results",
                 [0, 1, 5, 25, 100, 1000],
                 help="Limit the number of returned records (0 = no limit)",
-                index=4,
+                index=0,
             )
 
         with pref_col3:
@@ -563,7 +613,10 @@ def main():
                 if planner_output.get("decision") == "terminate":
                     status.update(label="Query terminated", state="error")
                 elif output.get("needs_clarification"):
-                    status.update(label="Query executed (clarification suggested)", state="complete")
+                    status.update(
+                        label="Query executed (clarification suggested)",
+                        state="complete",
+                    )
                 elif not output.get("query"):
                     status.update(
                         label=output.get("result", "Query error"), state="error"

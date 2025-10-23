@@ -282,6 +282,16 @@ class PlannerOutput(BaseModel):
         description="Optional Common Table Expressions (WITH clauses)",
     )
 
+    # Query ordering and limiting
+    order_by: List[OrderByColumn] = Field(
+        default_factory=list,
+        description="Optional ORDER BY specification. Use this for queries like 'last 10 logins' (ORDER BY LoginDate DESC), 'top 5 customers' (ORDER BY Revenue DESC), etc.",
+    )
+    limit: Optional[int] = Field(
+        None,
+        description="Optional LIMIT/TOP specification. Use this for queries like 'last 10 logins' (LIMIT 10), 'top 5 customers' (LIMIT 5), etc.",
+    )
+
     ambiguities: List[str] = Field(
         default_factory=list, description="Questions to resolve or assumptions made"
     )

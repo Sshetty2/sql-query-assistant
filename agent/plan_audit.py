@@ -22,8 +22,7 @@ class PlanAuditResult(BaseModel):
         description="Whether the plan passed all validation checks"
     )
     issues_found: list[str] = Field(
-        description="List of validation issues detected",
-        default_factory=list
+        description="List of validation issues detected", default_factory=list
     )
     corrected_plan: PlannerOutput = Field(
         description="The corrected plan (same as original if no issues)"
@@ -33,7 +32,9 @@ class PlanAuditResult(BaseModel):
     )
 
 
-def filter_schema_to_plan_tables(plan_dict: dict, full_schema: list[dict]) -> list[dict]:
+def filter_schema_to_plan_tables(
+    plan_dict: dict, full_schema: list[dict]
+) -> list[dict]:
     """
     Filter schema to only include tables referenced in the plan.
 
@@ -60,23 +61,28 @@ def filter_schema_to_plan_tables(plan_dict: dict, full_schema: list[dict]) -> li
 
     # Filter schema
     filtered = [
-        table_schema for table_schema in full_schema
+        table_schema
+        for table_schema in full_schema
         if table_schema.get("table_name") in table_names
     ]
 
     logger.debug(
         f"Filtered schema from {len(full_schema)} to {len(filtered)} tables",
-        extra={"plan_tables": list(table_names)}
+        extra={"plan_tables": list(table_names)},
     )
 
     return filtered
 
 
-def validate_column_exists(table_name: str, column_name: str, schema: list[dict]) -> bool:
+def validate_column_exists(
+    table_name: str, column_name: str, schema: list[dict]
+) -> bool:
     """Check if a column exists in a table."""
     for table_schema in schema:
         if table_schema.get("table_name") == table_name:
-            columns = [col.get("column_name") for col in table_schema.get("columns", [])]
+            columns = [
+                col.get("column_name") for col in table_schema.get("columns", [])
+            ]
             return column_name in columns
     return False
 
@@ -91,7 +97,6 @@ def validate_selections(plan_dict: dict, schema: list[dict]) -> list[str]:
     issues = []
 
     for selection in plan_dict.get("selections", []):
-        table = selection.get("table")
         columns = selection.get("columns", [])
 
         for col_info in columns:
@@ -151,7 +156,6 @@ def validate_filters(plan_dict: dict, schema: list[dict]) -> list[str]:
 
     # Check table-level filters
     for selection in plan_dict.get("selections", []):
-        table = selection.get("table")
         filters = selection.get("filters", [])
 
         for filter_pred in filters:
@@ -242,10 +246,7 @@ def fix_group_by_completeness(plan_dict: dict) -> dict:
 
         for col in selection.get("columns", []):
             if col.get("role") == "projection":
-                projection_cols.append({
-                    "table": col["table"],
-                    "column": col["column"]
-                })
+                projection_cols.append({"table": col["table"], "column": col["column"]})
 
     # Get existing GROUP BY columns
     existing_group_by = group_by.get("group_by_columns", [])
@@ -258,12 +259,78 @@ def fix_group_by_completeness(plan_dict: dict) -> dict:
             existing_group_by.append(proj_col)
             logger.debug(
                 f"Auto-added {proj_col['table']}.{proj_col['column']} to GROUP BY",
-                extra={"column": proj_col}
+                extra={"column": proj_col},
             )
 
     # Update plan
     group_by["group_by_columns"] = existing_group_by
     plan_dict["group_by"] = group_by
+
+    return plan_dict
+
+
+def fix_having_filters(plan_dict: dict) -> dict:
+    """
+    Fix HAVING filters that reference non-aggregated columns not in GROUP BY.
+
+    HAVING clause can only reference:
+    1. Columns in GROUP BY
+    2. Aggregate functions
+
+    Non-aggregated columns should be in WHERE clause instead.
+
+    Args:
+        plan_dict: The planner output dictionary
+
+    Returns:
+        Modified plan_dict with corrected filters
+    """
+    group_by = plan_dict.get("group_by")
+
+    # Only process if we have GROUP BY with HAVING filters
+    if not group_by or not group_by.get("having_filters"):
+        return plan_dict
+
+    # Get columns in GROUP BY
+    group_by_cols = set()
+    for col in group_by.get("group_by_columns", []):
+        group_by_cols.add((col["table"], col["column"]))
+
+    # Get aggregated columns
+    aggregated_cols = set()
+    for agg in group_by.get("aggregates", []):
+        if agg.get("column"):  # COUNT(*) has None
+            aggregated_cols.add((agg["table"], agg["column"]))
+
+    # Check each HAVING filter
+    having_filters = group_by.get("having_filters", [])
+    valid_having = []
+    moved_to_where = []
+
+    for filter_pred in having_filters:
+        filter_table = filter_pred.get("table")
+        filter_column = filter_pred.get("column")
+        filter_key = (filter_table, filter_column)
+
+        # Check if this filter references a GROUP BY column or aggregate
+        if filter_key in group_by_cols or filter_key in aggregated_cols:
+            # Valid HAVING filter
+            valid_having.append(filter_pred)
+        else:
+            # Invalid - move to WHERE (global_filters)
+            moved_to_where.append(filter_pred)
+            logger.info(
+                f"Moved HAVING filter to WHERE: {filter_table}.{filter_column} "
+                f"(not in GROUP BY or aggregate)",
+                extra={"filter": filter_pred},
+            )
+
+    # Update plan
+    if moved_to_where:
+        # Move invalid HAVING filters to global_filters
+        plan_dict.setdefault("global_filters", []).extend(moved_to_where)
+        group_by["having_filters"] = valid_having
+        plan_dict["group_by"] = group_by
 
     return plan_dict
 
@@ -373,10 +440,11 @@ def plan_audit(state: State):
     # Filter schema to only plan-relevant tables (reduces LLM context)
     plan_schema = filter_schema_to_plan_tables(plan_dict, full_schema)
 
-    # Deterministically fix GROUP BY completeness first
-    # This is a mechanical fix that doesn't require LLM intelligence
+    # Deterministically fix common SQL issues
+    # These are mechanical fixes that don't require LLM intelligence
     original_decision = plan_dict.get("decision")  # Preserve original decision
     plan_dict = fix_group_by_completeness(plan_dict)
+    plan_dict = fix_having_filters(plan_dict)  # Move invalid HAVING filters to WHERE
 
     # Run deterministic checks
     issues = run_deterministic_checks(plan_dict, plan_schema)
@@ -397,7 +465,7 @@ def plan_audit(state: State):
     # Issues found - use LLM to fix them
     logger.warning(
         f"Plan audit found {len(issues)} issues, requesting LLM correction",
-        extra={"issues": issues}
+        extra={"issues": issues},
     )
 
     try:
@@ -408,7 +476,7 @@ def plan_audit(state: State):
         structured_llm = get_structured_llm(
             PlanAuditResult,
             model_name=os.getenv("AI_MODEL"),
-            temperature=0.2  # Lower temp for corrections
+            temperature=0.2,  # Lower temp for corrections
         )
 
         with log_execution_time(logger, "llm_plan_audit_invocation"):
@@ -422,7 +490,9 @@ def plan_audit(state: State):
         corrected_plan_dict["decision"] = original_decision
         if original_decision == "terminate":
             # Also preserve termination_reason if it was terminated
-            corrected_plan_dict["termination_reason"] = plan_dict.get("termination_reason")
+            corrected_plan_dict["termination_reason"] = plan_dict.get(
+                "termination_reason"
+            )
 
         logger.info(
             "Plan audit completed with corrections",
@@ -430,22 +500,26 @@ def plan_audit(state: State):
                 "issues_found": len(issues),
                 "audit_passed": audit_result.audit_passed,
                 "reasoning": audit_result.audit_reasoning,
-            }
+            },
         )
 
         # Debug: Save audit results
         try:
             debug_path = os.path.join(
                 os.path.dirname(os.path.dirname(__file__)),
-                "debug/debug_plan_audit_result.json"
+                "debug/debug_plan_audit_result.json",
             )
             with open(debug_path, "w", encoding="utf-8") as f:
-                json.dump({
-                    "original_plan": plan_dict,
-                    "issues": issues,
-                    "corrected_plan": corrected_plan_dict,
-                    "reasoning": audit_result.audit_reasoning,
-                }, f, indent=2)
+                json.dump(
+                    {
+                        "original_plan": plan_dict,
+                        "issues": issues,
+                        "corrected_plan": corrected_plan_dict,
+                        "reasoning": audit_result.audit_reasoning,
+                    },
+                    f,
+                    indent=2,
+                )
         except Exception as e:
             logger.warning(f"Could not save audit debug output: {e}")
 
@@ -461,14 +535,13 @@ def plan_audit(state: State):
         }
 
     except Exception as e:
-        logger.error(
-            f"Error during plan audit LLM correction: {str(e)}",
-            exc_info=True
-        )
+        logger.error(f"Error during plan audit LLM correction: {str(e)}", exc_info=True)
         # If audit fails, continue with original plan (better than blocking)
         return {
             **state,
-            "messages": [AIMessage(content=f"Plan audit error (using original plan): {str(e)}")],
+            "messages": [
+                AIMessage(content=f"Plan audit error (using original plan): {str(e)}")
+            ],
             "audit_passed": False,
             "audit_issues": issues,
             "audit_corrections": [],

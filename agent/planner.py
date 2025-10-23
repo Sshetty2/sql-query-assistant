@@ -5,6 +5,8 @@ import json
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from models.planner_output import PlannerOutput
+from models.planner_output_minimal import PlannerOutputMinimal
+from models.planner_output_standard import PlannerOutputStandard
 from utils.llm_factory import get_structured_llm
 from utils.logger import get_logger, log_execution_time
 
@@ -14,6 +16,87 @@ load_dotenv()
 logger = get_logger()
 
 
+# Planner complexity levels configuration
+# Controls prompt verbosity and model complexity based on LLM size
+PLANNER_COMPLEXITY_LEVELS = {
+    "minimal": {
+        "description": "For 8GB models (qwen3:8b, llama3:8b)",
+        "target_tokens": 1500,
+        "include_json_examples": False,  # Remove verbose JSON examples
+        "include_filter_operators": False,  # Model can infer operators
+        "include_reasoning_hints": False,  # Remove extra guidance
+        "include_advanced_sql_docs": False,  # No window functions, CTEs docs
+        "max_rules": 7,  # Only essential rules
+        "terminate_guidance_lines": 3,  # Minimal terminate explanation
+        "decision_options": ["proceed", "clarify", "terminate"],
+        "model_class": "PlannerOutputMinimal",
+    },
+    "standard": {
+        "description": "For 13B-30B models (mixtral, qwen2.5:14b)",
+        "target_tokens": 2500,
+        "include_json_examples": True,  # Keep examples but condensed
+        "include_filter_operators": True,
+        "include_reasoning_hints": True,
+        "include_advanced_sql_docs": False,  # No rare features
+        "max_rules": 12,  # Most rules
+        "terminate_guidance_lines": 10,  # Moderate explanation
+        "decision_options": ["proceed", "clarify", "terminate"],
+        "model_class": "PlannerOutputStandard",
+    },
+    "full": {
+        "description": "For large models (GPT-4, Claude, etc.)",
+        "target_tokens": 4000,
+        "include_json_examples": True,  # All examples
+        "include_filter_operators": True,
+        "include_reasoning_hints": True,
+        "include_advanced_sql_docs": True,  # Include all features
+        "max_rules": 14,  # All rules
+        "terminate_guidance_lines": 40,  # Complete explanation
+        "decision_options": ["proceed", "clarify", "terminate"],
+        "model_class": "PlannerOutput",
+    },
+}
+
+
+def get_planner_complexity():
+    """
+    Get the planner complexity level from environment variable.
+
+    Returns:
+        str: Complexity level ("minimal", "standard", or "full")
+    """
+    complexity = os.getenv("PLANNER_COMPLEXITY", "full").lower()
+    if complexity not in PLANNER_COMPLEXITY_LEVELS:
+        logger.warning(
+            f"Invalid PLANNER_COMPLEXITY='{complexity}', defaulting to 'full'. "
+            f"Valid options: {list(PLANNER_COMPLEXITY_LEVELS.keys())}"
+        )
+        return "full"
+    return complexity
+
+
+def get_planner_model_class(complexity: str = None):
+    """
+    Get the appropriate Pydantic model class for the complexity level.
+
+    Args:
+        complexity: Complexity level ("minimal", "standard", or "full")
+                   If None, will be determined from environment
+
+    Returns:
+        Pydantic model class (PlannerOutputMinimal, PlannerOutputStandard, or PlannerOutput)
+    """
+    if complexity is None:
+        complexity = get_planner_complexity()
+
+    model_class_name = PLANNER_COMPLEXITY_LEVELS[complexity]["model_class"]
+
+    if model_class_name == "PlannerOutputMinimal":
+        return PlannerOutputMinimal
+    elif model_class_name == "PlannerOutputStandard":
+        return PlannerOutputStandard
+    else:  # "PlannerOutput"
+        return PlannerOutput
 
 
 def load_domain_guidance():
@@ -36,6 +119,62 @@ def load_domain_guidance():
     return None
 
 
+def _create_minimal_prompt(**format_params):
+    """Create a minimal, concise prompt for small LLMs (8GB models)."""
+    system_instructions = """# CREATE A QUERY PLAN
+
+Analyze the user's question and database schema to create a structured query plan.
+
+# RULES
+
+### 1. Exact Names
+Use table/column names EXACTLY as shown in schema. Never invent names.
+
+### 2. Specify Joins
+If 2+ tables selected, add `join_edges` with columns:
+`{{"from_table": "X", "from_column": "XID", "to_table": "Y", "to_column": "ID"}}`
+
+### 3. Include Lookup Tables
+When selecting foreign key columns (CompanyID, UserID, etc.):
+- Include the related table to get human-readable names
+- Add join edge to connect them
+
+### 4. Join-Only Tables
+Tables needed only for connecting (not data): set `include_only_for_join = true`
+
+### 5. Decision Field
+- **"proceed"**: You found relevant tables and created a plan → USE THIS
+- **"clarify"**: Query is answerable but has ambiguities (use `ambiguities` field to list questions)
+- **"terminate"**: Query is COMPLETELY impossible, zero relevant tables → RARE
+
+**CRITICAL**: If you wrote ANY `selections` or `join_edges`, you MUST use `decision="proceed"` or `decision="clarify"`, NOT "terminate".
+
+### 6. ORDER BY and LIMIT
+For "last N", "top N", "first N" queries, use `order_by` and `limit`:
+- "Last 10 logins" → `order_by: [{{"table": "tb_Logins", "column": "LoginDate", "direction": "DESC"}}], limit: 10`
+- "Top 5 customers" → `order_by: [{{"table": "tb_Customers", "column": "Revenue", "direction": "DESC"}}], limit: 5`
+- "Last" / "Most recent" → DESC, "First" / "Oldest" → ASC
+
+# DOMAIN GUIDANCE
+
+{domain_guidance}
+
+# USER QUERY
+
+"{user_query}"
+
+# DATABASE SCHEMA
+
+{schema}
+
+# PARAMETERS
+
+{parameters}
+"""
+
+    return (system_instructions.format(**format_params), "")  # No separate user message for minimal
+
+
 def create_planner_prompt(mode: str = None, **format_params):
     """Create a simple formatted prompt for the planner.
 
@@ -46,6 +185,13 @@ def create_planner_prompt(mode: str = None, **format_params):
     Returns:
         Formatted prompt string with system instructions and user input
     """
+
+    # Check complexity level and route to appropriate prompt builder
+    complexity = get_planner_complexity()
+    if complexity == "minimal":
+        return _create_minimal_prompt(**format_params)
+    # TODO: Add standard tier prompt
+    # For now, "standard" falls through to "full"
 
     if mode == "update":
         system_instructions = """# SYSTEM INSTRUCTIONS
@@ -236,21 +382,100 @@ Use the smallest number of tables required (prefer ≤ 6 tables).
 - Put a filter in the table's `filters` array where the column lives
 - Use `global_filters` only if the constraint genuinely spans multiple tables
 
-### 8. No Extras
-Do not include grouping, ordering, time context, or instructions for later agents.
-Focus only on: table selection, columns, filters, and joins.
+### 8. Column Roles and Filter Predicates
+**CRITICAL:** When a column should be filtered AND displayed, you must do BOTH:
 
-### 9. Time Filter Handling
+**Column Role Field:**
+- `role="projection"` → Column appears in SELECT clause (displayed to user)
+- `role="filter"` → Column is used for filtering but NOT displayed
+
+**Filter Predicate:**
+- You MUST create a FilterPredicate in the `filters` array when filtering is needed
+- Marking a column as `role="filter"` is NOT enough - you must also create the filter!
+
+**Common Pattern - "Tagged with X" queries:**
+
+User asks: "List all applications tagged with security risk"
+
+**✓ CORRECT APPROACH #1 (Display the tag):**
+```json
+{{
+  "selections": [
+    {{
+      "table": "tb_SoftwareTagsAndColors",
+      "columns": [
+        {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "role": "projection"}}
+      ],
+      "filters": [
+        {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "op": "=", "value": "security risk"}}
+      ]
+    }}
+  ]
+}}
+```
+
+**✓ ALSO ACCEPTABLE (Don't display the tag):**
+```json
+{{
+  "selections": [
+    {{
+      "table": "tb_SoftwareTagsAndColors",
+      "columns": [
+        {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "role": "filter"}}
+      ],
+      "filters": [
+        {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "op": "=", "value": "security risk"}}
+      ]
+    }}
+  ]
+}}
+```
+
+**✗ WRONG (Missing filter predicate):**
+```json
+{{
+  "selections": [
+    {{
+      "table": "tb_SoftwareTagsAndColors",
+      "columns": [
+        {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "role": "filter"}}
+      ],
+      "filters": []  // ← ERROR: No filter created!
+    }}
+  ]
+}}
+```
+
+**Summary:** If user says "tagged with X", "labeled as Y", "status = Active", etc., you MUST create a FilterPredicate. Don't just mark the column role - actually create the filter!
+
+### 9. ORDER BY and LIMIT for "Last/Top/First N" Queries
+
+**When the user asks for "last N", "top N", "first N", "most recent N", "oldest N", etc., you MUST use `order_by` and `limit` fields:**
+
+**Examples:**
+- "Last 10 logins" → `order_by: [{{"table": "tb_Logins", "column": "LoginDate", "direction": "DESC"}}], limit: 10`
+- "Top 5 customers by revenue" → `order_by: [{{"table": "tb_Customers", "column": "Revenue", "direction": "DESC"}}], limit: 5`
+- "First 3 entries" → `order_by: [{{"table": "...", "column": "CreatedOn", "direction": "ASC"}}], limit: 3`
+- "Most recent 20 tickets" → `order_by: [{{"table": "tb_Tickets", "column": "CreatedDate", "direction": "DESC"}}], limit: 20`
+
+**Key Points:**
+- "Last" / "Most recent" / "Latest" → Use `DESC` (descending) on timestamp column
+- "First" / "Oldest" / "Earliest" → Use `ASC` (ascending) on timestamp column
+- "Top" / "Bottom" → Use `DESC` or `ASC` on the relevant metric column (Revenue, Count, etc.)
+- Always set `limit` to the number specified by the user
+- Do NOT put this in `ambiguities` - specify the ORDER BY and LIMIT directly!
+
+### 10. Time Filter Handling
 **IMPORTANT:** Do NOT create filter predicates for the "Time filter" parameter (e.g., "Last 30 Days", "Last 7 Days").
 - These will be handled by a downstream agent
 - Only include filters that are explicitly mentioned in the user's natural language query (e.g., "active users", "vendor = Cisco")
 - When a "Time filter" parameter is provided, include relevant timestamp columns (CreatedOn, UpdatedOn, etc.) in the selections with `role="projection"` or `role="filter"`
 - Let the downstream agent handle the actual date range calculation
 
-### 10. Confidence Bounds
+### 11. Confidence Bounds
 All confidence values must be between 0.0 and 1.0.
 
-### 11. Decision Field
+### 12. Decision Field
 Choose the appropriate decision value:
 
 **proceed** - Use when you can create a viable query plan
@@ -275,6 +500,7 @@ Using `decision="terminate"` will **immediately end the entire workflow** and re
 - If you identified ANY relevant tables, columns, or joins → use "proceed" instead!
 - If you created a plan structure with selections/joins → you MUST use "proceed"!
 - Do NOT terminate just because the query is complex, uncertain, or requires assumptions!
+- Do NOT terminate because of "risky joins", "ambiguous schema", or "potential for incorrect results"!
 - When in doubt, use "proceed" with a lower confidence score and document concerns in `ambiguities`
 
 Only use "terminate" when ALL of these are true:
@@ -294,10 +520,21 @@ Examples of INVALID "terminate" usage (use "proceed" instead):
 - ❌ Query is complex or requires multiple joins → Use "proceed"
 - ❌ Column names are uncertain but tables are relevant → Use "proceed" with ambiguities
 - ❌ You're not 100% confident in the plan → Use "proceed" with lower confidence score
+- ❌ Foreign key relationships are ambiguous → Use "proceed" (or "clarify" if severely ambiguous)
+- ❌ Query seems "too risky" due to schema concerns → Use "proceed" and let the query execute
+- ❌ Lack of filtering might produce broad results → Use "proceed" (broad results are better than no results)
+- ❌ You have concerns about query correctness → Use "proceed" with lower confidence and document in ambiguities
 
 **Rule of thumb:** If you wrote ANY `selections`, `join_edges`, or `filters` in your plan, you MUST use `decision="proceed"`, NOT "terminate".
 
-### 12. GROUP BY Completeness Rule
+**⚠️ IMPORTANT VALIDATION RULE:**
+If you create a plan with tables, joins, or filters and use `decision="terminate"`, the validation system will **reject your response entirely** and you'll have to try again. Save time by using "proceed" when you have a plan!
+
+**When to use "clarify" vs "proceed":**
+- Use "clarify" when you genuinely cannot determine which table/column the user wants (e.g., "Status" exists in 5 tables)
+- Use "proceed" for everything else, even if you have concerns - document concerns in `ambiguities` field
+
+### 13. GROUP BY Completeness Rule
 **CRITICAL SQL RULE:** When using aggregations (COUNT, SUM, AVG, etc.):
 - ALL columns with `role="projection"` MUST be included in `group_by_columns`
 - Exception: Columns from tables with `include_only_for_join=true` are excluded
@@ -321,7 +558,7 @@ Examples of INVALID "terminate" usage (use "proceed" instead):
 **Action Required:**
 When you add aggregates to `group_by`, review ALL projection columns and ensure each one appears in `group_by_columns`.
 
-### 13. HAVING Clause Table References
+### 14. HAVING Clause Table References
 When using HAVING filters in aggregated queries:
 - HAVING filters must reference the correct table where the column exists
 - If filtering on a joined table's column, use that table name (not the main table)
@@ -640,9 +877,10 @@ def plan_query(state: State):
                 extra={"debug_path": debug_prompt_path},
             )
 
-        # Get structured LLM (handles method="json_schema" for Ollama automatically)
+        # Get structured LLM with appropriate model class based on complexity level
+        planner_model_class = get_planner_model_class()
         structured_llm = get_structured_llm(
-            PlannerOutput, model_name=os.getenv("AI_MODEL"), temperature=0.3
+            planner_model_class, model_name=os.getenv("AI_MODEL"), temperature=0.3
         )
 
         # Create proper message structure for chat models

@@ -4,8 +4,10 @@ import os
 import asyncio
 from typing import Any
 from dotenv import load_dotenv
+from utils.logger import get_logger
 
 load_dotenv()
+logger = get_logger()
 
 
 def is_using_ollama():
@@ -83,7 +85,7 @@ def get_chat_llm(model_name: str = None, temperature: float = 0.3, timeout: int 
 
 
 def get_structured_llm(
-    schema, model_name: str = None, temperature: float = 0.3, timeout: int = 0.2
+    schema, model_name: str = None, temperature: float = 0.3, timeout: int = 120
 ):
     """
     Returns an LLM configured for structured output with the correct method for the provider.
@@ -123,7 +125,9 @@ def get_structured_llm(
         return llm.with_structured_output(schema)
 
 
-def invoke_with_timeout(llm: Any, prompt: str, timeout: int = 75, max_retries: int = 2) -> Any:
+def invoke_with_timeout(
+    llm: Any, prompt: str, timeout: int = 75, max_retries: int = 2
+) -> Any:
     """
     Invoke LLM with timeout protection, specifically for local LLMs.
 
@@ -158,10 +162,7 @@ def invoke_with_timeout(llm: Any, prompt: str, timeout: int = 75, max_retries: i
     async def async_invoke_with_timeout():
         """Async wrapper to enable timeout for Ollama."""
         try:
-            result = await asyncio.wait_for(
-                llm.ainvoke(prompt),
-                timeout=timeout
-            )
+            result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=timeout)
             return result
         except asyncio.TimeoutError:
             raise TimeoutError(f"LLM call exceeded {timeout}s timeout")
@@ -177,7 +178,9 @@ def invoke_with_timeout(llm: Any, prompt: str, timeout: int = 75, max_retries: i
             last_exception = e
             if attempt < max_retries:
                 # Log retry attempt (optional - could use logger here)
-                print(f"[WARNING] LLM timeout on attempt {attempt}/{max_retries}, retrying...")
+                print(
+                    f"[WARNING] LLM timeout on attempt {attempt}/{max_retries}, retrying..."
+                )
                 continue
             else:
                 # Max retries reached
@@ -187,6 +190,7 @@ def invoke_with_timeout(llm: Any, prompt: str, timeout: int = 75, max_retries: i
 
         except Exception as e:
             # Non-timeout errors - don't retry, just raise
+            logger.error(f"Error in invoke_with_timeout: {str(e)}", exc_info=True)
             raise
 
     # Should never reach here, but just in case

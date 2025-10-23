@@ -126,6 +126,23 @@ def refine_query(state: State) -> Dict[str, Any]:
 
         Analyze why the query returned no results and provide a **refined plan** (not a query - the query will be regenerated).
 
+        **CRITICAL: Decision Field Requirements**
+
+        > **"With great power comes great responsibility."**
+
+        **YOU MUST USE `decision="proceed"` OR `decision="clarify"` IN YOUR REFINED PLAN!**
+
+        - **NEVER EVER use `decision="terminate"`** - This will cause the entire workflow to fail
+        - If you identified tables and columns to query → you MUST use `decision="proceed"`
+        - If you created a refined plan structure → you MUST use `decision="proceed"`
+        - If you're uncertain but have a plan → use `decision="clarify"` with ambiguities
+        - Refinement is about **broadening the plan**, not giving up on the query
+        - Using `decision="terminate"` will trigger a validation error and waste the refinement attempt
+
+        **Rule of thumb:** If you wrote ANY refined `selections`, `join_edges`, or `filters`, you MUST use `decision="proceed"` or `decision="clarify"`.
+
+        ---
+
         Provide:
         - Reasoning explaining why no results were returned and how the plan was refined
         - A complete refined plan with the refinements applied

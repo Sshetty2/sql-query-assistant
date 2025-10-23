@@ -1,7 +1,6 @@
 """Generate a SQL query deterministically from planner output using SQLGlot."""
 
 import os
-import json
 from typing import List, Dict
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
@@ -32,6 +31,73 @@ def parse_planner_output(planner_output):
     else:
         # It's a Pydantic model - use model_dump()
         return planner_output.model_dump() if planner_output else {}
+
+
+def _column_has_filter_predicate(
+    table_name: str, column_name: str, table_selection: Dict, planner_output: Dict
+) -> bool:
+    """
+    Check if a column has an actual filter predicate in the plan.
+
+    This helps detect "orphaned filter columns" - columns marked as role="filter"
+    but with no corresponding filter predicate created by the planner.
+
+    Args:
+        table_name: Name of the table
+        column_name: Name of the column
+        table_selection: The table selection dict from the plan
+        planner_output: The full planner output dict
+
+    Returns:
+        True if a filter predicate exists for this column, False otherwise
+    """
+    # Check table-level filters
+    for filter_pred in table_selection.get("filters", []):
+        if (
+            filter_pred.get("table") == table_name
+            and filter_pred.get("column") == column_name
+        ):
+            return True
+
+    # Check global filters
+    for filter_pred in planner_output.get("global_filters", []):
+        if (
+            filter_pred.get("table") == table_name
+            and filter_pred.get("column") == column_name
+        ):
+            return True
+
+    # Check HAVING filters (if GROUP BY exists)
+    group_by = planner_output.get("group_by")
+    if group_by:
+        for having_filter in group_by.get("having_filters", []):
+            if (
+                having_filter.get("table") == table_name
+                and having_filter.get("column") == column_name
+            ):
+                return True
+
+    # Check subquery filters
+    for subquery_filter in planner_output.get("subquery_filters", []):
+        # Check both outer and subquery references
+        if (
+            subquery_filter.get("outer_table") == table_name
+            and subquery_filter.get("outer_column") == column_name
+        ) or (
+            subquery_filter.get("subquery_table") == table_name
+            and subquery_filter.get("subquery_column") == column_name
+        ):
+            return True
+
+        # Check filters within the subquery
+        for sub_filter in subquery_filter.get("subquery_filters", []):
+            if (
+                sub_filter.get("table") == table_name
+                and sub_filter.get("column") == column_name
+            ):
+                return True
+
+    return False
 
 
 def build_aggregate_expression(agg: Dict, alias_map: Dict) -> exp.Expression:
@@ -163,6 +229,7 @@ def build_window_function_expression(
 def build_select_columns(
     selections: List[Dict],
     db_context: Dict,
+    planner_output: Dict,
     group_by_spec: Dict = None,
     window_functions: List[Dict] = None,
     alias_map: Dict = None,
@@ -173,6 +240,7 @@ def build_select_columns(
     Args:
         selections: List of TableSelection dicts
         db_context: Database context
+        planner_output: Full planner output dict (for filter predicate checks)
         group_by_spec: Optional GroupBySpec dict for aggregations
         window_functions: Optional list of WindowFunction dicts
         alias_map: Optional alias mapping
@@ -204,9 +272,33 @@ def build_select_columns(
             table_columns = table_selection.get("columns", [])
 
             # Filter to only projection columns (not filter-only columns)
-            projection_columns = [
-                col for col in table_columns if col.get("role") == "projection"
-            ]
+            # HEURISTIC FIX: If a column has role="filter" but no corresponding filter predicate
+            # exists in the plan, treat it as a projection column instead.
+            #
+            # Observed behavior: User query "List all applications tagged with security risk"
+            # - Planner marked TagName as role="filter"
+            # - But planner FORGOT to create the filter predicate (filters: [], global_filters: [])
+            # - Result: TagName was neither displayed NOR filtered on!
+            #
+            # This heuristic ensures filter columns are at least visible if the filter is missing.
+            projection_columns = []
+            for col in table_columns:
+                if col.get("role") == "projection":
+                    projection_columns.append(col)
+                elif col.get("role") == "filter":
+                    # Check if this filter column has an actual filter predicate
+                    col_name = col.get("column")
+                    has_filter = _column_has_filter_predicate(
+                        table_name, col_name, table_selection, planner_output
+                    )
+                    if not has_filter:
+                        # Orphaned filter column - treat as projection
+                        logger.info(
+                            f"Column {table_name}.{col_name} has role='filter' but no filter predicate exists. "
+                            f"Treating as projection column to ensure visibility.",
+                            extra={"table": table_name, "column": col_name},
+                        )
+                        projection_columns.append(col)
 
             for col_info in projection_columns:
                 col_name = col_info.get("column")
@@ -851,9 +943,23 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             table_columns = table_selection.get("columns", [])
 
             # Filter to only projection columns
-            projection_columns = [
-                col for col in table_columns if col.get("role") == "projection"
-            ]
+            # Apply same orphaned filter column heuristic as in SQLGlot path
+            projection_columns = []
+            for col in table_columns:
+                if col.get("role") == "projection":
+                    projection_columns.append(col)
+                elif col.get("role") == "filter":
+                    col_name = col.get("column")
+                    has_filter = _column_has_filter_predicate(
+                        table_name, col_name, table_selection, plan_dict
+                    )
+                    if not has_filter:
+                        logger.info(
+                            f"Column {table_name}.{col_name} has role='filter' but no filter predicate. "
+                            f"Treating as projection.",
+                            extra={"table": table_name, "column": col_name},
+                        )
+                        projection_columns.append(col)
 
             for col_info in projection_columns:
                 col_name = col_info.get("column")
@@ -1057,45 +1163,69 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                 query = query.having(condition)
 
     # Apply ORDER BY
-    sort_order = state.get("sort_order", "Default")
-    if sort_order and sort_order != "Default":
-        # Find first projection column for ordering
-        first_col = None
-        first_table = None
-
-        if group_by_spec:
-            # Order by first GROUP BY column
-            group_by_columns = group_by_spec.get("group_by_columns", [])
-            if group_by_columns:
-                first_col = group_by_columns[0].get("column")
-                first_table = group_by_columns[0].get("table")
-        else:
-            # Regular ORDER BY
-            for table_selection in selections:
-                table_columns = table_selection.get("columns", [])
-                projection_cols = [
-                    col for col in table_columns if col.get("role") == "projection"
-                ]
-                if projection_cols:
-                    first_col = projection_cols[0].get("column")
-                    first_table = table_selection.get("table")
-                    break
-
-        if first_col and first_table:
-            order_col = f"{first_table}.{first_col}"
-            if sort_order.lower() == "descending":
+    # Priority: 1) Plan's order_by, 2) State's sort_order
+    plan_order_by = plan_dict.get("order_by", [])
+    if plan_order_by:
+        # Use plan's ORDER BY specification
+        for order_col_spec in plan_order_by:
+            table = order_col_spec.get("table")
+            column = order_col_spec.get("column")
+            direction = order_col_spec.get("direction", "ASC")
+            order_col = f"{table}.{column}"
+            if direction == "DESC":
                 query = query.order_by(f"{order_col} DESC")
             else:
                 query = query.order_by(f"{order_col} ASC")
+    else:
+        # Fall back to state's sort_order (legacy behavior)
+        sort_order = state.get("sort_order", "Default")
+        if sort_order and sort_order != "Default":
+            # Find first projection column for ordering
+            first_col = None
+            first_table = None
+
+            if group_by_spec:
+                # Order by first GROUP BY column
+                group_by_columns = group_by_spec.get("group_by_columns", [])
+                if group_by_columns:
+                    first_col = group_by_columns[0].get("column")
+                    first_table = group_by_columns[0].get("table")
+            else:
+                # Regular ORDER BY
+                for table_selection in selections:
+                    table_columns = table_selection.get("columns", [])
+                    projection_cols = [
+                        col for col in table_columns if col.get("role") == "projection"
+                    ]
+                    if projection_cols:
+                        first_col = projection_cols[0].get("column")
+                        first_table = table_selection.get("table")
+                        break
+
+            if first_col and first_table:
+                order_col = f"{first_table}.{first_col}"
+                if sort_order.lower() == "descending":
+                    query = query.order_by(f"{order_col} DESC")
+                else:
+                    query = query.order_by(f"{order_col} ASC")
 
     # Apply LIMIT
-    result_limit = state.get("result_limit", 0)
-    if result_limit and result_limit > 0:
-        query = query.limit(result_limit)
+    # Priority: 1) Plan's limit, 2) State's result_limit
+    plan_limit = plan_dict.get("limit")
+    if plan_limit and plan_limit > 0:
+        # Use plan's LIMIT specification
+        query = query.limit(plan_limit)
+    else:
+        # Fall back to state's result_limit (legacy behavior)
+        result_limit = state.get("result_limit", 0)
+        if result_limit and result_limit > 0:
+            query = query.limit(result_limit)
 
     # Convert to SQL string
     dialect = db_context["dialect"]
-    sql_str = query.sql(dialect=dialect, pretty=True)
+    # Use identify=True to quote all identifiers (table/column names)
+    # This prevents SQL Server reserved keyword errors (e.g., "Index" → "[Index]")
+    sql_str = query.sql(dialect=dialect, pretty=True, identify=True)
 
     return sql_str
 
