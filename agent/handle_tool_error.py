@@ -250,16 +250,22 @@ The same table appears multiple times in the query without proper distinction.
             "last_step": "handle_error",
         }
 
-    # Debug: Save the corrected planner output to a file
-    debug_output_path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)),
-        "debug/debug_corrected_planner_output.json",
+    # Debug: Append this correction to the array (allows tracking multiple attempts)
+    from utils.debug_utils import append_to_debug_array
+    append_to_debug_array(
+        "error_corrections.json",
+        {
+            "attempt": state["retry_count"] + 1,
+            "original_query": original_query,
+            "original_plan": original_plan_dict,
+            "error": error_message,
+            "error_code": error_code if 'error_code' in locals() else None,
+            "correction_reasoning": response.reasoning,
+            "corrected_plan": corrected_plan_dict,
+        },
+        step_name="handle_tool_error",
+        array_key="corrections"
     )
-    try:
-        with open(debug_output_path, "w", encoding="utf-8") as f:
-            json.dump(corrected_plan_dict, f, indent=2)
-    except Exception as e:
-        logger.warning(f"Could not save debug planner output: {e}")
 
     # Note: Error correction goes straight to generate_query, no clarification check
     return {

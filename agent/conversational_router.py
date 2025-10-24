@@ -216,6 +216,21 @@ def conversational_router(state: State):
             latest_request=latest_request,
         )
 
+        # Debug: Save router prompt
+        from utils.debug_utils import save_debug_file
+        save_debug_file(
+            "router_prompt.json",
+            {
+                "latest_request": latest_request,
+                "conversation_history": conversation_history,
+                "query_history_count": len(query_history),
+                "plan_history_count": len(plan_history),
+                "prompt": prompt,
+            },
+            step_name="conversational_router",
+            include_timestamp=True
+        )
+
         # Get structured LLM
         # (handles method="json_schema" for Ollama automatically)
         structured_llm = get_structured_llm(
@@ -239,6 +254,19 @@ def conversational_router(state: State):
 
         # Update state based on decision
         decision = router_output.decision
+
+        # Debug: Save router output
+        save_debug_file(
+            "router_output.json",
+            {
+                "decision": decision,
+                "reasoning": router_output.reasoning,
+                "routing_instructions": router_output.routing_instructions,
+                "confidence": router_output.confidence if hasattr(router_output, "confidence") else None,
+            },
+            step_name="conversational_router",
+            include_timestamp=True
+        )
 
         logger.info(
             "Conversational routing completed",

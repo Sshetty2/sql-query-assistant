@@ -126,6 +126,19 @@ def execute_query(state: State, db_connection):
         "Starting query execution", extra={"query": query}
     )  # Log first 200 chars
 
+    # Debug: Save query execution input
+    from utils.debug_utils import save_debug_file
+    save_debug_file(
+        "execute_query_input.json",
+        {
+            "query": query,
+            "retry_count": state.get("retry_count", 0),
+            "refined_count": state.get("refined_count", 0),
+        },
+        step_name="execute_query",
+        include_timestamp=True
+    )
+
     cursor = None
     try:
         with log_execution_time(logger, "database_query_execution"):
@@ -139,6 +152,19 @@ def execute_query(state: State, db_connection):
         json_result = json.dumps(data, default=json_serial)
 
         cursor.close()
+
+        # Debug: Save query execution result
+        save_debug_file(
+            "execute_query_result.json",
+            {
+                "query": query,
+                "row_count": len(data),
+                "columns": columns,
+                "sample_data": data[:5] if len(data) > 5 else data,  # Save first 5 rows as sample
+            },
+            step_name="execute_query",
+            include_timestamp=True
+        )
 
         # Append current query to queries list for conversation history
         queries = state.get("queries", [])

@@ -200,28 +200,22 @@ def filter_schema(state: State, vector_store=None):
     ]
 
     # Debug: Save the embedded content to a file
-    debug_path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "debug/debug_embedded_content.json"
+    from utils.debug_utils import save_debug_file
+    save_debug_file(
+        "embedded_content.json",
+        {
+            "user_query": user_query,
+            "embedded_documents": [
+                {
+                    "table_name": doc.metadata.get("table_name"),
+                    "embedded_text": doc.page_content,
+                }
+                for doc in documents
+            ],
+        },
+        step_name="filter_schema_stage1",
+        include_timestamp=True
     )
-    try:
-        with open(debug_path, "w", encoding="utf-8") as f:
-            debug_data = {
-                "user_query": user_query,
-                "embedded_documents": [
-                    {
-                        "table_name": doc.metadata.get("table_name"),
-                        "embedded_text": doc.page_content,
-                    }
-                    for doc in documents
-                ],
-            }
-            json.dump(debug_data, f, indent=2)
-    except Exception as e:
-        logger.warning(
-            f"Could not save debug embedded content: {str(e)}",
-            exc_info=True,
-            extra={"debug_path": debug_path},
-        )
 
     with log_execution_time(logger, "stage1_vector_search"):
         vector_store = InMemoryVectorStore.from_documents(
@@ -320,35 +314,24 @@ Provide your assessment for each table."""
             )
 
             # Debug: Save the LLM selection reasoning
-            debug_llm_path = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
-                "debug/debug_llm_table_selection.json"
-            )
-            try:
-                with open(debug_llm_path, "w", encoding="utf-8") as f:
-                    json.dump(
+            save_debug_file(
+                "llm_table_selection.json",
+                {
+                    "user_query": user_query,
+                    "candidate_tables": candidate_table_names,
+                    "llm_assessments": [
                         {
-                            "user_query": user_query,
-                            "candidate_tables": candidate_table_names,
-                            "llm_assessments": [
-                                {
-                                    "table": a.table_name,
-                                    "is_relevant": a.is_relevant,
-                                    "reasoning": a.reasoning
-                                }
-                                for a in selection_output.selected_tables
-                            ],
-                            "selected_tables": list(relevant_table_names_set)
-                        },
-                        f,
-                        indent=2
-                    )
-            except Exception as e:
-                logger.warning(
-                    f"Could not save debug LLM selection: {str(e)}",
-                    exc_info=True,
-                    extra={"debug_path": debug_llm_path}
-                )
+                            "table": a.table_name,
+                            "is_relevant": a.is_relevant,
+                            "reasoning": a.reasoning
+                        }
+                        for a in selection_output.selected_tables
+                    ],
+                    "selected_tables": list(relevant_table_names_set)
+                },
+                step_name="filter_schema_stage2",
+                include_timestamp=True
+            )
 
         except Exception as e:
             logger.warning(

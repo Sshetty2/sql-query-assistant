@@ -857,25 +857,18 @@ def plan_query(state: State):
         )
 
         # Debug: Save the prompt to a file
-        debug_prompt_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "debug/debug_planner_prompt.json",
+        from utils.debug_utils import save_debug_file
+        save_debug_file(
+            "planner_prompt.json",
+            {
+                "mode": router_mode or "initial",
+                "system_message": system_content,
+                "user_message": user_content,
+                "format_params_keys": list(format_params.keys()),
+            },
+            step_name="planner",
+            include_timestamp=True
         )
-        try:
-            with open(debug_prompt_path, "w", encoding="utf-8") as f:
-                debug_data = {
-                    "mode": router_mode or "initial",
-                    "system_message": system_content,
-                    "user_message": user_content,
-                    "format_params_keys": list(format_params.keys()),
-                }
-                json.dump(debug_data, f, indent=2)
-        except Exception as e:
-            logger.warning(
-                f"Could not save debug prompt: {str(e)}",
-                exc_info=True,
-                extra={"debug_path": debug_prompt_path},
-            )
 
         # Get structured LLM with appropriate model class based on complexity level
         planner_model_class = get_planner_model_class()
@@ -935,26 +928,18 @@ def plan_query(state: State):
         )
 
         # Debug: Save the planner output to a file (with validation results)
-        debug_output_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "debug/debug_generated_planner_output.json",
+        save_debug_file(
+            "generated_planner_output.json",
+            {
+                "plan": plan_dict,
+                "validation": {
+                    "passed": len(validation_issues) == 0,
+                    "issues": validation_issues,
+                },
+            },
+            step_name="planner",
+            include_timestamp=True
         )
-        try:
-            with open(debug_output_path, "w", encoding="utf-8") as f:
-                debug_data = {
-                    "plan": plan_dict,
-                    "validation": {
-                        "passed": len(validation_issues) == 0,
-                        "issues": validation_issues,
-                    },
-                }
-                json.dump(debug_data, f, indent=2)
-        except Exception as e:
-            logger.warning(
-                f"Could not save debug planner output: {str(e)}",
-                exc_info=True,
-                extra={"debug_path": debug_output_path},
-            )
 
         # Check if clarification is needed based on planner decision
         needs_clarification = (

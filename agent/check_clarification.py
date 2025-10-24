@@ -142,6 +142,19 @@ def check_clarification(state: State) -> Dict[str, Any]:
         """  # noqa: E501
     )
 
+    # Debug: Save clarification prompt
+    from utils.debug_utils import save_debug_file
+    save_debug_file(
+        "clarification_prompt.json",
+        {
+            "user_question": user_question,
+            "ambiguities": ambiguities,
+            "prompt": prompt,
+        },
+        step_name="check_clarification",
+        include_timestamp=True
+    )
+
     # Get structured LLM
     structured_llm = get_structured_llm(
         ClarificationSuggestions,
@@ -153,6 +166,17 @@ def check_clarification(state: State) -> Dict[str, Any]:
         response = structured_llm.invoke(prompt)
 
     suggestions = response.suggestions
+
+    # Debug: Save clarification output
+    save_debug_file(
+        "clarification_output.json",
+        {
+            "suggestions": suggestions,
+            "suggestion_count": len(suggestions),
+        },
+        step_name="check_clarification",
+        include_timestamp=True
+    )
 
     logger.info(
         "Generated clarification statements",

@@ -188,16 +188,20 @@ def refine_query(state: State) -> Dict[str, Any]:
         },
     )
 
-    # Debug: Save the refined planner output to a file
-    debug_output_path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)),
-        "debug/debug_refined_planner_output.json",
+    # Debug: Append this refinement to the array (allows tracking multiple attempts)
+    from utils.debug_utils import append_to_debug_array
+    append_to_debug_array(
+        "query_refinements.json",
+        {
+            "attempt": state["refined_count"] + 1,
+            "original_query": original_query,
+            "original_plan": original_plan_dict,
+            "refinement_reasoning": response.reasoning,
+            "refined_plan": refined_plan_dict,
+        },
+        step_name="refine_query",
+        array_key="refinements"
     )
-    try:
-        with open(debug_output_path, "w", encoding="utf-8") as f:
-            json.dump(refined_plan_dict, f, indent=2)
-    except Exception as e:
-        logger.warning(f"Could not save debug planner output: {e}")
 
     # Note: Query refinement goes straight to generate_query, no clarification check
     return {
