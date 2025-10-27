@@ -142,7 +142,19 @@ def execute_query(state: State, db_connection):
     cursor = None
     try:
         with log_execution_time(logger, "database_query_execution"):
-            cursor = db_connection.cursor()
+            # Check if connection is valid before creating cursor
+            try:
+                cursor = db_connection.cursor()
+            except Exception as cursor_error:
+                logger.error(
+                    f"Failed to create cursor - connection may be closed: {str(cursor_error)}",
+                    extra={
+                        "connection_type": type(db_connection).__name__,
+                        "error_type": type(cursor_error).__name__
+                    }
+                )
+                raise
+
             cursor.execute(query)
             results = cursor.fetchall()
 
