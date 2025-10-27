@@ -504,24 +504,17 @@ def plan_audit(state: State):
         )
 
         # Debug: Save audit results
-        try:
-            debug_path = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
-                "debug/debug_plan_audit_result.json",
-            )
-            with open(debug_path, "w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "original_plan": plan_dict,
-                        "issues": issues,
-                        "corrected_plan": corrected_plan_dict,
-                        "reasoning": audit_result.audit_reasoning,
-                    },
-                    f,
-                    indent=2,
-                )
-        except Exception as e:
-            logger.warning(f"Could not save audit debug output: {e}")
+        from utils.debug_utils import save_debug_file
+        save_debug_file(
+            "plan_audit_result.json",
+            {
+                "original_plan": plan_dict,
+                "issues": issues,
+                "corrected_plan": corrected_plan_dict,
+                "reasoning": audit_result.audit_reasoning,
+            },
+            step_name="plan_audit"
+        )
 
         return {
             **state,

@@ -89,11 +89,13 @@ def analyze_schema(state: State, db_connection):
         with log_execution_time(logger, "combine_schema_with_metadata"):
             combined_schema_with_metadata = combine_schema(schema)
 
-        # Debug: Write full_schema to a JSON file
-        with open(
-            "debug/debug_combined_schema_with_metadata.json", "w", encoding="utf-8"
-        ) as f:
-            json.dump(combined_schema_with_metadata, f, indent=2)
+        # Debug: Save combined schema with metadata
+        from utils.debug_utils import save_debug_file
+        save_debug_file(
+            "combined_schema_with_metadata.json",
+            combined_schema_with_metadata,
+            step_name="analyze_schema"
+        )
 
         logger.info(
             "Schema analysis completed",

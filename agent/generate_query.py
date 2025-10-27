@@ -1532,9 +1532,37 @@ def generate_query(state: State):
         with log_execution_time(logger, "build_sql_query"):
             query = build_sql_query(plan_dict, state, db_context)
 
-        # Debug: Write generated SQL
-        with open("debug/debug_generated_sql.txt", "w", encoding="utf-8") as f:
-            f.write(query)
+        # Debug: Save generated SQL
+        from utils.debug_utils import save_debug_file, append_to_debug_array
+        save_debug_file(
+            "generated_sql.json",
+            {"sql": query, "dialect": db_context.get("dialect", "unknown")},
+            step_name="generate_query"
+        )
+
+        # Debug: Track SQL query in the queries array
+        retry_count = state.get("retry_count", 0)
+        refined_count = state.get("refined_count", 0)
+
+        if retry_count > 0:
+            step_type = "error_correction_regenerated"
+        elif refined_count > 0:
+            step_type = "refinement_regenerated"
+        else:
+            step_type = "initial_generation"
+
+        append_to_debug_array(
+            "generated_sql_queries.json",
+            {
+                "step": step_type,
+                "sql": query,
+                "retry_count": retry_count,
+                "refined_count": refined_count,
+                "status": "generated"
+            },
+            step_name="generate_query",
+            array_key="queries"
+        )
 
         logger.info(
             "SQL query generation completed",

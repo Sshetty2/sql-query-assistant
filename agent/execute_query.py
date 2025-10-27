@@ -180,6 +180,21 @@ def execute_query(state: State, db_connection):
             },
         )
 
+        # Debug: Track successful SQL query
+        from utils.debug_utils import append_to_debug_array
+        append_to_debug_array(
+            "generated_sql_queries.json",
+            {
+                "step": "successful_execution",
+                "sql": query,
+                "row_count": len(data),
+                "column_count": len(columns),
+                "status": "success"
+            },
+            step_name="execute_query",
+            array_key="queries"
+        )
+
         return {
             **state,
             "messages": [AIMessage(content="Query Successfully Executed")],

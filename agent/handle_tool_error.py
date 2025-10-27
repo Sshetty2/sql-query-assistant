@@ -267,6 +267,20 @@ The same table appears multiple times in the query without proper distinction.
         array_key="corrections"
     )
 
+    # Debug: Track SQL queries during error correction
+    append_to_debug_array(
+        "generated_sql_queries.json",
+        {
+            "step": "error_correction",
+            "attempt": state["retry_count"] + 1,
+            "sql": original_query,
+            "error": error_message,
+            "status": "failed"
+        },
+        step_name="handle_tool_error",
+        array_key="queries"
+    )
+
     # Note: Error correction goes straight to generate_query, no clarification check
     return {
         **state,

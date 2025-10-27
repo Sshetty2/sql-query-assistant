@@ -203,6 +203,20 @@ def refine_query(state: State) -> Dict[str, Any]:
         array_key="refinements"
     )
 
+    # Debug: Track SQL queries during refinement
+    append_to_debug_array(
+        "generated_sql_queries.json",
+        {
+            "step": "refinement",
+            "attempt": state["refined_count"] + 1,
+            "sql": original_query,
+            "reason": "no results returned",
+            "status": "no_results"
+        },
+        step_name="refine_query",
+        array_key="queries"
+    )
+
     # Note: Query refinement goes straight to generate_query, no clarification check
     return {
         **state,
