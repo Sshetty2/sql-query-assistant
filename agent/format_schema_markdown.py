@@ -117,7 +117,8 @@ def convert_schema_to_markdown(state: State):
         schema_markdown = format_schema_to_markdown(schema)
 
         # Debug: Save markdown schema
-        from utils.debug_utils import save_debug_file, is_debug_enabled, get_debug_dir
+        from utils.debug_utils import is_debug_enabled, get_debug_dir
+
         if is_debug_enabled():
             try:
                 # Save as markdown file (raw text)
@@ -127,8 +128,7 @@ def convert_schema_to_markdown(state: State):
                 logger.debug(f"Debug markdown schema saved to: {debug_path}")
             except Exception as e:
                 logger.warning(
-                    f"Could not save debug markdown schema: {str(e)}",
-                    exc_info=True
+                    f"Could not save debug markdown schema: {str(e)}", exc_info=True
                 )
 
         logger.info(
