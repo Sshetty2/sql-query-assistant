@@ -16,7 +16,7 @@ def query_database(
     result_limit=0,
     time_filter="All Time",
     thread_id: Optional[str] = None,
-    previous_state: Optional[Dict[str, Any]] = None,
+    previous_state: Optional[Dict[str, Any]] = {},
 ):
     """Run the query workflow for a given question.
 
@@ -46,13 +46,13 @@ def query_database(
             "messages": [HumanMessage(content=question)],
             "user_questions": [question],
             "user_question": question,
-            "is_continuation": False,
-            # Schema and planning
-            "schema": [],
+            # NOTE: is_continuation removed - we always analyze schema now
+            # Schema and planning (will be populated by workflow)
+            "schema": previous_state.get("schema", []),
             "planner_outputs": [],
             "planner_output": None,
-            "filtered_schema": None,
-            "schema_markdown": None,
+            "filtered_schema": previous_state.get("filtered_schema", []),
+            "schema_markdown": previous_state.get("schema_markdown", ""),
             # Query state
             "queries": [],
             "query": "",
@@ -99,20 +99,17 @@ def query_database(
                 + [HumanMessage(content=question)],
                 "user_questions": user_questions,
                 "user_question": question,  # Latest question
-                "is_continuation": True,
-                # Carry over schema and planning state
-                "schema": previous_state.get("schema", []),
-                "filtered_schema": previous_state.get("filtered_schema"),
-                "schema_markdown": previous_state.get("schema_markdown"),
+                # NOTE: is_continuation removed - we always analyze schema now
+                # (no longer carrying over schema since we don't persist it)
+                "schema": [],  # Will be populated fresh by analyze_schema
+                "filtered_schema": None,
+                "schema_markdown": None,
                 "planner_outputs": previous_state.get("planner_outputs", []),
                 "planner_output": previous_state.get("planner_output"),
                 # Carry over query history
                 "queries": previous_state.get("queries", []),
                 "query": previous_state.get("query", ""),
                 "result": "",  # Reset result for new query
-                # Router state (will be set by router)
-                "router_mode": None,
-                "router_instructions": None,
                 # Query preferences (use new values if provided, else carry over)
                 "sort_order": sort_order,
                 "result_limit": result_limit,
@@ -143,8 +140,8 @@ def query_database(
                 "messages": [HumanMessage(content=question)],
                 "user_questions": [question],
                 "user_question": question,
-                "is_continuation": False,
-                # Schema and planning
+                # NOTE: is_continuation and router fields removed
+                # Schema and planning (will be populated by workflow)
                 "schema": [],
                 "planner_outputs": [],
                 "planner_output": None,
@@ -154,9 +151,6 @@ def query_database(
                 "queries": [],
                 "query": "",
                 "result": "",
-                # Router state
-                "router_mode": None,
-                "router_instructions": None,
                 # Query preferences
                 "sort_order": sort_order,
                 "result_limit": result_limit,

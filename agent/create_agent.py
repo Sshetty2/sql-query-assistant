@@ -15,7 +15,9 @@ from agent.check_clarification import check_clarification
 from agent.generate_query import generate_query
 from agent.handle_tool_error import handle_tool_error
 from agent.refine_query import refine_query
-from agent.conversational_router import conversational_router
+
+# DISABLED: Conversational router commented out for now
+# from agent.conversational_router import conversational_router
 from agent.state import State
 from utils.logger import get_logger
 
@@ -47,26 +49,29 @@ def is_none_result(result):
 
 def route_from_start(
     state: State,
-) -> Literal["conversational_router", "analyze_schema"]:
-    """Route from START based on whether this is a continuation."""
-    is_continuation = state.get("is_continuation", False)
-
-    if is_continuation:
-        return "conversational_router"
-    else:
-        return "analyze_schema"
-
-
-def route_from_router(state: State) -> Literal["planner"]:
+) -> Literal["analyze_schema"]:
     """
-    Route from conversational_router based on decision.
+    Route from START - always analyze schema.
 
-    All conversational routing now goes through the planner to ensure
-    SQL is generated safely via the join synthesizer (prevents SQL injection).
+    NOTE: Conversational router disabled for now. We always fetch fresh schema
+    since we don't persist it in state anymore (to avoid inflating saved state).
+    The router wasn't working well anyway - will revisit later.
     """
-    # Router always sets router_mode to "update" or "rewrite"
-    # Both go through planner -> join synthesizer pipeline
-    return "planner"
+    # Always analyze schema (don't skip based on is_continuation)
+    return "analyze_schema"
+
+
+# DISABLED: Conversational router commented out for now
+# def route_from_router(state: State) -> Literal["planner"]:
+#     """
+#     Route from conversational_router based on decision.
+#
+#     All conversational routing now goes through the planner to ensure
+#     SQL is generated safely via the join synthesizer (prevents SQL injection).
+#     """
+#     # Router always sets router_mode to "update" or "rewrite"
+#     # Both go through planner -> join synthesizer pipeline
+#     return "planner"
 
 
 def route_after_clarification(
@@ -88,7 +93,9 @@ def route_after_clarification(
     decision = planner_output.get("decision", "proceed")
 
     if decision == "terminate":
-        termination_reason = planner_output.get("termination_reason", "Query cannot be answered with available schema")
+        termination_reason = planner_output.get(
+            "termination_reason", "Query cannot be answered with available schema"
+        )
         logger.info(f"Query terminated by planner: {termination_reason}")
         return "cleanup"
 
@@ -121,7 +128,11 @@ def should_continue(state: State) -> Literal["handle_error", "refine_query", "cl
         return "handle_error"
 
     # If we hit max retries with errors, try refinement as last resort
-    if has_error and retry_count >= env_retry_count and refined_count < env_refine_count:
+    if (
+        has_error
+        and retry_count >= env_retry_count
+        and refined_count < env_refine_count
+    ):
         logger.info(
             "Max error correction retries reached, routing to refinement as fallback"
         )
@@ -147,7 +158,8 @@ def create_sql_agent():
     )
     workflow.add_node("filter_schema", filter_schema)
     workflow.add_node("format_schema_markdown", convert_schema_to_markdown)
-    workflow.add_node("conversational_router", conversational_router)
+    # DISABLED: Conversational router commented out for now
+    # workflow.add_node("conversational_router", conversational_router)
     workflow.add_node("planner", plan_query)
     workflow.add_node("plan_audit", plan_audit)  # Audit plan before SQL generation
     workflow.add_node("check_clarification", check_clarification)
@@ -167,12 +179,14 @@ def create_sql_agent():
     workflow.add_edge("filter_schema", "format_schema_markdown")
     workflow.add_edge("format_schema_markdown", "planner")
     workflow.add_edge("planner", "plan_audit")  # Audit plan before clarification
-    workflow.add_edge("plan_audit", "check_clarification")  # Continue to clarification after audit
+    workflow.add_edge(
+        "plan_audit", "check_clarification"
+    )  # Continue to clarification after audit
     workflow.add_conditional_edges("check_clarification", route_after_clarification)
     workflow.add_edge("generate_query", "execute_query")
 
-    # Conversational flow path (continuations)
-    workflow.add_conditional_edges("conversational_router", route_from_router)
+    # DISABLED: Conversational flow path (continuations)
+    # workflow.add_conditional_edges("conversational_router", route_from_router)
 
     # Error handling and refinement
     workflow.add_conditional_edges("execute_query", should_continue)
@@ -193,4 +207,5 @@ def cleanup_connection(state: State, connection):
         logger.debug("Database connection closed successfully")
     except Exception as e:
         logger.error(f"Error closing database connection: {str(e)}", exc_info=True)
-    return state
+    # NOTE: schema is not persisted in state anymore - always fetch fresh
+    return {**state, "schema": [], "last_step": "cleanup"}
