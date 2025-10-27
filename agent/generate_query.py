@@ -1,10 +1,11 @@
 """Generate a SQL query deterministically from planner output using SQLGlot."""
 
 import os
+import re
 from typing import List, Dict
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
-from sqlglot import exp
+from sqlglot import exp, parse_one
 
 from agent.state import State
 from utils.logger import get_logger, log_execution_time
@@ -100,13 +101,91 @@ def _column_has_filter_predicate(
     return False
 
 
-def build_aggregate_expression(agg: Dict, alias_map: Dict) -> exp.Expression:
+def is_sql_expression(column_value: str) -> bool:
+    """
+    Detect if a column value is a SQL expression vs. a simple column name.
+
+    Returns True if the column contains SQL operators or functions.
+    """
+    if not column_value:
+        return False
+
+    # Check for common SQL expression indicators
+    sql_patterns = [
+        r'\(',  # Function calls or parentheses
+        r'\*',  # Multiplication
+        r'\+',  # Addition
+        r'-',   # Subtraction (but not in column names)
+        r'/',   # Division
+        r'COALESCE',  # COALESCE function
+        r'CASE',      # CASE expressions
+        r'CAST',      # CAST function
+        r'CONCAT',    # String concatenation
+    ]
+
+    for pattern in sql_patterns:
+        if re.search(pattern, column_value, re.IGNORECASE):
+            return True
+
+    return False
+
+
+def parse_and_rewrite_expression(
+    expression_str: str, alias_map: Dict, db_context: Dict = None
+) -> exp.Expression:
+    """
+    Parse a SQL expression string and rewrite table references with aliases.
+
+    Args:
+        expression_str: SQL expression string (e.g., "COALESCE(t.col, 0) * t.col2")
+        alias_map: Mapping of table names to aliases
+        db_context: Optional database context for dialect-specific parsing
+
+    Returns:
+        SQLGlot expression with table aliases applied
+    """
+    # Get the appropriate dialect
+    dialect = "sqlite" if db_context and db_context.get("is_sqlite") else "tsql"
+
+    try:
+        # Parse the expression using SQLGlot
+        parsed_expr = parse_one(expression_str, dialect=dialect)
+
+        # Recursively rewrite table references in the expression
+        def rewrite_tables(node):
+            if isinstance(node, exp.Column):
+                # Replace table name with alias if it exists
+                if node.table:
+                    # Get the table identifier string
+                    table_str = node.table if isinstance(node.table, str) else node.table.this
+                    if table_str in alias_map:
+                        # Update to use the alias
+                        node.set("table", exp.Identifier(this=alias_map[table_str]))
+            return node
+
+        # Transform all nodes in the expression tree recursively
+        parsed_expr = parsed_expr.transform(rewrite_tables, copy=False)
+
+        return parsed_expr
+    except Exception as e:
+        logger.warning(f"Failed to parse expression '{expression_str}': {e}")
+        logger.warning("Falling back to treating it as a simple column name")
+        # Fallback: treat as simple column (this shouldn't happen often)
+        return exp.Column(this=expression_str)
+
+
+def build_aggregate_expression(
+    agg: Dict, alias_map: Dict, db_context: Dict = None
+) -> exp.Expression:
     """
     Build an aggregate function expression.
+
+    Supports both simple column references and complex SQL expressions.
 
     Args:
         agg: AggregateFunction dict
         alias_map: Mapping of table names to aliases
+        db_context: Optional database context for dialect-specific handling
 
     Returns:
         SQLGlot aggregate expression with alias
@@ -118,33 +197,48 @@ def build_aggregate_expression(agg: Dict, alias_map: Dict) -> exp.Expression:
 
     table_alias = alias_map.get(table, table)
 
+    # Helper to build column expression (simple or complex)
+    def build_column_expr():
+        if column is None:
+            return exp.Star()
+        elif is_sql_expression(column):
+            # Column contains a SQL expression - parse it
+            logger.info(f"[EXPRESSION DETECTED] Parsing complex expression in aggregate: {column}")
+            result = parse_and_rewrite_expression(column, alias_map, db_context)
+            logger.info(f"[EXPRESSION PARSED] Result: {result.sql(dialect=db_context.get('dialect', 'sqlite') if db_context else 'sqlite')}")
+            return result
+        else:
+            # Simple column reference
+            logger.info(f"[SIMPLE COLUMN] Using simple column: {column} with table: {table_alias}")
+            return exp.Column(this=column, table=table_alias)
+
     # Build the aggregate expression
     if function == "COUNT" and column is None:
         # COUNT(*)
         agg_expr = exp.Count(this=exp.Star())
     elif function == "COUNT":
-        # COUNT(column)
-        col_expr = exp.Column(this=column, table=table_alias)
+        # COUNT(column) or COUNT(expression)
+        col_expr = build_column_expr()
         agg_expr = exp.Count(this=col_expr)
     elif function == "COUNT_DISTINCT":
-        # COUNT(DISTINCT column)
-        col_expr = exp.Column(this=column, table=table_alias)
+        # COUNT(DISTINCT column) or COUNT(DISTINCT expression)
+        col_expr = build_column_expr()
         agg_expr = exp.Count(this=col_expr, distinct=True)
     elif function == "SUM":
-        col_expr = exp.Column(this=column, table=table_alias)
+        col_expr = build_column_expr()
         agg_expr = exp.Sum(this=col_expr)
     elif function == "AVG":
-        col_expr = exp.Column(this=column, table=table_alias)
+        col_expr = build_column_expr()
         agg_expr = exp.Avg(this=col_expr)
     elif function == "MIN":
-        col_expr = exp.Column(this=column, table=table_alias)
+        col_expr = build_column_expr()
         agg_expr = exp.Min(this=col_expr)
     elif function == "MAX":
-        col_expr = exp.Column(this=column, table=table_alias)
+        col_expr = build_column_expr()
         agg_expr = exp.Max(this=col_expr)
     else:
         # Fallback - generic aggregate
-        col_expr = exp.Column(this=column, table=table_alias) if column else exp.Star()
+        col_expr = build_column_expr()
         agg_expr = exp.Anonymous(this=function, expressions=[col_expr])
 
     # Add alias to the aggregate
@@ -262,7 +356,7 @@ def build_select_columns(
 
         # Add aggregates
         for agg in group_by_spec.get("aggregates", []):
-            agg_expr = build_aggregate_expression(agg, alias_map or {})
+            agg_expr = build_aggregate_expression(agg, alias_map or {}, db_context)
             columns.append(agg_expr)
     else:
         # Regular projection columns
@@ -460,7 +554,9 @@ def build_filter_expression(
     filter_pred: Dict, alias_map: Dict, db_context: Dict = None
 ) -> exp.Expression:
     """
-    Build a WHERE condition from a FilterPredicate.
+    Build a WHERE/HAVING condition from a FilterPredicate.
+
+    Supports both simple column references and complex SQL expressions.
 
     Args:
         filter_pred: FilterPredicate dict
@@ -478,8 +574,14 @@ def build_filter_expression(
     # Get table alias
     table_alias = alias_map.get(table, table)
 
-    # Create column reference
-    col_expr = exp.Column(this=column, table=table_alias)
+    # Create column reference (simple or complex expression)
+    if is_sql_expression(column):
+        # Column contains a SQL expression - parse it
+        logger.debug(f"Parsing complex expression in filter: {column}")
+        col_expr = parse_and_rewrite_expression(column, alias_map, db_context)
+    else:
+        # Simple column reference
+        col_expr = exp.Column(this=column, table=table_alias)
 
     # Build expression based on operator
     if op == "=":
@@ -931,11 +1033,20 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             if function == "COUNT" and column is None:
                 select_cols.append(f"COUNT(*) AS {output_alias}")
             elif function == "COUNT_DISTINCT":
-                select_cols.append(
-                    f"COUNT(DISTINCT {table}.{column}) AS {output_alias}"
-                )
+                # Check if column is an expression
+                if column and is_sql_expression(column):
+                    select_cols.append(f"COUNT(DISTINCT {column}) AS {output_alias}")
+                else:
+                    select_cols.append(
+                        f"COUNT(DISTINCT {table}.{column}) AS {output_alias}"
+                    )
             else:
-                select_cols.append(f"{function}({table}.{column}) AS {output_alias}")
+                # Check if column is an expression (no table prefix needed)
+                if column and is_sql_expression(column):
+                    logger.info(f"[STRING PATH] Detected expression in aggregate: {column}")
+                    select_cols.append(f"{function}({column}) AS {output_alias}")
+                else:
+                    select_cols.append(f"{function}({table}.{column}) AS {output_alias}")
     else:
         # Regular projection columns
         for table_selection in selections:
@@ -1147,6 +1258,13 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         # Apply HAVING clause if present
         having_filters = group_by_spec.get("having_filters", [])
         if having_filters:
+            # Collect aggregate aliases for HAVING clause
+            aggregate_aliases = set()
+            for agg in group_by_spec.get("aggregates", []):
+                alias = agg.get("alias")
+                if alias:
+                    aggregate_aliases.add(alias)
+
             having_conditions = []
             for filter_pred in having_filters:
                 # For HAVING, the column might be an aggregate alias
@@ -1156,7 +1274,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                 value = filter_pred.get("value")
 
                 having_conditions.append(
-                    format_filter_condition(table, column, op, value)
+                    format_filter_condition(table, column, op, value, aggregate_aliases)
                 )
 
             for condition in having_conditions:
@@ -1166,12 +1284,37 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
     # Priority: 1) Plan's order_by, 2) State's sort_order
     plan_order_by = plan_dict.get("order_by", [])
     if plan_order_by:
+        # Collect aggregate aliases to detect if ORDER BY references an alias
+        aggregate_aliases = set()
+        if group_by_spec:
+            for agg in group_by_spec.get("aggregates", []):
+                alias = agg.get("alias")
+                if alias:
+                    aggregate_aliases.add(alias)
+
         # Use plan's ORDER BY specification
         for order_col_spec in plan_order_by:
             table = order_col_spec.get("table")
             column = order_col_spec.get("column")
             direction = order_col_spec.get("direction", "ASC")
-            order_col = f"{table}.{column}"
+
+            # Check if column is an alias (don't prefix with table)
+            if column in aggregate_aliases:
+                order_col = column
+            else:
+                # Check if it's an expression
+                if is_sql_expression(column):
+                    # Parse and rewrite the expression
+                    logger.debug(f"Parsing complex expression in ORDER BY: {column}")
+                    expr = parse_and_rewrite_expression(column, alias_map, db_context)
+                    # Build ordered expression
+                    ordered_expr = exp.Ordered(this=expr, desc=(direction == "DESC"))
+                    query = query.order_by(ordered_expr)
+                    continue
+                else:
+                    # Simple column reference
+                    order_col = f"{table}.{column}"
+
             if direction == "DESC":
                 query = query.order_by(f"{order_col} DESC")
             else:
@@ -1230,14 +1373,30 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
     return sql_str
 
 
-def format_filter_condition(table_alias: str, column: str, op: str, value) -> str:
+def format_filter_condition(table_alias: str, column: str, op: str, value, aggregate_aliases=None) -> str:
     """
     Format a filter condition as a SQL string with proper escaping.
 
     Note: This uses basic SQL escaping (single quote doubling).
     For production use, parameterized queries are preferred.
+
+    Args:
+        table_alias: Table name or alias
+        column: Column name, expression, or aggregate alias
+        op: Operator (=, >, <, etc.)
+        value: Filter value
+        aggregate_aliases: Set of aggregate alias names (for HAVING clauses)
     """
-    col_ref = f"{table_alias}.{column}"
+    # Check if column is an expression or aggregate alias (don't prefix with table)
+    if is_sql_expression(column):
+        # Complex expression - use as-is
+        col_ref = column
+    elif aggregate_aliases and column in aggregate_aliases:
+        # Aggregate alias - use as-is
+        col_ref = column
+    else:
+        # Simple column - prefix with table
+        col_ref = f"{table_alias}.{column}"
 
     def escape_string(s):
         """Escape single quotes in SQL strings by doubling them."""
