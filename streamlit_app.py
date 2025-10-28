@@ -202,8 +202,12 @@ def render_query_results(
     if isinstance(planner_output, dict):
         ambiguities = planner_output.get("ambiguities", [])
         if ambiguities:
-            with st.expander("⚠️ Planner Ambiguities & Assumptions", icon="💭", expanded=False):
-                st.write("The query planner detected the following ambiguities or made assumptions:")
+            with st.expander(
+                "⚠️ Planner Ambiguities & Assumptions", icon="💭", expanded=False
+            ):
+                st.write(
+                    "The query planner detected the following ambiguities or made assumptions:"
+                )
                 for i, ambiguity in enumerate(ambiguities, 1):
                     st.write(f"{i}. {ambiguity}")
                 st.info(
@@ -397,7 +401,7 @@ def main():
 
         if threads:
             # Use container with max height for scrolling
-            query_container = st.container(height=500)
+            query_container = st.container(height=200)
 
             with query_container:
                 # Sort threads by last_updated descending (most recent first)
@@ -414,6 +418,7 @@ def main():
                     # Get timestamp for display
                     try:
                         from datetime import datetime
+
                         dt = datetime.fromisoformat(thread_info.get("last_updated", ""))
                         time_display = dt.strftime("%m/%d %H:%M")
                     except Exception:
@@ -544,7 +549,9 @@ def main():
     if generate_clicked:
         if user_question:
             # Clear previous results and loaded state
-            st.session_state.selected_thread_id = None  # Clear selection to show new query
+            st.session_state.selected_thread_id = (
+                None  # Clear selection to show new query
+            )
             st.session_state.loaded_state = None
             st.session_state.show_results = False
             st.session_state.current_dataframe = None
