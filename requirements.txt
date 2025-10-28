@@ -1,19 +1,54 @@
-langchain-openai
-langchain-ollama
-langchain-huggingface
-langchain-chroma
-langchain-core
-langchain
-langchain-community
-langgraph
-openpyxl
-python-dotenv
-python-json-logger
-pyodbc
-streamlit
-fastapi
-uvicorn
-pytest
-fastapi[standard]
-sentence-transformers
-sqlglot
+# Core LangChain packages
+langchain==1.0.0
+langchain-core==1.0.0
+langchain-community==0.4
+langchain-text-splitters==1.0.0
+
+# LLM Provider integrations
+langchain-openai==1.0.0
+langchain-ollama==1.0.0
+openai==2.5.0
+ollama==0.6.0
+
+# Vector store
+langchain-chroma==1.0.0
+langchain-huggingface==1.0.0
+chromadb==1.2.2
+
+# LangGraph workflow orchestration
+langgraph==1.0.0
+langgraph-checkpoint==2.1.2
+langgraph-prebuilt==1.0.0
+
+# Embeddings
+sentence-transformers==5.1.1
+huggingface-hub==0.35.3
+
+# Database
+pyodbc==5.3.0
+
+# Excel management
+openpyxl==3.1.5
+
+# SQL generation
+sqlglot==27.27.0
+
+# Configuration and logging
+python-dotenv==1.1.1
+python-json-logger==4.0.0
+
+# Terminal UI
+rich==14.2.0
+
+# Web framework
+streamlit==1.50.0
+fastapi==0.119.0
+uvicorn==0.38.0
+
+# Data validation
+pydantic==2.12.3
+pydantic-core==2.41.4
+pydantic-settings==2.11.0
+
+# Testing
+pytest==8.4.2
