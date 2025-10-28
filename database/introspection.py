@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from utils.logger import get_logger
 
 load_dotenv()
-logger = get_logger()
+logger = get_logger("db_introspection")
 
 
 def clean_data_type(data_type_str: str) -> str:

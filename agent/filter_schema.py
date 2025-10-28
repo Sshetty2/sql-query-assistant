@@ -6,8 +6,9 @@ from dotenv import load_dotenv
 
 from langchain_openai import OpenAIEmbeddings
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_core.vectorstores import InMemoryVectorStore
+from langchain_chroma import Chroma
 from langchain_core.documents import Document
+from langchain_community.vectorstores.utils import filter_complex_metadata
 
 from agent.state import State
 from utils.llm_factory import is_using_ollama
@@ -218,8 +219,13 @@ def filter_schema(state: State, vector_store=None):
     )
 
     with log_execution_time(logger, "stage1_vector_search"):
-        vector_store = InMemoryVectorStore.from_documents(
-            documents=documents, embedding=embedding_model
+        # Filter complex metadata (Chroma only supports simple types)
+        documents = filter_complex_metadata(documents)
+
+        vector_store = Chroma.from_documents(
+            documents=documents,
+            embedding=embedding_model,
+            collection_name="schema_filtering"
         )
 
         candidate_docs = vector_store.similarity_search(

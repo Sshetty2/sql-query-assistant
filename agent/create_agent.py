@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 from agent.analyze_schema import analyze_schema
 from agent.filter_schema import filter_schema
+from agent.infer_foreign_keys import infer_foreign_keys_node
 from agent.format_schema_markdown import convert_schema_to_markdown
 from agent.execute_query import execute_query
 from agent.planner import plan_query
@@ -107,6 +108,23 @@ def route_after_clarification(
     return "generate_query"
 
 
+def route_after_filter_schema(
+    state: State,
+) -> Literal["infer_foreign_keys", "format_schema_markdown"]:
+    """
+    Route from filter_schema based on INFER_FOREIGN_KEYS flag.
+
+    - If INFER_FOREIGN_KEYS=true: route to FK inference
+    - Otherwise: route directly to format_schema_markdown
+    """
+    if os.getenv("INFER_FOREIGN_KEYS", "false").lower() == "true":
+        logger.info("FK inference enabled, routing to infer_foreign_keys")
+        return "infer_foreign_keys"
+    else:
+        logger.debug("FK inference disabled, routing to format_schema_markdown")
+        return "format_schema_markdown"
+
+
 def should_continue(state: State) -> Literal["handle_error", "refine_query", "cleanup"]:
     """Determine the next step based on the current state."""
 
@@ -157,6 +175,7 @@ def create_sql_agent():
         "analyze_schema", lambda state: analyze_schema(state, db_connection)
     )
     workflow.add_node("filter_schema", filter_schema)
+    workflow.add_node("infer_foreign_keys", infer_foreign_keys_node)
     workflow.add_node("format_schema_markdown", convert_schema_to_markdown)
     # DISABLED: Conversational router commented out for now
     # workflow.add_node("conversational_router", conversational_router)
@@ -176,7 +195,9 @@ def create_sql_agent():
 
     # Standard workflow path (new conversations)
     workflow.add_edge("analyze_schema", "filter_schema")
-    workflow.add_edge("filter_schema", "format_schema_markdown")
+    # Conditional routing from filter_schema based on FK inference flag
+    workflow.add_conditional_edges("filter_schema", route_after_filter_schema)
+    workflow.add_edge("infer_foreign_keys", "format_schema_markdown")
     workflow.add_edge("format_schema_markdown", "planner")
     workflow.add_edge("planner", "plan_audit")  # Audit plan before clarification
     workflow.add_edge(

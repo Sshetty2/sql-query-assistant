@@ -49,7 +49,7 @@ def remove_empty_properties(data):
         return data
 
 
-def combine_schema(json_schema):
+def combine_schema(json_schema, include_foreign_keys=True):
     """Combine schema with domain-specific table metadata and foreign keys.
 
     This function looks for domain-specific JSON files in the domain-specific-guidance directory:
@@ -60,9 +60,12 @@ def combine_schema(json_schema):
 
     Args:
         json_schema: The database schema to enrich with metadata
+        include_foreign_keys: If False, skip loading foreign keys from domain-specific files.
+                             Useful for FK inference testing where you want metadata (descriptions)
+                             but not ground truth FKs. (default: True)
 
     Returns:
-        Combined schema with metadata and foreign keys (if domain-specific files exist)
+        Combined schema with metadata and optionally foreign keys (if domain-specific files exist)
     """
     if use_test_db:
         logger.info("Using test database, skipping domain-specific metadata")
@@ -70,7 +73,11 @@ def combine_schema(json_schema):
 
     # Look for domain-specific files
     table_metadata = load_domain_specific_json("domain-specific-table-metadata.json")
-    foreign_keys = load_domain_specific_json("domain-specific-foreign-keys.json")
+
+    # Only load foreign keys if requested
+    foreign_keys = None
+    if include_foreign_keys:
+        foreign_keys = load_domain_specific_json("domain-specific-foreign-keys.json")
 
     if not table_metadata and not foreign_keys:
         logger.info(
@@ -79,9 +86,11 @@ def combine_schema(json_schema):
         return json_schema
 
     metadata_map = {entry["table_name"]: entry for entry in (table_metadata or [])}
-    foreign_keys_map = {
-        entry["table_name"]: entry["foreign_keys"] for entry in (foreign_keys or [])
-    }
+    foreign_keys_map = {}
+    if foreign_keys:
+        foreign_keys_map = {
+            entry["table_name"]: entry["foreign_keys"] for entry in foreign_keys
+        }
 
     for table in json_schema:
         table_name = table.get("table_name")
