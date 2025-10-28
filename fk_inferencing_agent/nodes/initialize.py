@@ -6,8 +6,10 @@ from database.connection import get_pyodbc_connection
 from database.introspection import introspect_schema
 from database.infer_foreign_keys import detect_id_columns, get_embedding_model
 from utils.logger import get_logger
+from rich.console import Console
 
 logger = get_logger("fk_agent")
+console = Console()
 
 
 def initialize_node(state: FKInferencingState) -> dict:
@@ -24,17 +26,17 @@ def initialize_node(state: FKInferencingState) -> dict:
 
     logger.info(f"[initialize] Starting node (last_step: {state.get('last_step', 'unknown')})")
 
-    print(f"\n[Step 1] Connecting to database: {state['database_name']}")
+    console.print(f"\n🔄 [bold cyan][Step 1][/bold cyan] Connecting to database: [white]{state['database_name']}[/white]")
 
     # Connect and introspect
     conn = get_pyodbc_connection()
     schema = introspect_schema(conn)
     conn.close()
 
-    print(f"[PASS] Introspected {len(schema)} tables")
+    console.print(f"✅ [bold green]Introspected {len(schema)} tables[/bold green]")
 
     # Detect all ID columns
-    print(f"\n[Step 2] Detecting ID columns...")
+    console.print(f"\n🔄 [bold cyan][Step 2][/bold cyan] Detecting ID columns...")
     all_id_columns = []
     existing_fks = {}
 
@@ -44,20 +46,20 @@ def initialize_node(state: FKInferencingState) -> dict:
         all_id_columns.extend([(table_name, col, base) for col, base in id_cols])
         existing_fks[table_name] = table.get("foreign_keys", [])
 
-    print(f"[PASS] Found {len(all_id_columns)} ID columns")
+    console.print(f"✅ [bold green]Found {len(all_id_columns)} ID columns[/bold green]")
 
     # Create Excel with pre-populated rows (only if doesn't exist)
     if not os.path.exists(state["excel_path"]):
-        print(f"\n[Step 3] Creating Excel audit file...")
+        console.print(f"\n🔄 [bold cyan][Step 3][/bold cyan] Creating Excel audit file...")
         create_excel(state["excel_path"], all_id_columns, existing_fks)
     else:
-        print(f"\n[Step 3] Excel file already exists, skipping creation")
+        console.print(f"\n📄 [cyan][Step 3][/cyan] Excel file already exists, skipping creation")
 
     # Note: We don't build or store vector_store here to avoid serialization issues
     # It will be built on-demand in find_candidates_node
-    print(f"\n[Step 4] Schema ready for vector search (vector store will be built on-demand)")
+    console.print(f"\n🔄 [bold cyan][Step 4][/bold cyan] Schema ready for vector search")
 
-    print(f"\n[PASS] Initialization complete\n")
+    console.print(f"\n✅ [bold green]Initialization complete[/bold green]\n")
 
     logger.info(f"[initialize] Completed - {len(schema)} tables, {len(all_id_columns)} ID columns")
 

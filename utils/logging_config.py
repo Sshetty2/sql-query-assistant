@@ -9,6 +9,9 @@ from pathlib import Path
 from pythonjsonlogger import jsonlogger
 from typing import Dict, Any
 from dotenv import load_dotenv
+from rich.logging import RichHandler
+from rich.console import Console
+from rich.theme import Theme
 
 load_dotenv()
 
@@ -37,83 +40,17 @@ class CustomJsonFormatter(jsonlogger.JsonFormatter):
             log_record["error_message"] = str(record.exc_info[1])
 
 
-class ColoredFormatter(logging.Formatter):
-    """Colored formatter for terminal output"""
+# Rich theme for consistent log styling
+rich_theme = Theme({
+    "logging.level.debug": "dim cyan",
+    "logging.level.info": "bold blue",
+    "logging.level.warning": "bold yellow",
+    "logging.level.error": "bold red",
+    "logging.level.critical": "bold magenta on white",
+})
 
-    RESET = "\033[0m"
-    BOLD = "\033[1m"
-
-    # Background colors for log level tags
-    INFO_BG = "\033[44m"  # Blue background
-    WARNING_BG = "\033[43m"  # Yellow background
-    ERROR_BG = "\033[41m"  # Red background
-    CRITICAL_BG = "\033[45m"  # Magenta background
-    DEBUG_BG = "\033[100m"  # Gray background
-
-    # Foreground colors for messages
-    INFO_START = "\033[38;5;45m"  # Light Blue for "started" operations
-    INFO_COMPLETE = "\033[38;5;35m"  # Green for "completed" operations
-    INFO_DEFAULT = "\033[38;5;39m"  # Blue for regular INFO messages
-    WARNING = "\033[38;5;208m"  # Orange
-    ERROR = "\033[38;5;196m"  # Red
-    CRITICAL = "\033[38;5;197m\033[1m"  # Bold Magenta
-    DEBUG = "\033[38;5;245m"  # Gray
-
-    def format(self, record):
-        if record.levelno == logging.INFO:
-            level_fmt = f"{self.INFO_BG}{self.BOLD} INFO {self.RESET}"
-        elif record.levelno == logging.WARNING:
-            level_fmt = f"{self.WARNING_BG}{self.BOLD} WARNING {self.RESET}"
-        elif record.levelno == logging.ERROR:
-            level_fmt = f"{self.ERROR_BG}{self.BOLD} ERROR {self.RESET}"
-        elif record.levelno == logging.CRITICAL:
-            level_fmt = f"{self.CRITICAL_BG}{self.BOLD} CRITICAL {self.RESET}"
-        elif record.levelno == logging.DEBUG:
-            level_fmt = f"{self.DEBUG_BG}{self.BOLD} DEBUG {self.RESET}"
-        else:
-            level_fmt = f"{record.levelname:8}"
-
-        original_levelname = record.levelname
-        record.levelname = level_fmt
-
-        if record.levelno == logging.INFO:
-            message = record.getMessage().lower()
-            if "starting operation" in message or "started" in message:
-                color = self.INFO_START
-            elif "completed" in message or "finished" in message:
-                color = self.INFO_COMPLETE
-            else:
-                color = self.INFO_DEFAULT
-        elif record.levelno == logging.WARNING:
-            color = self.WARNING
-        elif record.levelno == logging.ERROR:
-            color = self.ERROR
-        elif record.levelno == logging.CRITICAL:
-            color = self.CRITICAL
-        elif record.levelno == logging.DEBUG:
-            color = self.DEBUG
-        else:
-            color = self.RESET
-
-        DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-
-        # Check if execution time is in the record (from log_execution_time)
-        execution_time = getattr(record, "execution_time_ms", None)
-        if execution_time is not None:
-            # Add execution time to the message
-            original_msg = record.getMessage()
-            record.msg = f"{original_msg} [{execution_time}ms]"
-            record.args = ()  # Clear args since we've formatted the message
-
-        format_string = f"%(levelname)s {color}%(asctime)s %(message)s{self.RESET}"
-
-        formatter = logging.Formatter(format_string, datefmt=DATE_FORMAT)
-
-        result = formatter.format(record)
-
-        record.levelname = original_levelname
-
-        return result
+# Create Rich console for logging
+rich_console = Console(theme=rich_theme, force_terminal=True)
 
 
 @contextmanager
@@ -195,13 +132,20 @@ def configure_logging(process_name: str = "app", console_output: bool = True) ->
     error_handler.setLevel(logging.ERROR)
     logger.addHandler(error_handler)
 
-    # Add console handler if requested
+    # Add Rich console handler if requested
     if console_output:
-        color_formatter = ColoredFormatter()
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(color_formatter)
-        console_handler.setLevel(log_level)
-        logger.addHandler(console_handler)
+        rich_handler = RichHandler(
+            console=rich_console,
+            show_time=True,
+            show_level=True,
+            show_path=False,
+            rich_tracebacks=True,
+            tracebacks_show_locals=True,
+            markup=True,
+            log_time_format="[%Y-%m-%d %H:%M:%S]",
+        )
+        rich_handler.setLevel(log_level)
+        logger.addHandler(rich_handler)
 
     # Suppress noisy third-party loggers (only once)
     if not _configured_processes:

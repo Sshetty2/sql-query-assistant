@@ -2,8 +2,10 @@
 
 from fk_inferencing_agent.state import FKInferencingState
 from utils.logger import get_logger
+from rich.console import Console
 
 logger = get_logger("fk_agent")
+console = Console()
 
 
 def auto_select_node(state: FKInferencingState) -> dict:
@@ -25,7 +27,7 @@ def auto_select_node(state: FKInferencingState) -> dict:
     chosen_table, chosen_score = candidates[0]
 
     logger.info(f"Auto-selected: {chosen_table} (score: {chosen_score:.3f}, gap: {score_gap:.3f})")
-    print(f"[PASS] Auto-selected: {chosen_table}")
+    console.print(f"⚡ [bold green]Auto-selected:[/bold green] {chosen_table} [dim](score: {chosen_score:.3f})[/dim]")
 
     return {
         **state,

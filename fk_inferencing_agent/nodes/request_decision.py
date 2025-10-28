@@ -5,8 +5,12 @@ from langgraph.types import interrupt
 from langgraph.errors import GraphInterrupt
 from fk_inferencing_agent.state import FKInferencingState
 from utils.logger import get_logger
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
 
 logger = get_logger("fk_agent")
+console = Console()
 
 
 def request_decision_node(state: FKInferencingState) -> dict:
@@ -40,10 +44,27 @@ def request_decision_node(state: FKInferencingState) -> dict:
             "threshold": state["threshold"]
         }
 
-        print("\n[!] AMBIGUOUS - Please choose:")
-        print("  [1-5] Select candidate")
-        print("  [s]   Skip this FK")
-        print("  [q]   Quit and save")
+        # Display decision prompt with Rich Panel
+        prompt_text = Text()
+        prompt_text.append("Choose an option:\n\n", style="bold white")
+        prompt_text.append("  🔢 ", style="cyan")
+        prompt_text.append("[1-5]", style="bold cyan")
+        prompt_text.append("  Select candidate\n", style="white")
+        prompt_text.append("  ⏭️  ", style="yellow")
+        prompt_text.append("[s]", style="bold yellow")
+        prompt_text.append("     Skip this FK\n", style="white")
+        prompt_text.append("  🚪 ", style="red")
+        prompt_text.append("[q]", style="bold red")
+        prompt_text.append("     Quit and save", style="white")
+
+        console.print()
+        console.print(Panel(
+            prompt_text,
+            title="⚠️  [bold yellow]AMBIGUOUS MATCH - User Decision Required[/bold yellow]",
+            title_align="left",
+            border_style="yellow",
+            padding=(1, 2)
+        ))
 
         # Pause and wait for user input
         # This returns the value passed to Command(resume=...)
@@ -54,7 +75,7 @@ def request_decision_node(state: FKInferencingState) -> dict:
         # Process user choice
         if user_choice == "q":
             logger.info("User chose to quit")
-            print("[WARN] User quit session")
+            console.print("🚪 [bold yellow]User quit session[/bold yellow]")
             return {
                 **state,
                 "user_quit": True,
@@ -66,7 +87,7 @@ def request_decision_node(state: FKInferencingState) -> dict:
             }
         elif user_choice == "s":
             logger.info("User chose to skip")
-            print("[WARN] User skipped this FK")
+            console.print("⏭️  [bold yellow]User skipped this FK[/bold yellow]")
             return {
                 **state,
                 "chosen_table": "[SKIPPED]",
@@ -81,7 +102,7 @@ def request_decision_node(state: FKInferencingState) -> dict:
                 idx = int(user_choice) - 1
                 if idx < 0 or idx >= len(state["candidates"]):
                     logger.error(f"Invalid choice index: {idx} (candidates: {len(state['candidates'])})")
-                    print(f"[ERROR] Invalid choice: {user_choice}")
+                    console.print(f"❌ [bold red]Invalid choice:[/bold red] {user_choice}")
                     return {
                         **state,
                         "chosen_table": "[SKIPPED]",
@@ -93,7 +114,7 @@ def request_decision_node(state: FKInferencingState) -> dict:
 
                 chosen_table, chosen_score = state["candidates"][idx]
                 logger.info(f"User selected: {chosen_table} (score: {chosen_score:.3f})")
-                print(f"[PASS] User selected: {chosen_table}")
+                console.print(f"✅ [bold green]User selected:[/bold green] {chosen_table}")
                 return {
                     **state,
                     "chosen_table": chosen_table,
@@ -105,7 +126,7 @@ def request_decision_node(state: FKInferencingState) -> dict:
             except (ValueError, IndexError) as e:
                 logger.error(f"Failed to process user choice '{user_choice}': {e}")
                 logger.debug(traceback.format_exc())
-                print(f"[ERROR] Invalid input: {user_choice}")
+                console.print(f"❌ [bold red]Invalid input:[/bold red] {user_choice}")
                 return {
                     **state,
                     "chosen_table": "[SKIPPED]",
@@ -121,7 +142,7 @@ def request_decision_node(state: FKInferencingState) -> dict:
         raise
     except Exception as e:
         logger.error(f"[request_decision] Unexpected error: {e}", exc_info=True)
-        print(f"[ERROR] Failed to process decision: {e}")
+        console.print(f"❌ [bold red]Failed to process decision:[/bold red] {e}")
         return {
             **state,
             "chosen_table": "[SKIPPED]",

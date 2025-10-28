@@ -4,8 +4,10 @@ import traceback
 from fk_inferencing_agent.state import FKInferencingState
 from fk_inferencing_agent.excel_manager import write_decision
 from utils.logger import get_logger
+from rich.console import Console
 
 logger = get_logger("fk_agent")
+console = Console()
 
 
 def record_decision_node(state: FKInferencingState) -> dict:
@@ -49,7 +51,7 @@ def record_decision_node(state: FKInferencingState) -> dict:
             logger.debug(f"[record_decision] Decision written to Excel row {state['current_row_idx']}")
         except Exception as e:
             logger.error(f"[record_decision] Failed to write decision to Excel: {e}", exc_info=True)
-            print(f"[ERROR] Failed to save decision to Excel: {e}")
+            console.print(f"❌ [bold red]Failed to save decision to Excel:[/bold red] {e}")
             # Continue despite error - decision is recorded in state
 
         return {
@@ -59,7 +61,7 @@ def record_decision_node(state: FKInferencingState) -> dict:
 
     except Exception as e:
         logger.error(f"[record_decision] Unexpected error: {e}", exc_info=True)
-        print(f"[ERROR] Failed to record decision: {e}")
+        console.print(f"❌ [bold red]Failed to record decision:[/bold red] {e}")
         return {
             **state,
             "last_step": "record_decision_exception"
