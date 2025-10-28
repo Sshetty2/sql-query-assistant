@@ -12,9 +12,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-_is_configured = False
-_log_queue = queue.Queue(-1)
-_queue_listener = None
+_configured_processes = set()
 _info_color_cycle = None
 
 
@@ -135,18 +133,22 @@ def log_execution_time(logger: logging.Logger, operation: str):
         )
 
 
-def configure_logging(process_name: str = "app") -> logging.Logger:
+def configure_logging(process_name: str = "app", console_output: bool = True) -> logging.Logger:
     """Configure logging for the application with structured JSON logging and colored console output
 
     Args:
         process_name: Name of the process for log file naming (default: "app")
                      This allows multiple processes to have separate log files.
-                     Examples: "app", "streamlit", "api"
+                     Examples: "app", "streamlit", "api", "fk_agent"
+        console_output: Whether to output logs to console (default: True)
+                       Set to False for background processes or CLI tools
     """
-    global _is_configured, _queue_listener
+    global _configured_processes
 
-    if _is_configured:
-        return logging.getLogger("sql_query_assistant")
+    # Return existing logger if already configured for this process
+    logger_name = f"sql_query_assistant.{process_name}"
+    if process_name in _configured_processes:
+        return logging.getLogger(logger_name)
 
     # Get configuration from environment variables
     log_dir = Path(os.getenv("LOG_DIR", "logs"))
@@ -156,22 +158,20 @@ def configure_logging(process_name: str = "app") -> logging.Logger:
 
     log_dir.mkdir(exist_ok=True, parents=True)
 
-    root_logger = logging.getLogger()
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
+    # Create process-specific logger
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(log_level)
+    logger.propagate = False  # Don't propagate to root logger
 
-    root_logger.setLevel(log_level)
+    # Remove any existing handlers (in case of re-configuration)
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
 
     json_formatter = CustomJsonFormatter(
         "%(level)s %(timestamp)s %(message)s", json_ensure_ascii=False
     )
 
-    color_formatter = ColoredFormatter()
-
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(color_formatter)
-    console_handler.setLevel(log_level)
-
+    # File handler for main log
     app_handler = logging.handlers.TimedRotatingFileHandler(
         str(log_file),
         when="midnight",
@@ -181,7 +181,9 @@ def configure_logging(process_name: str = "app") -> logging.Logger:
     )
     app_handler.setFormatter(json_formatter)
     app_handler.setLevel(log_level)
+    logger.addHandler(app_handler)
 
+    # File handler for errors
     error_handler = logging.handlers.TimedRotatingFileHandler(
         str(log_dir / f"{process_name}_error.log"),
         when="midnight",
@@ -191,34 +193,32 @@ def configure_logging(process_name: str = "app") -> logging.Logger:
     )
     error_handler.setFormatter(json_formatter)
     error_handler.setLevel(logging.ERROR)
+    logger.addHandler(error_handler)
 
-    _queue_listener = logging.handlers.QueueListener(
-        _log_queue,
-        console_handler,
-        app_handler,
-        error_handler,
-        respect_handler_level=True,
-    )
-    _queue_listener.start()
+    # Add console handler if requested
+    if console_output:
+        color_formatter = ColoredFormatter()
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(color_formatter)
+        console_handler.setLevel(log_level)
+        logger.addHandler(console_handler)
 
-    queue_handler = logging.handlers.QueueHandler(_log_queue)
-    root_logger.addHandler(queue_handler)
+    # Suppress noisy third-party loggers (only once)
+    if not _configured_processes:
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        logging.getLogger("openai").setLevel(logging.WARNING)
+        logging.getLogger("httpcore.http11").setLevel(logging.WARNING)
 
-    # Suppress noisy third-party loggers
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("openai").setLevel(logging.WARNING)
-    logging.getLogger("httpcore.http11").setLevel(logging.WARNING)
-
-    logger = logging.getLogger("sql_query_assistant")
     logger.info(
         "Logging initialized",
         extra={
+            "process_name": process_name,
             "log_level": log_level_str,
             "log_file": str(log_file),
-            "log_dir": str(log_dir),
+            "console_output": console_output,
         },
     )
 
-    _is_configured = True
+    _configured_processes.add(process_name)
     return logger
