@@ -8,14 +8,17 @@ This is a **SQL Query Assistant** that converts natural language queries into SQ
 
 ### Key Features
 
-- **Conversational Query Interface**: Refine queries through follow-up questions
 - **Deterministic SQL Generation**: SQLGlot-based join synthesizer (no LLM for SQL, zero cost)
-- **Schema Filtering**: Vector search reduces context to relevant tables only
+- **3-Stage Schema Filtering**: Vector search + LLM reasoning + FK expansion reduces context to relevant tables only
+- **Foreign Key Inference**: Automatic FK discovery for databases without explicit constraints
+  - **Standalone FK Agent**: Interactive CLI tool (`fk_inferencing_agent/`) with human-in-the-loop validation
+  - **Integrated Inference**: Optional automatic FK inference during query execution (`INFER_FOREIGN_KEYS=true`)
 - **Planner Complexity Tiers**: Three levels optimized for different model sizes (minimal/standard/full)
 - **Plan Auditing**: Deterministic validation catches and fixes common mistakes
 - **Smart Error Handling**: Automatic SQL error correction and query refinement
 - **ORDER BY/LIMIT Support**: Planner generates ordering from requests like "last 10 logins"
 - **SQL Server Safety**: Automatic identifier quoting for reserved keywords
+- **Query History**: Recent queries sidebar in Streamlit UI (each query is independent, not conversational)
 
 ## Environment Setup
 
@@ -42,6 +45,11 @@ Required environment variables (see `.env` file):
 - `REFINE_COUNT` - Max refinement attempts for empty results (default: 3)
 - `TOP_MOST_RELEVANT_TABLES` - Number of tables to retrieve via vector search (default: 8)
 - `EMBEDDING_MODEL` - Embedding model for vector search (default: `text-embedding-3-small`)
+
+### Foreign Key Inference
+- `INFER_FOREIGN_KEYS` - Enable automatic FK inference for filtered tables (default: `false`)
+- `FK_INFERENCE_CONFIDENCE_THRESHOLD` - Minimum confidence score for inferred FKs (default: `0.6`, range: 0.0-1.0)
+- `FK_INFERENCE_TOP_K` - Number of candidate tables to consider per ID column (default: `3`)
 
 ## Development Commands
 
@@ -144,33 +152,37 @@ The agent uses a **LangGraph state machine workflow** (defined in `agent/create_
 
 1. **analyze_schema** - Retrieves full database schema with table/column metadata and foreign keys
 2. **filter_schema** - Uses **vector similarity search** to find the top-k most relevant tables (default: 8)
-3. **format_schema_markdown** - Converts filtered schema to markdown format optimized for LLM consumption
-4. **planner** - LLM generates structured query plan (PlannerOutput) with:
+3. **infer_foreign_keys** (optional) - Automatically infers missing FK relationships using vector similarity (only runs if `INFER_FOREIGN_KEYS=true`)
+4. **format_schema_markdown** - Converts filtered schema to markdown format optimized for LLM consumption
+5. **planner** - LLM generates structured query plan (PlannerOutput) with:
    - Table selections with columns and filters
    - Join edges (foreign key relationships)
    - Aggregations (GROUP BY, HAVING)
    - ORDER BY and LIMIT specifications
    - Three operational modes: initial, update, rewrite
    - Three complexity tiers: minimal, standard, full
-5. **plan_audit** - Deterministic validation and fixes:
+6. **plan_audit** - Deterministic validation and fixes:
    - Validates column existence
    - Fixes orphaned filter columns
    - Completes GROUP BY clauses
    - Removes invalid joins and filters
-6. **check_clarification** - Analyzes planner decision (proceed/clarify/terminate)
-7. **generate_query** - Deterministic join synthesizer using SQLGlot:
+7. **check_clarification** - Analyzes planner decision (proceed/clarify/terminate)
+8. **generate_query** - Deterministic join synthesizer using SQLGlot:
    - No LLM calls - purely algorithmic transformation
    - Builds SQL AST from PlannerOutput
    - Automatic identifier quoting for reserved keywords
    - Multi-dialect support (SQL Server, SQLite, PostgreSQL, MySQL)
-8. **execute_query** - Executes the query against the database
-9. **Conditional routing:**
+9. **execute_query** - Executes the query against the database
+10. **Conditional routing:**
    - **handle_error** - LLM-based SQL error correction (loops back to generate_query)
    - **refine_query** - LLM-based query improvement for empty results (loops back to generate_query)
    - **cleanup** - Closes database connection and exits
 
-#### Conversational Follow-up Workflow
+#### Conversational Follow-up Workflow (Currently Disabled)
 
+**Note**: The conversational router is currently disabled in the UI. Each query generates a new independent thread. The infrastructure remains in place for future re-enabling.
+
+When re-enabled, the workflow would be:
 1. **conversational_router** - Analyzes follow-up request in context of conversation history
    - Routes to planner with mode: "update" (minor changes) or "rewrite" (major changes)
    - Prevents SQL injection by always using planner → join synthesizer pipeline
@@ -200,10 +212,32 @@ The `State` TypedDict (in `agent/state.py`) tracks:
 
 ### Key Components
 
-**Schema Filtering (`agent/filter_schema.py`):**
-- Creates in-memory FAISS vector store from table descriptions
-- Uses embeddings (default: text-embedding-3-small) to find top-k most relevant tables
+**3-Stage Schema Filtering (`agent/filter_schema.py`):**
+- **Stage 1**: Vector search creates candidate pool (top-k tables via Chroma vector store)
+- **Stage 2**: LLM reasoning evaluates relevance with explanations
+- **Stage 3**: FK expansion adds related tables automatically
+- Uses embeddings (default: text-embedding-3-small) for vector search
 - Reduces context size by 60-90%, improving accuracy and reducing costs
+
+**Foreign Key Inference (`database/infer_foreign_keys.py`, `agent/infer_foreign_keys.py`):**
+- Automatically discovers FK relationships in databases without explicit constraints
+- Uses ID column naming patterns (CompanyID, TagId, Tag_ID, etc.)
+- Vector similarity search to match FK columns to candidate tables
+- Only runs on filtered schema (6-10 tables) for optimal performance
+- Configurable confidence threshold (default: 0.6)
+- Augments existing FKs without replacing them
+- Each inferred FK includes confidence score and "inferred: true" flag
+- **Testing**: Compare against ground truth using `python scripts/compare_fk_inference.py`
+
+**Standalone FK Inferencing Agent (`fk_inferencing_agent/`):**
+- Interactive CLI tool for discovering FKs with human-in-the-loop validation
+- Built with LangGraph for stateful, interactive workflow
+- Human can accept/reject/modify each proposed FK relationship
+- Uses same vector similarity approach as integrated inference
+- Saves validated FKs to `domain-specific-foreign-keys.json`
+- Useful for one-time FK discovery or database documentation
+- Run with: `python -m fk_inferencing_agent.cli`
+- **See**: `fk_inferencing_agent/README.md` for detailed documentation
 
 **Query Planning (`agent/planner.py`):**
 - Three complexity tiers (configured via `PLANNER_COMPLEXITY`):
@@ -242,12 +276,12 @@ The `State` TypedDict (in `agent/state.py`) tracks:
 - Automatic identifier quoting: `identify=True` prevents SQL Server reserved keyword errors
 - Multi-dialect support via SQLGlot
 
-**Conversational Router (`agent/conversational_router.py`):**
-- Analyzes follow-up questions using LLM
-- Decides routing mode:
-  - **update**: Minor changes (add/remove columns, filters, ORDER BY)
-  - **rewrite**: Major changes (different tables, new domain)
-- Generates routing instructions for planner
+**Conversational Router (`agent/conversational_router.py`) - Currently Disabled:**
+- **Status**: Code exists but is disabled in the UI workflow
+- **Why**: Each query creates an independent thread for simplicity
+- **Future**: May be re-enabled with improved conversation handling
+- When enabled, analyzes follow-up questions using LLM
+- Decides routing mode: "update" (minor changes) or "rewrite" (major changes)
 - Always routes through planner → join synthesizer (prevents SQL injection)
 
 **Error Handling (`agent/handle_tool_error.py`):**
@@ -314,6 +348,7 @@ agent/
 ├── Schema Processing
 ├── analyze_schema.py            # Retrieve full database schema
 ├── filter_schema.py             # Vector search for relevant tables (top-k)
+├── infer_foreign_keys.py        # Infer missing FK relationships (workflow node)
 ├── format_schema_markdown.py    # Convert schema to markdown for LLM
 │
 ├── Query Planning
@@ -339,7 +374,9 @@ models/
 └── router_output.py             # Conversational router output
 
 database/
-└── connection.py                # Database connection management (SQL Server + SQLite)
+├── connection.py                # Database connection management (SQL Server + SQLite)
+├── introspection.py             # SQLAlchemy-based schema introspection
+└── infer_foreign_keys.py        # FK inference logic (vector similarity)
 
 utils/
 ├── llm_factory.py               # LLM provider abstraction (OpenAI/Ollama switcher)
@@ -352,6 +389,9 @@ domain_specific_guidance/
 ├── domain-specific-table-metadata.json
 ├── domain-specific-foreign-keys.json
 └── domain-specific-sample-queries.json
+
+scripts/
+└── compare_fk_inference.py      # Test FK inference against ground truth
 
 tests/
 └── unit/

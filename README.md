@@ -1,6 +1,6 @@
 # SQL Query Assistant
 
-A sophisticated natural language to SQL query system powered by **LangGraph**, **LangChain**, and **OpenAI/Ollama**, featuring deterministic SQL generation, conversational query refinement, and intelligent schema filtering.
+A sophisticated natural language to SQL query system powered by **LangGraph**, **LangChain**, and **OpenAI/Ollama**, featuring deterministic SQL generation, automatic foreign key inference, and intelligent 3-stage schema filtering.
 
 ---
 
@@ -8,13 +8,14 @@ A sophisticated natural language to SQL query system powered by **LangGraph**, *
 
 The SQL Query Assistant converts natural language questions into executable SQL queries using a multi-stage workflow:
 
-1. **Schema Filtering**: Vector search identifies the most relevant database tables for your question
-2. **Query Planning**: LLM generates a structured query plan with tables, joins, filters, and aggregations
-3. **Plan Validation**: Deterministic auditing catches and fixes common planning mistakes
-4. **SQL Generation**: Deterministic join synthesizer uses SQLGlot to generate safe, valid SQL
-5. **Execution & Refinement**: Executes queries with automatic error correction and result refinement
+1. **3-Stage Schema Filtering**: Vector search + LLM reasoning + FK expansion identifies the most relevant tables
+2. **Foreign Key Inference** (optional): Automatically discovers missing FK relationships for better JOINs
+3. **Query Planning**: LLM generates a structured query plan with tables, joins, filters, and aggregations
+4. **Plan Validation**: Deterministic auditing catches and fixes common planning mistakes
+5. **SQL Generation**: Deterministic join synthesizer uses SQLGlot to generate safe, valid SQL
+6. **Execution & Refinement**: Executes queries with automatic error correction and result refinement
 
-The system supports **conversational query refinement**, allowing users to iteratively improve queries through natural follow-up questions without starting over.
+Each query is independent with a persisted history sidebar for viewing past results.
 
 ---
 
@@ -22,9 +23,12 @@ The system supports **conversational query refinement**, allowing users to itera
 
 ### Core Capabilities
 - **Natural Language Querying**: Convert plain English into SQL queries
-- **Conversational Interface**: Refine queries through follow-up questions ("add vendor column", "filter to active only")
+- **Query History**: Persisted sidebar showing recent queries with clickable results
 - **Deterministic SQL Generation**: Uses SQLGlot AST for guaranteed valid SQL (no LLM for SQL generation)
-- **Schema Filtering**: Vector search reduces context to only relevant tables
+- **3-Stage Schema Filtering**: Vector search + LLM reasoning + FK expansion reduces context to only relevant tables
+- **Foreign Key Inference**: Automatically discovers missing FK relationships for databases without explicit constraints
+  - **Integrated mode**: Optional automatic inference during queries (`INFER_FOREIGN_KEYS=true`)
+  - **Standalone tool**: Interactive CLI for human-validated FK discovery ([see docs](fk_inferencing_agent/README.md))
 - **Smart Error Handling**: Automatic SQL error detection and correction
 - **Query Refinement**: Improves queries that return empty results
 - **Clarification Detection**: Identifies ambiguous requests before execution
@@ -38,8 +42,9 @@ The system supports **conversational query refinement**, allowing users to itera
 - **Subqueries & CTEs**: Complex nested queries (full complexity mode)
 
 ### User Interfaces
-- **Streamlit UI**: Interactive web interface with query history and conversation threads
+- **Streamlit UI**: Interactive web interface with query history sidebar
 - **FastAPI Server**: REST API for programmatic access
+- **FK Inferencing Agent CLI**: Interactive tool for discovering and validating foreign keys
 - **CSV Export**: Download query results for offline analysis
 
 ### LLM Support

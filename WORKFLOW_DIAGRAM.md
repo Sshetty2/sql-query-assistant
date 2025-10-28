@@ -1,18 +1,20 @@
-# SQL Query Assistant - Workflow Diagram (Updated 2025-10-23)
+# SQL Query Assistant - Workflow Diagram (Updated 2025-10-28)
 
 ## Architecture Overview
 
-The SQL Query Assistant uses a **LangGraph state machine** workflow with deterministic SQL generation, schema filtering, and conversational capabilities.
+The SQL Query Assistant uses a **LangGraph state machine** workflow with deterministic SQL generation, 3-stage schema filtering, and optional foreign key inference.
 
 ### Key Architecture Highlights
 
 🔹 **Deterministic Join Synthesizer**: Uses SQLGlot to generate SQL from structured plans (no LLM, instant, free)
-🔹 **Schema Filtering**: Vector search reduces context from full schema to top-k relevant tables
+🔹 **3-Stage Schema Filtering**: Vector search + LLM reasoning + FK expansion reduces context to relevant tables
+🔹 **Foreign Key Inference**: Optional automatic FK discovery for databases without explicit constraints (`INFER_FOREIGN_KEYS=true`)
 🔹 **Planner Complexity Tiers**: Three levels (minimal/standard/full) for different model sizes
 🔹 **Plan Auditing**: Deterministic validation/fixes before SQL generation
 🔹 **Clarification Detection**: Identifies ambiguous queries before execution
 🔹 **ORDER BY/LIMIT Support**: Planner generates ordering and limiting directly
 🔹 **SQL Server Safety**: Automatic identifier quoting prevents reserved keyword errors
+🔹 **Query History**: Each query is independent with persisted history (conversational routing currently disabled)
 
 ---
 
@@ -21,40 +23,51 @@ The SQL Query Assistant uses a **LangGraph state machine** workflow with determi
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
 │                                START                                       │
+│                                                                            │
+│  NOTE: Conversational routing is currently DISABLED                       │
+│        Each query creates a new independent thread                        │
 └────────────────────────────┬───────────────────────────────────────────────┘
                              │
                              ▼
                   ┌──────────────────────┐
-                  │  is_continuation?    │
+                  │  analyze_schema      │
+                  │  (Full DB schema)    │
+                  └──────────┬───────────┘
+                             │
+                             ▼
+                  ┌──────────────────────────────────┐
+                  │  filter_schema (3 stages)        │
+                  │  1. Vector search (candidates)   │
+                  │  2. LLM reasoning (relevance)    │
+                  │  3. FK expansion (related tables)│
+                  └──────────┬───────────────────────┘
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │  INFER_FOREIGN_KEYS  │
+                  │  =true?              │
                   └──────────┬───────────┘
                              │
               ┌──────────────┴──────────────┐
               │                             │
-        [False] New Query            [True] Follow-up
+          [true]                        [false]
               │                             │
-              ▼                             ▼
-  ┌────────────────────────┐    ┌────────────────────────┐
-  │  analyze_schema        │    │  conversational_router │
-  │  (Full DB schema)      │    │  (Analyze context)     │
-  └─────────┬──────────────┘    └───────────┬────────────┘
-            │                               │
-            ▼                               │ (Always routes to planner)
+              ▼                             │
   ┌────────────────────────┐                │
-  │  filter_schema         │                │
-  │  (Vector search for    │                │
-  │   top-k tables)        │                │
-  └─────────┬──────────────┘                │
-            │                               │
-            ▼                               │
-  ┌────────────────────────┐                │
-  │  format_schema_        │                │
-  │  markdown              │                │
-  │  (Convert to Markdown) │                │
+  │  infer_foreign_keys    │                │
+  │  (Vector similarity    │                │
+  │   for missing FKs)     │                │
   └─────────┬──────────────┘                │
             │                               │
             └───────────────┬───────────────┘
                             │
                             ▼
+              ┌──────────────────────────┐
+              │  format_schema_markdown  │
+              │  (Convert to Markdown)   │
+              └──────────┬───────────────┘
+                         │
+                         ▼
               ┌──────────────────────────┐
               │  planner                 │
               │  - Complexity: min/std/  │
@@ -242,7 +255,7 @@ model_class = get_planner_model_class(complexity)
 
 ---
 
-## 4. Schema Filtering Flow (Vector Search)
+## 4. 3-Stage Schema Filtering Flow
 
 Reduces context size by filtering schema to only relevant tables before planning:
 
@@ -251,26 +264,60 @@ Reduces context size by filtering schema to only relevant tables before planning
 │  analyze_schema                                                 │
 │  - Retrieves full database schema                              │
 │  - Gets all tables, columns, foreign keys                      │
-│  - Adds metadata from cwp_table_metadata.json                  │
+│  - Adds metadata from domain-specific-table-metadata.json      │
 └────────────────────────┬────────────────────────────────────────┘
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  filter_schema (Vector Similarity Search)                      │
+│  filter_schema - Stage 1: Vector Search                        │
 │                                                                 │
 │  Process:                                                       │
 │  1. Create embeddings for each table's description             │
 │  2. Create embedding for user's query                          │
-│  3. Compute cosine similarity                                  │
-│  4. Select top-k most relevant tables                          │
+│  3. Compute similarity scores using Chroma vector store        │
+│  4. Return top-k candidate tables                              │
 │                                                                 │
 │  Configuration:                                                 │
 │  - TOP_MOST_RELEVANT_TABLES (default: 8)                       │
-│  - Uses in-memory FAISS vector store                           │
+│  - Uses Chroma for vector similarity                           │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  filter_schema - Stage 2: LLM Reasoning                        │
 │                                                                 │
-│  Output:                                                        │
-│  - Filtered schema with only relevant tables                   │
-│  - Reduces token usage by 60-90%                               │
+│  Process:                                                       │
+│  1. LLM analyzes each candidate table                          │
+│  2. Provides relevance assessment (relevant/not_relevant)      │
+│  3. Explains reasoning for decision                            │
+│  4. Filters to only relevant tables                            │
+│                                                                 │
+│  Benefits:                                                      │
+│  - More accurate than vector search alone                      │
+│  - Provides explainability                                     │
+│  - Catches nuanced relevance patterns                          │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  filter_schema - Stage 3: Foreign Key Expansion                │
+│                                                                 │
+│  Process:                                                       │
+│  1. Analyzes FK relationships in selected tables               │
+│  2. Automatically adds related tables                          │
+│  3. Ensures JOIN paths are complete                            │
+│                                                                 │
+│  Benefits:                                                      │
+│  - Prevents missing table errors in JOINs                      │
+│  - Adds lookup/reference tables automatically                  │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  infer_foreign_keys (Optional: INFER_FOREIGN_KEYS=true)        │
+│  - Discovers missing FK relationships                          │
+│  - Uses vector similarity on ID column patterns                │
+│  - Adds inferred FKs with confidence scores                    │
 └────────────────────────┬────────────────────────────────────────┘
                          │
                          ▼
@@ -278,7 +325,7 @@ Reduces context size by filtering schema to only relevant tables before planning
 │  format_schema_markdown                                         │
 │  - Converts filtered schema to markdown format                 │
 │  - Optimized for LLM consumption                               │
-│  - Includes table descriptions, columns, types                 │
+│  - Includes table descriptions, columns, types, FKs            │
 └────────────────────────┬────────────────────────────────────────┘
                          │
                          ▼
@@ -287,7 +334,8 @@ Reduces context size by filtering schema to only relevant tables before planning
 
 **Benefits:**
 - Reduces planner prompt size by 60-90%
-- Improves accuracy by focusing on relevant tables
+- Improves accuracy through LLM reasoning
+- Ensures complete JOIN paths via FK expansion
 - Decreases LLM costs and latency
 - Prevents "lost in the middle" phenomenon with large schemas
 
