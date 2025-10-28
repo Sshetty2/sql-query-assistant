@@ -166,7 +166,7 @@ def render_query_results(
                     )
                     combined_question = f"{original_question}. {suggestion}"
                     st.session_state.question_input = combined_question
-                    st.session_state.selected_query_id = None
+                    # st.session_state.selected_query_id = None  # Commented out - no conversation tracking
                     st.rerun()
 
             st.divider()
@@ -345,12 +345,10 @@ def render_query_results(
 
 
 def initialize_session_state():
-    """Initialize Streamlit session state for thread management."""
+    """Initialize Streamlit session state."""
+    # Query history state (each query is independent, not conversational)
     if "selected_thread_id" not in st.session_state:
         st.session_state.selected_thread_id = None
-
-    if "selected_query_id" not in st.session_state:
-        st.session_state.selected_query_id = None
 
     if "thread_states" not in st.session_state:
         st.session_state.thread_states = load_thread_states()
@@ -378,30 +376,31 @@ def main():
     # Initialize session state
     initialize_session_state()
 
-    # Create 3-column layout for thread management
-    thread_col, query_col, history_col = st.columns([1.2, 2.5, 1.3])
+    # Create 2-column layout: Recent Queries sidebar + Main content
+    query_list_col, main_col = st.columns([1.5, 3.5])
 
-    # --- LEFT COLUMN: Thread List ---
-    with thread_col:
-        st.subheader("💬 Conversations")
+    # --- LEFT COLUMN: Recent Queries ---
+    with query_list_col:
+        st.subheader("📜 Recent Queries")
 
-        # New conversation button
-        if st.button("➕ New Conversation", use_container_width=True, type="primary"):
+        # New query button
+        if st.button("➕ New Query", use_container_width=True, type="primary"):
             st.session_state.selected_thread_id = None
-            st.session_state.selected_query_id = None
             st.session_state.loaded_state = None
             st.session_state.question_input = ""
+            st.session_state.show_results = False
+            st.session_state.current_dataframe = None
             st.rerun()
 
-        # Display thread list in scrollable container
+        # Display query list in scrollable container
         threads = st.session_state.thread_states.get("threads", {})
 
         if threads:
             # Use container with max height for scrolling
-            thread_container = st.container(height=200)
+            query_container = st.container(height=500)
 
-            with thread_container:
-                # Sort threads by last_updated descending
+            with query_container:
+                # Sort threads by last_updated descending (most recent first)
                 sorted_threads = sorted(
                     threads.items(),
                     key=lambda x: x[1].get("last_updated", ""),
@@ -410,42 +409,43 @@ def main():
 
                 for thread_id, thread_info in sorted_threads:
                     original_query = thread_info.get("original_query", "Untitled")
-                    query_count = len(thread_info.get("queries", []))
+                    queries = thread_info.get("queries", [])
+
+                    # Get timestamp for display
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(thread_info.get("last_updated", ""))
+                        time_display = dt.strftime("%m/%d %H:%M")
+                    except Exception:
+                        time_display = ""
 
                     # Truncate query for display
                     display_query = (
-                        original_query[:47] + "..."
+                        original_query[:50] + "..."
                         if len(original_query) > 50
                         else original_query
                     )
 
-                    # Highlight selected thread
+                    # Highlight selected query
                     is_selected = st.session_state.selected_thread_id == thread_id
                     button_type = "primary" if is_selected else "secondary"
 
                     if st.button(
-                        f"{'🔵 ' if is_selected else ''}{display_query}\n({query_count} queries)",
-                        key=f"thread_{thread_id}",
+                        f"{'🔵 ' if is_selected else ''}{display_query}\n`{time_display}`",
+                        key=f"query_{thread_id}",
                         use_container_width=True,
                         type=button_type,
                     ):
+                        # Load the query results
                         st.session_state.selected_thread_id = thread_id
+                        if queries:
+                            st.session_state.loaded_state = queries[0].get("state")
                         st.rerun()
         else:
-            st.info("No conversations yet. Click 'New Conversation' to start!")
+            st.info("No queries yet. Enter a question below to get started!")
 
-    # --- MIDDLE COLUMN: Query Input ---
-    with query_col:
-        # Show thread context
-        if st.session_state.selected_thread_id:
-            thread_info = threads.get(st.session_state.selected_thread_id, {})
-            original_query = thread_info.get("original_query", "Unknown")
-            st.caption(
-                f"📍 Continuing: _{original_query[:60]}{'...' if len(original_query) > 60 else ''}_"
-            )
-        else:
-            st.caption("📍 New Conversation")
-
+    # --- RIGHT COLUMN: Query Input and Parameters ---
+    with main_col:
         # Sample query selector
         sample_col1, sample_col2 = st.columns([1, 1])
 
@@ -481,7 +481,7 @@ def main():
             ),
         )
 
-        # Query preferences in middle column
+        # Query preferences
         pref_col1, pref_col2, pref_col3 = st.columns(3)
 
         with pref_col1:
@@ -513,58 +513,7 @@ def main():
                 index=0,
             )
 
-    # --- RIGHT COLUMN: Invocation History ---
-    with history_col:
-        st.subheader("📜 Query History")
-
-        if st.session_state.selected_thread_id:
-            queries = get_thread_queries(st.session_state.selected_thread_id)
-
-            if queries:
-                st.caption(f"{len(queries)} queries in this conversation")
-                st.divider()
-
-                for i, query_item in enumerate(reversed(queries), 1):
-                    inv_query = query_item.get("user_question", "Unknown")
-                    inv_timestamp = query_item.get("timestamp", "")
-
-                    # Parse timestamp for display
-                    try:
-                        dt = datetime.fromisoformat(inv_timestamp)
-                        time_display = dt.strftime("%m/%d %H:%M")
-                    except Exception as e:
-                        logger.error(
-                            f"Error parsing timestamp: {str(e)}", exc_info=True
-                        )
-                        time_display = inv_timestamp[:16] if inv_timestamp else ""
-
-                    # Truncate query for display
-                    display_inv = (
-                        inv_query[:40] + "..." if len(inv_query) > 43 else inv_query
-                    )
-
-                    # Highlight if this query is currently selected
-                    is_query_selected = (
-                        st.session_state.selected_query_id == query_item.get("query_id")
-                    )
-                    query_button_type = "primary" if is_query_selected else "secondary"
-
-                    if st.button(
-                        f"**{i}.** {display_inv}\n`{time_display}`",
-                        key=f"inv_{st.session_state.selected_thread_id}_{i}",
-                        use_container_width=True,
-                        type=query_button_type,
-                    ):
-                        # Load the full query state for display
-                        st.session_state.selected_query_id = query_item.get("query_id")
-                        st.session_state.loaded_state = query_item.get("state")
-                        st.rerun()
-            else:
-                st.info("No queries yet in this conversation")
-        else:
-            st.info("Select a conversation to view its history")
-
-    # --- QUERY EXECUTION (spans full width) ---
+    # --- QUERY EXECUTION (Full Width Below) ---
     st.divider()
 
     # Button row: Generate Query and Download CSV on the same line
@@ -595,32 +544,30 @@ def main():
     if generate_clicked:
         if user_question:
             # Clear previous results and loaded state
-            st.session_state.selected_query_id = None
+            st.session_state.selected_thread_id = None  # Clear selection to show new query
             st.session_state.loaded_state = None
             st.session_state.show_results = False
             st.session_state.current_dataframe = None
 
             status = st.status("Querying database...")
             try:
-                # Call query_database with thread_id
+                # Call query_database (creates a new independent thread)
                 response = query_database(
                     user_question,
                     sort_order=sort_order,
                     result_limit=result_limit,
                     time_filter=time_filter,
-                    thread_id=st.session_state.selected_thread_id,
+                    thread_id=None,  # Each query is independent
                 )
 
-                # Extract state, thread_id, and query_id from response
+                # Extract state from response
                 output = response["state"]
-                thread_id = response["thread_id"]
-                query_id = response["query_id"]
 
-                # Update session state with new/updated thread
-                st.session_state.selected_thread_id = thread_id
-                st.session_state.selected_query_id = query_id
-                st.session_state.show_results = True
+                # Reload thread states to show the new query in the sidebar
                 reload_thread_states()
+
+                # Update session state
+                st.session_state.show_results = True
 
                 # Update status based on result
                 planner_output = output.get("planner_output", {})
