@@ -165,7 +165,13 @@ def should_continue(state: State) -> Literal["handle_error", "refine_query", "cl
 
 
 def create_sql_agent():
-    """Create the SQL agent."""
+    """Create the SQL agent.
+
+    Returns:
+        Tuple of (compiled_workflow, db_connection)
+        The connection is returned so it can be closed in a finally block
+        if an error occurs before the cleanup node is reached.
+    """
     workflow = StateGraph(State)
 
     db_connection = get_pyodbc_connection()
@@ -217,7 +223,7 @@ def create_sql_agent():
     # Cleanup
     workflow.add_edge("cleanup", END)
 
-    return workflow.compile()
+    return workflow.compile(), db_connection
 
 
 def cleanup_connection(state: State, connection):

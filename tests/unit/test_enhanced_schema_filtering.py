@@ -152,12 +152,12 @@ def test_load_foreign_keys():
         assert "foreign_keys" in foreign_keys[0]
 
 
-@patch("agent.filter_schema.InMemoryVectorStore")
+@patch("agent.filter_schema.Chroma")
 @patch("agent.filter_schema.get_embedding_model")
 @patch("utils.llm_factory.get_chat_llm")
 @patch("agent.filter_schema.load_foreign_keys")
 def test_filter_schema_three_stage_process(
-    mock_load_fks, mock_get_llm, mock_get_embedding, mock_vector_store
+    mock_load_fks, mock_get_llm, mock_get_embedding, mock_chroma
 ):
     """Test that filter_schema executes all three stages correctly."""
     # Mock state
@@ -178,7 +178,7 @@ def test_filter_schema_three_stage_process(
 
     mock_vs_instance = Mock()
     mock_vs_instance.similarity_search.return_value = [mock_doc1, mock_doc2]
-    mock_vector_store.from_documents.return_value = mock_vs_instance
+    mock_chroma.from_documents.return_value = mock_vs_instance
 
     # Mock Stage 2: LLM selects 1 table as relevant
     mock_llm_output = Mock()
@@ -208,7 +208,7 @@ def test_filter_schema_three_stage_process(
     assert result["last_step"] == "filter_schema"
 
     # Verify all stages were called
-    mock_vector_store.from_documents.assert_called_once()
+    mock_chroma.from_documents.assert_called_once()
     mock_vs_instance.similarity_search.assert_called_once()
     mock_structured_llm.invoke.assert_called_once()
     mock_load_fks.assert_called_once()

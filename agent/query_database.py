@@ -8,6 +8,9 @@ from utils.thread_manager import (
     save_query_state,
     get_latest_query_state,
 )
+from utils.logger import get_logger
+
+logger = get_logger("query_database")
 
 
 def query_database(
@@ -31,7 +34,9 @@ def query_database(
     Returns:
         Dict with 'state' (final state), 'thread_id', and 'query_id'
     """
-    agent = create_sql_agent()
+    # Create agent (this also creates a database connection)
+    # The connection will be stored in the agent's closure and passed to nodes
+    agent, db_connection = create_sql_agent()
 
     # Determine if this is a new thread or continuation
     if thread_id is None:
@@ -173,15 +178,32 @@ def query_database(
                 "clarification_suggestions": [],
             }
 
-    # Execute workflow
-    result = agent.invoke(initial_state)
+    # Execute workflow with guaranteed connection cleanup
+    try:
+        result = agent.invoke(initial_state)
 
-    # Save the result state to thread
-    query_id = save_query_state(thread_id, question, result)
+        # Save the result state to thread
+        query_id = save_query_state(thread_id, question, result)
 
-    # Return state, thread_id, and query_id
-    return {
-        "state": result,
-        "thread_id": thread_id,
-        "query_id": query_id,
-    }
+        # Return state, thread_id, and query_id
+        return {
+            "state": result,
+            "thread_id": thread_id,
+            "query_id": query_id,
+        }
+    finally:
+        # CRITICAL: Always close the database connection, even if an exception occurred
+        # This prevents connection leaks when errors happen before the cleanup node
+        # NOTE: In normal flow, the cleanup node already closes the connection,
+        # but this ensures cleanup even if workflow is interrupted by an exception
+        try:
+            if db_connection and hasattr(db_connection, 'close'):
+                # Check if connection is still open (pyodbc connections have a 'closed' attribute)
+                if hasattr(db_connection, 'closed') and db_connection.closed:
+                    logger.debug("Database connection already closed by cleanup node")
+                else:
+                    db_connection.close()
+                    logger.debug("Database connection closed successfully in finally block")
+        except Exception as e:
+            # This is okay - connection might already be closed by cleanup node
+            logger.debug(f"Connection cleanup in finally block (connection may already be closed): {str(e)}")

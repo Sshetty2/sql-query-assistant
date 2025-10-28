@@ -128,6 +128,7 @@ def execute_query(state: State, db_connection):
 
     # Debug: Save query execution input
     from utils.debug_utils import save_debug_file
+
     save_debug_file(
         "execute_query_input.json",
         {
@@ -136,7 +137,7 @@ def execute_query(state: State, db_connection):
             "refined_count": state.get("refined_count", 0),
         },
         step_name="execute_query",
-        include_timestamp=True
+        include_timestamp=True,
     )
 
     cursor = None
@@ -150,8 +151,8 @@ def execute_query(state: State, db_connection):
                     f"Failed to create cursor - connection may be closed: {str(cursor_error)}",
                     extra={
                         "connection_type": type(db_connection).__name__,
-                        "error_type": type(cursor_error).__name__
-                    }
+                        "error_type": type(cursor_error).__name__,
+                    },
                 )
                 raise
 
@@ -172,10 +173,12 @@ def execute_query(state: State, db_connection):
                 "query": query,
                 "row_count": len(data),
                 "columns": columns,
-                "sample_data": data[:5] if len(data) > 5 else data,  # Save first 5 rows as sample
+                "sample_data": (
+                    data[:5] if len(data) > 5 else data
+                ),  # Save first 5 rows as sample
             },
             step_name="execute_query",
-            include_timestamp=True
+            include_timestamp=True,
         )
 
         # Append current query to queries list for conversation history
@@ -194,6 +197,7 @@ def execute_query(state: State, db_connection):
 
         # Debug: Track successful SQL query
         from utils.debug_utils import append_to_debug_array
+
         append_to_debug_array(
             "generated_sql_queries.json",
             {
@@ -201,10 +205,10 @@ def execute_query(state: State, db_connection):
                 "sql": query,
                 "row_count": len(data),
                 "column_count": len(columns),
-                "status": "success"
+                "status": "success",
             },
             step_name="execute_query",
-            array_key="queries"
+            array_key="queries",
         )
 
         return {
@@ -217,8 +221,14 @@ def execute_query(state: State, db_connection):
             "last_attempt_time": datetime.now().isoformat(),
         }
     except Exception as e:
+        # Always try to close the cursor if it was created, even if it's already closed
+        # This handles cases where an exception occurs between cursor.execute() and cursor.close()
         if cursor:
-            cursor.close()
+            try:
+                cursor.close()
+            except Exception:
+                # Cursor may already be closed, which is fine
+                pass
 
         # Check if this is an "Invalid column name" error that we can fix inline
         is_column_error = False
@@ -243,7 +253,7 @@ def execute_query(state: State, db_connection):
                 logger.warning(
                     f"Invalid column '{invalid_column}' detected. "
                     f"Skipping inline removal - letting error correction fix the plan.",
-                    extra={"query": query, "invalid_column": invalid_column}
+                    extra={"query": query, "invalid_column": invalid_column},
                 )
 
         # Note: Column removal logic disabled because it's incomplete
