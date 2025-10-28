@@ -15,3 +15,5 @@ domain_specific_guidance/domain-specific-*.json
 .claude/
 
 thread_states.json
+
+*.xlsx

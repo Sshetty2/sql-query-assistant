@@ -1,10 +1,12 @@
 langchain-openai
 langchain-ollama
 langchain-huggingface
+langchain-chroma
 langchain-core
 langchain
 langchain-community
 langgraph
+openpyxl
 python-dotenv
 python-json-logger
 pyodbc
