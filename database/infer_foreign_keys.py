@@ -45,7 +45,7 @@ def get_embedding_model():
         return OpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL"))
 
 
-def detect_id_columns(table: Dict) -> List[Tuple[str, str]]:
+def detect_id_columns(table: Dict) -> List[Tuple[str, str, bool]]:
     """
     Detect potential foreign key columns by ID naming pattern.
 
@@ -53,10 +53,13 @@ def detect_id_columns(table: Dict) -> List[Tuple[str, str]]:
         table: Table schema entry with columns
 
     Returns:
-        List of (column_name, base_name) tuples
-        Example: [("CompanyID", "Company"), ("UserID", "User")]
+        List of (column_name, base_name, is_pk) tuples
+        Example: [("CompanyID", "Company", False), ("UserID", "User", True)]
     """
     id_columns = []
+
+    # Get primary key column name from table metadata
+    pk_column = infer_pk_column(table)
 
     for column in table.get("columns", []):
         col_name = column["column_name"]
@@ -65,10 +68,11 @@ def detect_id_columns(table: Dict) -> List[Tuple[str, str]]:
             match = re.match(pattern, col_name, re.IGNORECASE)
             if match:
                 base_name = match.group(1)
-                id_columns.append((col_name, base_name))
+                is_pk = (col_name == pk_column)
+                id_columns.append((col_name, base_name, is_pk))
                 logger.debug(
-                    f"Detected ID column: {col_name} (base: {base_name})",
-                    extra={"table": table["table_name"], "column": col_name, "base": base_name}
+                    f"Detected ID column: {col_name} (base: {base_name}, is_pk: {is_pk})",
+                    extra={"table": table["table_name"], "column": col_name, "base": base_name, "is_pk": is_pk}
                 )
                 break
 

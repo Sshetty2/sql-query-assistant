@@ -43,11 +43,11 @@ def get_user_choice() -> str:
     Get and validate user input.
 
     Returns:
-        User choice: '1'-'5', 's', or 'q'
+        User choice: '1'-'5', 'p', 's', or 'q'
     """
     while True:
         choice = input("\nYour choice: ").strip().lower()
-        if choice in ["q", "s"] or (choice.isdigit() and 1 <= int(choice) <= 5):
+        if choice in ["q", "s", "p"] or (choice.isdigit() and 1 <= int(choice) <= 5):
             return choice
         console.print("⚠️  [bold yellow]Invalid choice. Try again.[/bold yellow]")
 
@@ -80,6 +80,12 @@ Examples:
             default=10,
             help="Number of candidates to consider (default: 10)",
         )
+        parser.add_argument(
+            "--skip-primary-keys",
+            action="store_true",
+            default=True,
+            help="Automatically skip columns that are primary keys (default: False)",
+        )
         args = parser.parse_args()
 
         # Configuration
@@ -87,7 +93,9 @@ Examples:
         excel_path = f"fk_mappings_{database_name}.xlsx"
 
         logger.info(f"Starting FK Inferencing Agent for database: {database_name}")
-        logger.info(f"Configuration - threshold: {args.threshold}, top_k: {args.top_k}")
+        logger.info(
+            f"Configuration - threshold: {args.threshold}, top_k: {args.top_k}, skip_primary_keys: {args.skip_primary_keys}"
+        )
 
         # Initial state (vector_store is passed via context, not in state)
         initial_state: FKInferencingState = {
@@ -95,11 +103,13 @@ Examples:
             "threshold": args.threshold,
             "top_k": args.top_k,
             "excel_path": excel_path,
+            "skip_primary_keys": args.skip_primary_keys,
             "schema": [],
             "current_row_idx": None,
             "current_table": "",
             "current_column": "",
             "current_base_name": "",
+            "current_is_pk": False,
             "candidates": [],
             "score_gap": 0.0,
             "chosen_table": None,
@@ -136,6 +146,9 @@ Examples:
         config_table.add_row("Database:", database_name)
         config_table.add_row("Threshold:", str(args.threshold))
         config_table.add_row("Top-K:", str(args.top_k))
+        config_table.add_row(
+            "Skip PKs:", "✅ Yes" if args.skip_primary_keys else "❌ No"
+        )
 
         console.print()
         console.print(

@@ -35,6 +35,10 @@ def find_candidates_node(state: FKInferencingState, config: RunnableConfig) -> d
             f"Processing: {state['current_table']}.{state['current_column']} (base: {state['current_base_name']}"
         )
 
+        # Check if this is a primary key and should be auto-skipped
+        is_pk = state.get("current_is_pk", False)
+        skip_pks = state.get("skip_primary_keys", False)
+
         # Display processing header with Rich Panel
         info_grid = RichTable.grid(padding=(0, 2))
         info_grid.add_column(style="cyan", justify="right")
@@ -43,6 +47,7 @@ def find_candidates_node(state: FKInferencingState, config: RunnableConfig) -> d
             "Processing:", f"{state['current_table']}.{state['current_column']}"
         )
         info_grid.add_row("Base name:", state["current_base_name"])
+        info_grid.add_row("Primary Key:", "🔑 YES" if is_pk else "❌ NO")
 
         console.print()
         console.print(
@@ -53,6 +58,21 @@ def find_candidates_node(state: FKInferencingState, config: RunnableConfig) -> d
                 border_style="blue",
             )
         )
+
+        # Auto-skip if this is a primary key and skip flag is set
+        if is_pk and skip_pks:
+            console.print("🔑 [bold yellow]Auto-skipping primary key column[/bold yellow]")
+            logger.info(f"Auto-skipping primary key: {state['current_table']}.{state['current_column']}")
+            return {
+                **state,
+                "candidates": [],
+                "score_gap": 0.0,
+                "chosen_table": "[SKIPPED]",
+                "chosen_score": None,
+                "decision_type": "skipped",
+                "notes": "Auto-skipped (primary key)",
+                "last_step": "find_candidates_pk_skipped",
+            }
 
         # Get vector store from config
         vector_store = config.get("configurable", {}).get("vector_store")

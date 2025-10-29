@@ -11,6 +11,7 @@ class FKInferencingState(TypedDict):
     threshold: float
     top_k: int
     excel_path: str
+    skip_primary_keys: bool  # Auto-skip columns that are primary keys
 
     # Schema data
     schema: List[Dict]
@@ -21,6 +22,7 @@ class FKInferencingState(TypedDict):
     current_table: str
     current_column: str
     current_base_name: str
+    current_is_pk: bool  # Is the current column a primary key
 
     # Candidates
     candidates: List[Tuple[str, float]]  # (table_name, score)

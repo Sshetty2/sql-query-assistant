@@ -14,7 +14,7 @@ def create_excel(excel_path: str, id_columns: List[Tuple], existing_fks: Dict):
 
     Args:
         excel_path: Path to Excel file
-        id_columns: List of (table_name, column_name, base_name) tuples
+        id_columns: List of (table_name, column_name, base_name, is_pk) tuples
         existing_fks: Dict mapping table_name to list of existing FKs
     """
     wb = openpyxl.Workbook()
@@ -23,7 +23,7 @@ def create_excel(excel_path: str, id_columns: List[Tuple], existing_fks: Dict):
 
     # Headers
     headers = [
-        "table_name", "fk_column", "base_name",
+        "table_name", "fk_column", "base_name", "is_pk",
         "candidate_1", "score_1", "candidate_2", "score_2",
         "candidate_3", "score_3", "candidate_4", "score_4",
         "candidate_5", "score_5",
@@ -32,15 +32,15 @@ def create_excel(excel_path: str, id_columns: List[Tuple], existing_fks: Dict):
     ws.append(headers)
 
     # Pre-populate rows
-    for table_name, column_name, base_name in id_columns:
+    for table_name, column_name, base_name, is_pk in id_columns:
         if has_existing_fk(column_name, existing_fks.get(table_name, [])):
             ws.append([
-                table_name, column_name, base_name,
+                table_name, column_name, base_name, "YES" if is_pk else "NO",
                 "[EXISTING]", "N/A", "", "", "", "", "", "", "", "",
                 "[EXISTING]", "N/A", "existing", "", "Explicit FK exists"
             ])
         else:
-            ws.append([table_name, column_name, base_name] + [""] * 14)
+            ws.append([table_name, column_name, base_name, "YES" if is_pk else "NO"] + [""] * 14)
 
     wb.save(excel_path)
     print(f"[PASS] Created Excel: {excel_path} ({len(id_columns)} ID columns)")
@@ -60,7 +60,7 @@ def find_next_incomplete_row(excel_path: str) -> Optional[int]:
     ws = wb["FK_Mappings"]
 
     for row_idx in range(2, ws.max_row + 1):  # Skip header
-        if not ws.cell(row_idx, 14).value:  # Column N: chosen_table
+        if not ws.cell(row_idx, 15).value:  # Column O: chosen_table (shifted by 1)
             return row_idx
     return None
 
@@ -74,7 +74,7 @@ def load_row_data(excel_path: str, row_idx: int) -> Dict:
         row_idx: Row index (1-based)
 
     Returns:
-        Dict with table_name, fk_column, base_name
+        Dict with table_name, fk_column, base_name, is_pk
     """
     wb = openpyxl.load_workbook(excel_path)
     ws = wb["FK_Mappings"]
@@ -82,7 +82,8 @@ def load_row_data(excel_path: str, row_idx: int) -> Dict:
     return {
         "table_name": ws.cell(row_idx, 1).value,
         "fk_column": ws.cell(row_idx, 2).value,
-        "base_name": ws.cell(row_idx, 3).value
+        "base_name": ws.cell(row_idx, 3).value,
+        "is_pk": ws.cell(row_idx, 4).value == "YES"
     }
 
 
@@ -99,8 +100,8 @@ def write_candidates(excel_path: str, row_idx: int, candidates: List[Tuple]):
     ws = wb["FK_Mappings"]
 
     for i, (table, score) in enumerate(candidates[:5]):
-        ws.cell(row_idx, 4 + i*2).value = table
-        ws.cell(row_idx, 5 + i*2).value = round(score, 3)
+        ws.cell(row_idx, 5 + i*2).value = table  # Shifted by 1 for is_pk column
+        ws.cell(row_idx, 6 + i*2).value = round(score, 3)
 
     wb.save(excel_path)
 
@@ -117,11 +118,11 @@ def write_decision(excel_path: str, row_idx: int, decision: Dict):
     wb = openpyxl.load_workbook(excel_path)
     ws = wb["FK_Mappings"]
 
-    ws.cell(row_idx, 14).value = decision["chosen_table"]
-    ws.cell(row_idx, 15).value = decision.get("chosen_score", "")
-    ws.cell(row_idx, 16).value = decision["decision_type"]
-    ws.cell(row_idx, 17).value = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ws.cell(row_idx, 18).value = decision["notes"]
+    ws.cell(row_idx, 15).value = decision["chosen_table"]  # Shifted by 1
+    ws.cell(row_idx, 16).value = decision.get("chosen_score", "")
+    ws.cell(row_idx, 17).value = decision["decision_type"]
+    ws.cell(row_idx, 18).value = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ws.cell(row_idx, 19).value = decision["notes"]
 
     wb.save(excel_path)
 
@@ -149,7 +150,7 @@ def get_statistics(excel_path: str) -> Dict:
     }
 
     for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-        decision_type = row[15].value  # Column P: decision_type (0-indexed: 15 = column 16)
+        decision_type = row[16].value  # Column Q: decision_type (0-indexed: 16 = column 17, shifted by 1)
         if decision_type:
             stats[decision_type] = stats.get(decision_type, 0) + 1
         else:

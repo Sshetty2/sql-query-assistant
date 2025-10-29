@@ -43,7 +43,7 @@ def initialize_node(state: FKInferencingState) -> dict:
     for table in schema:
         table_name = table["table_name"]
         id_cols = detect_id_columns(table)
-        all_id_columns.extend([(table_name, col, base) for col, base in id_cols])
+        all_id_columns.extend([(table_name, col, base, is_pk) for col, base, is_pk in id_cols])
         existing_fks[table_name] = table.get("foreign_keys", [])
 
     console.print(f"✅ [bold green]Found {len(all_id_columns)} ID columns[/bold green]")

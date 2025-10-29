@@ -50,6 +50,9 @@ def request_decision_node(state: FKInferencingState) -> dict:
         prompt_text.append("  🔢 ", style="cyan")
         prompt_text.append("[1-5]", style="bold cyan")
         prompt_text.append("  Select candidate\n", style="white")
+        prompt_text.append("  🔑 ", style="magenta")
+        prompt_text.append("[p]", style="bold magenta")
+        prompt_text.append("     Mark as Primary Key (skip)\n", style="white")
         prompt_text.append("  ⏭️  ", style="yellow")
         prompt_text.append("[s]", style="bold yellow")
         prompt_text.append("     Skip this FK\n", style="white")
@@ -95,6 +98,17 @@ def request_decision_node(state: FKInferencingState) -> dict:
                 "decision_type": "skipped",
                 "notes": "User skipped this FK",
                 "last_step": "request_decision_skip"
+            }
+        elif user_choice == "p":
+            logger.info("User marked column as primary key")
+            console.print("🔑 [bold magenta]User marked as Primary Key - skipping[/bold magenta]")
+            return {
+                **state,
+                "chosen_table": "[SKIPPED]",
+                "chosen_score": None,
+                "decision_type": "skipped",
+                "notes": "Marked as primary key by user",
+                "last_step": "request_decision_pk"
             }
         else:
             # user_choice is index (1-5)
