@@ -35,7 +35,13 @@ def format_schema_to_markdown(schema: list) -> str:
 
     for table in all_tables:
         table_name = table.get("table_name", "Unknown")
-        markdown_lines.append(f"## {table_name}")
+        is_filtered = table.get("column_filtered", False)
+
+        # Add indicator if columns have been filtered
+        if is_filtered:
+            markdown_lines.append(f"## {table_name} (filtered columns)")
+        else:
+            markdown_lines.append(f"## {table_name}")
         markdown_lines.append("")
 
         # Add metadata description if available
@@ -103,8 +109,15 @@ def convert_schema_to_markdown(state: State):
     logger.info("Starting schema markdown formatting")
 
     try:
-        # Use filtered schema if available, otherwise use full schema
-        schema = state.get("filtered_schema") or state.get("schema", [])
+        # Use truncated schema if available (for planner context), otherwise filtered, otherwise full
+        # truncated_schema = only relevant columns (best for planner)
+        # filtered_schema = all columns (used for modification options)
+        # schema = full schema (fallback)
+        schema = (
+            state.get("truncated_schema")
+            or state.get("filtered_schema")
+            or state.get("schema", [])
+        )
 
         if not schema:
             return {

@@ -15,6 +15,17 @@ class TableRelevance(BaseModel):
     reasoning: str = Field(
         description="Brief explanation of why this table is or isn't relevant"
     )
+    relevant_columns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "List of column names from this table's 'Available columns' that are relevant to the query. "
+            "IMPORTANT: You MUST only select columns from the exact list of 'Available columns' shown for this table. "
+            "Do NOT invent or suggest column names that aren't in the available list. "
+            "Include columns needed for: display, filtering, aggregation, sorting, or joins. "
+            "Use the EXACT column names as shown (preserve casing and formatting). "
+            "If the table has no available columns listed, return an empty list."
+        )
+    )
 
 
 class TableSelectionOutput(BaseModel):

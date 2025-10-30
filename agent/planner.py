@@ -746,8 +746,16 @@ def plan_query(state: State):
     )
 
     try:
-        # Use filtered schema if available, otherwise use full schema
-        schema_to_use = state.get("filtered_schema") or state["schema"]
+        # Use truncated schema (with only relevant columns) for planner context if available
+        # Otherwise fallback to filtered schema (all columns) or full schema
+        # truncated_schema = best for planner (minimal context)
+        # filtered_schema = used for modification options (all columns)
+        # schema = full database schema (fallback)
+        schema_to_use = (
+            state.get("truncated_schema")
+            or state.get("filtered_schema")
+            or state["schema"]
+        )
         schema_markdown = state.get("schema_markdown", "")
 
         # Check for router mode (conversational flow)
@@ -803,9 +811,12 @@ def plan_query(state: State):
         else:
             domain_text = "No domain-specific guidance available. Use general database query planning principles."
 
-        # Check if we're using filtered schema
+        # Check if we're using filtered/truncated schema
+        is_truncated = state.get("truncated_schema") is not None
         is_filtered = state.get("filtered_schema") is not None
-        if is_filtered:
+        if is_truncated:
+            schema_note = "**NOTE:** This is a filtered subset of the most relevant tables and columns from the full database schema, selected based on the user's query."  # noqa: E501
+        elif is_filtered:
             schema_note = "**NOTE:** This is a filtered subset of the most relevant tables from the full database schema, selected based on the user's query."  # noqa: E501
         else:
             schema_note = ""

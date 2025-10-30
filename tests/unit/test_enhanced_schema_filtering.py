@@ -186,6 +186,7 @@ def test_filter_schema_three_stage_process(
     mock_assessment.table_name = "tb_Table1"
     mock_assessment.is_relevant = True
     mock_assessment.reasoning = "Relevant for the query"
+    mock_assessment.relevant_columns = []  # Empty list means no column filtering
     mock_llm_output.selected_tables = [mock_assessment]
 
     mock_structured_llm = Mock()
@@ -201,17 +202,189 @@ def test_filter_schema_three_stage_process(
     # Execute
     result = filter_schema(state)
 
-    # Verify
+    # Verify both schemas are returned
     assert "filtered_schema" in result
+    assert "truncated_schema" in result
     assert len(result["filtered_schema"]) == 1
+    assert len(result["truncated_schema"]) == 1
     assert result["filtered_schema"][0]["table_name"] == "tb_Table1"
+    assert result["truncated_schema"][0]["table_name"] == "tb_Table1"
     assert result["last_step"] == "filter_schema"
+
+    # Verify filtered_schema has all columns (for modification options)
+    # Verify truncated_schema may have filtered columns (for planner context)
+    # In this test with no relevant_columns specified, both should be the same
 
     # Verify all stages were called
     mock_chroma.from_documents.assert_called_once()
     mock_vs_instance.similarity_search.assert_called_once()
     mock_structured_llm.invoke.assert_called_once()
     mock_load_fks.assert_called_once()
+
+
+@patch("agent.filter_schema.Chroma")
+@patch("agent.filter_schema.get_embedding_model")
+@patch("utils.llm_factory.get_chat_llm")
+@patch("agent.filter_schema.load_foreign_keys")
+def test_filter_schema_column_filtering(
+    mock_load_fks, mock_get_llm, mock_get_embedding, mock_chroma
+):
+    """Test that filter_schema creates both filtered_schema (all columns) and truncated_schema (selected columns)."""
+    # Mock state with tables that have multiple columns
+    state = {
+        "schema": [
+            {
+                "table_name": "tb_Users",
+                "metadata": {"description": "User table"},
+                "columns": [
+                    {"column_name": "UserID", "data_type": "int"},
+                    {"column_name": "UserName", "data_type": "varchar"},
+                    {"column_name": "Email", "data_type": "varchar"},
+                    {"column_name": "Phone", "data_type": "varchar"},
+                    {"column_name": "Address", "data_type": "varchar"},
+                ],
+            }
+        ],
+        "user_question": "Show me user names and emails",
+    }
+
+    # Mock Stage 1: Vector search returns the user table
+    mock_doc = Mock()
+    mock_doc.metadata = state["schema"][0]
+
+    mock_vs_instance = Mock()
+    mock_vs_instance.similarity_search.return_value = [mock_doc]
+    mock_chroma.from_documents.return_value = mock_vs_instance
+
+    # Mock Stage 2: LLM selects only UserName and Email columns
+    mock_llm_output = Mock()
+    mock_assessment = Mock()
+    mock_assessment.table_name = "tb_Users"
+    mock_assessment.is_relevant = True
+    mock_assessment.reasoning = "Contains user data"
+    mock_assessment.relevant_columns = ["UserID", "UserName", "Email"]  # Only 3 of 5 columns
+    mock_llm_output.selected_tables = [mock_assessment]
+
+    mock_structured_llm = Mock()
+    mock_structured_llm.invoke.return_value = mock_llm_output
+
+    mock_llm = Mock()
+    mock_llm.with_structured_output.return_value = mock_structured_llm
+    mock_get_llm.return_value = mock_llm
+
+    # Mock Stage 3: No FK expansion
+    mock_load_fks.return_value = [{"table_name": "tb_Users", "foreign_keys": []}]
+
+    # Execute
+    result = filter_schema(state)
+
+    # Verify both schemas exist
+    assert "filtered_schema" in result
+    assert "truncated_schema" in result
+
+    # Get the schemas
+    filtered_schema = result["filtered_schema"]
+    truncated_schema = result["truncated_schema"]
+
+    # Both should have the same table
+    assert len(filtered_schema) == 1
+    assert len(truncated_schema) == 1
+    assert filtered_schema[0]["table_name"] == "tb_Users"
+    assert truncated_schema[0]["table_name"] == "tb_Users"
+
+    # filtered_schema should have ALL 5 columns (for modification options)
+    filtered_columns = [col["column_name"] for col in filtered_schema[0]["columns"]]
+    assert len(filtered_columns) == 5
+    assert set(filtered_columns) == {"UserID", "UserName", "Email", "Phone", "Address"}
+
+    # truncated_schema should have ONLY 3 selected columns (for planner context)
+    truncated_columns = [col["column_name"] for col in truncated_schema[0]["columns"]]
+    assert len(truncated_columns) == 3
+    assert set(truncated_columns) == {"UserID", "UserName", "Email"}
+
+    # truncated_schema should be marked as column_filtered
+    assert truncated_schema[0].get("column_filtered") is True
+
+
+@patch("agent.filter_schema.Chroma")
+@patch("agent.filter_schema.get_embedding_model")
+@patch("utils.llm_factory.get_chat_llm")
+@patch("agent.filter_schema.load_foreign_keys")
+def test_filter_schema_case_insensitive_column_matching(
+    mock_load_fks, mock_get_llm, mock_get_embedding, mock_chroma
+):
+    """Test that column filtering works with case-insensitive matching (LLM returns snake_case, schema has PascalCase)."""
+    # Mock state with PascalCase column names (typical SQL Server naming)
+    state = {
+        "schema": [
+            {
+                "table_name": "tb_Users",
+                "metadata": {"description": "User table"},
+                "columns": [
+                    {"column_name": "UserID", "data_type": "int"},  # PascalCase
+                    {"column_name": "UserName", "data_type": "varchar"},
+                    {"column_name": "EmailAddress", "data_type": "varchar"},
+                    {"column_name": "PhoneNumber", "data_type": "varchar"},
+                ],
+            }
+        ],
+        "user_question": "Show me user names and emails",
+    }
+
+    # Mock Stage 1: Vector search
+    mock_doc = Mock()
+    mock_doc.metadata = state["schema"][0]
+    mock_vs_instance = Mock()
+    mock_vs_instance.similarity_search.return_value = [mock_doc]
+    mock_chroma.from_documents.return_value = mock_vs_instance
+
+    # Mock Stage 2: LLM returns snake_case column names (common LLM behavior)
+    mock_llm_output = Mock()
+    mock_assessment = Mock()
+    mock_assessment.table_name = "tb_Users"
+    mock_assessment.is_relevant = True
+    mock_assessment.reasoning = "Contains user data"
+    mock_assessment.relevant_columns = [
+        "user_id",  # snake_case (LLM style)
+        "user_name",
+        "email_address",
+    ]
+    mock_llm_output.selected_tables = [mock_assessment]
+
+    mock_structured_llm = Mock()
+    mock_structured_llm.invoke.return_value = mock_llm_output
+    mock_llm = Mock()
+    mock_llm.with_structured_output.return_value = mock_structured_llm
+    mock_get_llm.return_value = mock_llm
+
+    # Mock Stage 3: No FK expansion
+    mock_load_fks.return_value = []
+
+    # Execute
+    result = filter_schema(state)
+
+    # Verify schemas exist
+    assert "filtered_schema" in result
+    assert "truncated_schema" in result
+
+    # Get schemas
+    filtered_schema = result["filtered_schema"]
+    truncated_schema = result["truncated_schema"]
+
+    # filtered_schema should have ALL 4 columns
+    filtered_columns = [col["column_name"] for col in filtered_schema[0]["columns"]]
+    assert len(filtered_columns) == 4
+    assert set(filtered_columns) == {"UserID", "UserName", "EmailAddress", "PhoneNumber"}
+
+    # truncated_schema should have 3 columns that matched case-insensitively
+    truncated_columns = [col["column_name"] for col in truncated_schema[0]["columns"]]
+    assert len(truncated_columns) == 3
+    # Verify the ACTUAL PascalCase names are preserved (not converted to snake_case)
+    assert set(truncated_columns) == {"UserID", "UserName", "EmailAddress"}
+
+    # Verify column names are in original PascalCase (not converted)
+    assert "UserID" in truncated_columns
+    assert "user_id" not in truncated_columns
 
 
 if __name__ == "__main__":
