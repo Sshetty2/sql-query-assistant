@@ -5,7 +5,8 @@ logs/
 
 venv/
 
-*debug*
+*debug_*.json
+*debug_*.md
 
 # Domain-specific configuration files (not committed)
 domain_specific_guidance/domain-specific-*.json

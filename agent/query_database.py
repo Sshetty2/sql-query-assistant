@@ -9,6 +9,7 @@ from utils.thread_manager import (
     get_latest_query_state,
 )
 from utils.logger import get_logger
+from utils.debug_utils import clear_debug_files
 
 logger = get_logger("query_database")
 
@@ -40,6 +41,10 @@ def query_database(
     Returns:
         Dict with 'state' (final state), 'thread_id', and 'query_id'
     """
+    # Clear old debug files from previous runs (only when starting a new workflow)
+    # This prevents confusion when looking at debug files
+    clear_debug_files()
+
     # Create agent (this also creates a database connection)
     # The connection will be stored in the agent's closure and passed to nodes
     agent, db_connection = create_sql_agent()
