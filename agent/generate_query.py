@@ -507,6 +507,99 @@ def build_join_expressions(
     return joins
 
 
+def infer_value_type(value) -> str:
+    """
+    Infer the SQL type of a value for proper literal generation.
+
+    Returns: 'null', 'boolean', 'number', or 'string'
+
+    Args:
+        value: The value to infer type for
+
+    Returns:
+        Type string: 'null', 'boolean', 'number', or 'string'
+    """
+    # Handle None/NULL
+    if value is None:
+        return 'null'
+
+    # Handle boolean values (Python bool)
+    if isinstance(value, bool):
+        return 'boolean'
+
+    # Handle numeric values (int, float)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return 'number'
+
+    # Handle string representations of common SQL types
+    if isinstance(value, str):
+        # Check for NULL string
+        if value.upper() == 'NULL':
+            return 'null'
+
+        # Check for boolean strings (case-insensitive)
+        if value.lower() in ('true', 'false', '0', '1'):
+            # If it's '0' or '1', treat as number for BIT compatibility
+            if value in ('0', '1'):
+                return 'number'
+            return 'boolean'
+
+        # Try to parse as number
+        try:
+            float(value)
+            return 'number'
+        except (ValueError, TypeError):
+            pass
+
+    # Default to string
+    return 'string'
+
+
+def create_typed_literal(value) -> exp.Expression:
+    """
+    Create a properly typed SQLGlot literal based on value type.
+
+    This ensures BIT columns get numeric 0/1, not string '0'/'1'.
+
+    Args:
+        value: The value to convert to a literal
+
+    Returns:
+        SQLGlot Literal expression with correct type
+    """
+    value_type = infer_value_type(value)
+
+    if value_type == 'null':
+        return exp.Null()
+    elif value_type == 'boolean':
+        # Convert boolean to 1/0 for SQL Server BIT compatibility
+        if isinstance(value, bool):
+            return exp.Literal.number(1 if value else 0)
+        elif isinstance(value, str):
+            # Handle string booleans
+            if value.lower() == 'true':
+                return exp.Literal.number(1)
+            elif value.lower() == 'false':
+                return exp.Literal.number(0)
+        return exp.Literal.number(1 if value else 0)
+    elif value_type == 'number':
+        # Handle numeric types
+        if isinstance(value, str):
+            # Parse string to appropriate numeric type
+            try:
+                if '.' in value:
+                    return exp.Literal.number(float(value))
+                else:
+                    return exp.Literal.number(int(value))
+            except ValueError:
+                # Fallback to string if parsing fails
+                return exp.Literal.string(str(value))
+        return exp.Literal.number(value)
+    else:
+        # String type
+        return exp.Literal.string(str(value))
+
+
 def is_column_reference(value: str) -> bool:
     """
     Check if a value looks like a column reference (e.g., 'table.column').
@@ -589,14 +682,14 @@ def build_filter_expression(
         if is_column_reference(value):
             value_expr = parse_column_reference(value, alias_map)
         else:
-            value_expr = exp.Literal.string(str(value))
+            value_expr = create_typed_literal(value)
         return exp.EQ(this=col_expr, expression=value_expr)
     elif op == "!=":
         # Check if value is a column reference instead of a literal
         if is_column_reference(value):
             value_expr = parse_column_reference(value, alias_map)
         else:
-            value_expr = exp.Literal.string(str(value))
+            value_expr = create_typed_literal(value)
         return exp.NEQ(this=col_expr, expression=value_expr)
     elif op == ">":
         return exp.GT(this=col_expr, expression=exp.Literal.number(value))
@@ -615,13 +708,43 @@ def build_filter_expression(
             )
     elif op == "in":
         if isinstance(value, list):
-            values = [exp.Literal.string(str(v)) for v in value]
-            return exp.In(this=col_expr, expressions=values)
+            # Handle IN with NULL: col IN (0, NULL) needs to become (col = 0 OR col IS NULL)
+            has_null = any(v is None or (isinstance(v, str) and v.upper() == 'NULL') for v in value)
+            non_null_values = [v for v in value if v is not None and not (isinstance(v, str) and v.upper() == 'NULL')]
+
+            if has_null and non_null_values:
+                # Mixed: (col IN (values) OR col IS NULL)
+                values = [create_typed_literal(v) for v in non_null_values]
+                in_expr = exp.In(this=col_expr, expressions=values)
+                null_expr = exp.Is(this=col_expr, expression=exp.Null())
+                return exp.Or(this=in_expr, expression=null_expr)
+            elif has_null and not non_null_values:
+                # Only NULL: col IS NULL
+                return exp.Is(this=col_expr, expression=exp.Null())
+            else:
+                # No NULL values: standard IN clause
+                values = [create_typed_literal(v) for v in value]
+                return exp.In(this=col_expr, expressions=values)
     elif op == "not_in":
         if isinstance(value, list):
-            values = [exp.Literal.string(str(v)) for v in value]
-            in_expr = exp.In(this=col_expr, expressions=values)
-            return exp.Not(this=in_expr)
+            # Handle NOT IN with NULL: col NOT IN (0, NULL) needs special handling
+            has_null = any(v is None or (isinstance(v, str) and v.upper() == 'NULL') for v in value)
+            non_null_values = [v for v in value if v is not None and not (isinstance(v, str) and v.upper() == 'NULL')]
+
+            if has_null and non_null_values:
+                # Mixed: (col NOT IN (values) AND col IS NOT NULL)
+                values = [create_typed_literal(v) for v in non_null_values]
+                not_in_expr = exp.Not(this=exp.In(this=col_expr, expressions=values))
+                not_null_expr = exp.Is(this=col_expr, expression=exp.Null(), inverse=True)
+                return exp.And(this=not_in_expr, expression=not_null_expr)
+            elif has_null and not non_null_values:
+                # Only NULL: col IS NOT NULL
+                return exp.Is(this=col_expr, expression=exp.Null(), inverse=True)
+            else:
+                # No NULL values: standard NOT IN clause
+                values = [create_typed_literal(v) for v in value]
+                in_expr = exp.In(this=col_expr, expressions=values)
+                return exp.Not(this=in_expr)
     elif op == "like":
         return exp.Like(this=col_expr, expression=exp.Literal.string(str(value)))
     elif op == "ilike":
@@ -1404,40 +1527,81 @@ def format_filter_condition(table_alias: str, column: str, op: str, value, aggre
             return "NULL"
         return str(s).replace("'", "''")
 
-    def format_number(n):
-        """Format a number value."""
-        if isinstance(n, (int, float)):
-            return str(n)
-        # Try to convert to number, otherwise treat as string
-        try:
-            float(n)
-            return str(n)
-        except (ValueError, TypeError):
-            return f"'{escape_string(n)}'"
+    def format_value(v):
+        """Format a value with proper type handling."""
+        value_type = infer_value_type(v)
+
+        if value_type == 'null':
+            return 'NULL'
+        elif value_type == 'number' or value_type == 'boolean':
+            # Numeric and boolean values: no quotes
+            if isinstance(v, bool):
+                return '1' if v else '0'
+            elif isinstance(v, str) and v in ('0', '1'):
+                return v  # Keep as-is
+            elif isinstance(v, str):
+                try:
+                    # Parse string to number
+                    float(v)
+                    return v
+                except ValueError:
+                    # If parsing fails, quote it as string
+                    return f"'{escape_string(v)}'"
+            else:
+                return str(v)
+        else:
+            # String values: quoted
+            return f"'{escape_string(v)}'"
 
     if op == "=":
-        return f"{col_ref} = '{escape_string(value)}'"
+        return f"{col_ref} = {format_value(value)}"
     elif op == "!=":
-        return f"{col_ref} != '{escape_string(value)}'"
+        return f"{col_ref} != {format_value(value)}"
     elif op == ">":
-        return f"{col_ref} > {format_number(value)}"
+        return f"{col_ref} > {format_value(value)}"
     elif op == ">=":
-        return f"{col_ref} >= {format_number(value)}"
+        return f"{col_ref} >= {format_value(value)}"
     elif op == "<":
-        return f"{col_ref} < {format_number(value)}"
+        return f"{col_ref} < {format_value(value)}"
     elif op == "<=":
-        return f"{col_ref} <= {format_number(value)}"
+        return f"{col_ref} <= {format_value(value)}"
     elif op == "between":
         if isinstance(value, list) and len(value) == 2:
-            return f"{col_ref} BETWEEN {format_number(value[0])} AND {format_number(value[1])}"
+            return f"{col_ref} BETWEEN {format_value(value[0])} AND {format_value(value[1])}"
     elif op == "in":
         if isinstance(value, list):
-            values_str = ", ".join([f"'{escape_string(v)}'" for v in value])
-            return f"{col_ref} IN ({values_str})"
+            # Handle IN with NULL: col IN (0, NULL) needs to become (col = 0 OR col IS NULL)
+            has_null = any(v is None or (isinstance(v, str) and v.upper() == 'NULL') for v in value)
+            non_null_values = [v for v in value if v is not None and not (isinstance(v, str) and v.upper() == 'NULL')]
+
+            if has_null and non_null_values:
+                # Mixed: (col IN (values) OR col IS NULL)
+                values_str = ", ".join([format_value(v) for v in non_null_values])
+                return f"({col_ref} IN ({values_str}) OR {col_ref} IS NULL)"
+            elif has_null and not non_null_values:
+                # Only NULL: col IS NULL
+                return f"{col_ref} IS NULL"
+            else:
+                # No NULL values: standard IN clause
+                values_str = ", ".join([format_value(v) for v in value])
+                return f"{col_ref} IN ({values_str})"
     elif op == "not_in":
         if isinstance(value, list):
-            values_str = ", ".join([f"'{escape_string(v)}'" for v in value])
-            return f"{col_ref} NOT IN ({values_str})"
+            # Handle NOT IN with NULL: col NOT IN (0, NULL) needs special handling
+            has_null = any(v is None or (isinstance(v, str) and v.upper() == 'NULL') for v in value)
+            non_null_values = [v for v in value if v is not None and not (isinstance(v, str) and v.upper() == 'NULL')]
+
+            if has_null and non_null_values:
+                # Mixed: (col NOT IN (values) AND col IS NOT NULL)
+                values_str = ", ".join([format_value(v) for v in non_null_values])
+                return f"({col_ref} NOT IN ({values_str}) AND {col_ref} IS NOT NULL)"
+            elif has_null and not non_null_values:
+                # Only NULL: col IS NOT NULL
+                return f"{col_ref} IS NOT NULL"
+            else:
+                # No NULL values: standard NOT IN clause
+                values_str = ", ".join([format_value(v) for v in value])
+                return f"{col_ref} NOT IN ({values_str})"
     elif op == "like":
         return f"{col_ref} LIKE '{escape_string(value)}'"
     elif op == "ilike":
@@ -1452,8 +1616,8 @@ def format_filter_condition(table_alias: str, column: str, op: str, value, aggre
     elif op == "is_not_null":
         return f"{col_ref} IS NOT NULL"
 
-    # Fallback
-    return f"{col_ref} = '{escape_string(value)}'"
+    # Fallback - use proper type handling
+    return f"{col_ref} = {format_value(value)}"
 
 
 def build_time_filter_condition(
