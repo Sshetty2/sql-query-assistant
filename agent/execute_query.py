@@ -108,6 +108,8 @@ def json_serial(obj):
 def execute_query(state: State, db_connection):
     """Execute the SQL query and return the result."""
     query = state["query"]
+    DEFAULT_LIMIT = 500  # Default limit for large result sets
+    MAX_LIMIT = 1000000  # Maximum allowed limit
 
     # Defensive check: ensure query is not None or empty
     if query is None or (isinstance(query, str) and not query.strip()):
@@ -142,6 +144,25 @@ def execute_query(state: State, db_connection):
 
     cursor = None
     try:
+        # Smart limit strategy: Execute without limit first to count total records
+        # Parse query to extract and remove LIMIT clause
+        original_query = query
+        query_without_limit = query
+        extracted_limit = None
+
+        try:
+            parsed = sqlglot.parse_one(query, read="tsql")
+            # Check if query has LIMIT
+            if parsed.args.get("limit"):
+                extracted_limit = parsed.args["limit"]
+                # Remove LIMIT for counting
+                parsed.set("limit", None)
+                query_without_limit = parsed.sql(dialect="tsql", pretty=True, identify=True)
+                logger.debug(f"Removed LIMIT clause for initial count query")
+        except Exception as parse_error:
+            logger.warning(f"Could not parse query to remove LIMIT: {parse_error}")
+            query_without_limit = query  # Fall back to original query
+
         with log_execution_time(logger, "database_query_execution"):
             # Check if connection is valid before creating cursor
             try:
@@ -156,12 +177,52 @@ def execute_query(state: State, db_connection):
                 )
                 raise
 
-            cursor.execute(query)
+            # Execute query without limit to count total records
+            cursor.execute(query_without_limit)
             results = cursor.fetchall()
+            total_count = len(results)
 
-        # Post-process results into JSON format
+            logger.info(f"Query returned {total_count} total records")
+
+            # Determine which limit to apply:
+            # 1. If query had explicit limit (e.g., from user modification), use that
+            # 2. Otherwise, apply DEFAULT_LIMIT if results exceed it
+            if extracted_limit:
+                # Query had explicit limit - always respect it
+                limit_to_apply = int(str(extracted_limit.expression))
+                should_apply_limit = total_count > limit_to_apply
+                logger.info(f"Query has explicit limit of {limit_to_apply}")
+            else:
+                # No explicit limit - use smart default
+                limit_to_apply = DEFAULT_LIMIT
+                should_apply_limit = total_count > DEFAULT_LIMIT
+
+            final_results = results
+            final_query = query_without_limit
+
+            if should_apply_limit:
+                # Re-execute with the determined limit
+                logger.info(f"Applying limit of {limit_to_apply} records (total available: {total_count})")
+                cursor.close()
+                cursor = db_connection.cursor()
+
+                # Apply the limit to query
+                try:
+                    parsed_limited = sqlglot.parse_one(query_without_limit, read="tsql")
+                    from sqlglot.expressions import Limit
+                    parsed_limited.set("limit", Limit(expression=sqlglot.parse_one(str(limit_to_apply))))
+                    final_query = parsed_limited.sql(dialect="tsql", pretty=True, identify=True)
+                except Exception as limit_error:
+                    logger.warning(f"Could not add LIMIT clause: {limit_error}")
+                    # Fall back to TSQL TOP syntax
+                    final_query = query_without_limit.replace("SELECT", f"SELECT TOP {limit_to_apply}", 1)
+
+                cursor.execute(final_query)
+                final_results = cursor.fetchall()
+
+        # Post-process final_results into JSON format
         columns = [column[0] for column in cursor.description]
-        data = [dict(zip(columns, row)) for row in results]
+        data = [dict(zip(columns, row)) for row in final_results]
         json_result = json.dumps(data, default=json_serial)
 
         cursor.close()
@@ -170,8 +231,11 @@ def execute_query(state: State, db_connection):
         save_debug_file(
             "execute_query_result.json",
             {
-                "query": query,
-                "row_count": len(data),
+                "query": final_query,
+                "original_query": original_query,
+                "total_records": total_count,
+                "returned_records": len(data),
+                "limit_applied": should_apply_limit,
                 "columns": columns,
                 "sample_data": (
                     data[:5] if len(data) > 5 else data
@@ -183,13 +247,15 @@ def execute_query(state: State, db_connection):
 
         # Append current query to queries list for conversation history
         queries = state.get("queries", [])
-        if query not in queries:  # Avoid duplicates
-            queries = queries + [query]
+        if final_query not in queries:  # Avoid duplicates
+            queries = queries + [final_query]
 
         logger.info(
             "Query execution completed",
             extra={
-                "row_count": len(data),
+                "total_records": total_count,
+                "returned_records": len(data),
+                "limit_applied": should_apply_limit,
                 "column_count": len(columns),
                 "result_size_bytes": len(json_result),
             },
@@ -202,8 +268,10 @@ def execute_query(state: State, db_connection):
             "generated_sql_queries.json",
             {
                 "step": "successful_execution",
-                "sql": query,
-                "row_count": len(data),
+                "sql": final_query,
+                "total_records": total_count,
+                "returned_records": len(data),
+                "limit_applied": should_apply_limit,
                 "column_count": len(columns),
                 "status": "success",
             },
@@ -213,14 +281,15 @@ def execute_query(state: State, db_connection):
 
         # Save executed plan and query for plan patching
         executed_plan = state.get("planner_output")
-        executed_query = query
+        executed_query = final_query
 
         return {
             **state,
             "messages": [AIMessage(content="Query Successfully Executed")],
-            "query": query,  # Explicitly include the (possibly modified) query
+            "query": final_query,  # Store the final executed query
             "result": json_result,
             "queries": queries,
+            "total_records_available": total_count,  # Track total before limit
             "executed_plan": executed_plan,  # Save for plan patching
             "executed_query": executed_query,  # Save for plan patching
             "last_step": "execute_query",
@@ -283,6 +352,7 @@ def execute_query(state: State, db_connection):
             "query": query,
             "last_step": "execute_query",
             "result": None,
+            "total_records_available": None,  # Reset on error
             "error_history": error_history,
             "last_attempt_time": datetime.now().isoformat(),
         }

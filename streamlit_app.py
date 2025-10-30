@@ -145,9 +145,11 @@ def apply_column_patch(output: dict, table: str, column: str, operation: str, im
                 "thread_id": thread_id,
                 "user_question": output.get("user_question", ""),
             }
-            # Increment generation to get fresh controls after applying patch
-            st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
+            st.session_state.skip_modification_controls = True
+            # Note: Don't increment generation here - it will be incremented in the pending_patch handler
             st.rerun()
+            # Stop execution immediately after rerun
+            return
         else:
             # Store for batch processing (will be applied when batch is triggered)
             if not hasattr(st.session_state, 'pending_batch_patches'):
@@ -214,9 +216,11 @@ def apply_sort_patch(output: dict, selected_sort: str, direction: str, sortable_
                 "thread_id": thread_id,
                 "user_question": output.get("user_question", ""),
             }
-            # Increment generation to get fresh controls after applying patch
-            st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
+            st.session_state.skip_modification_controls = True
+            # Note: Don't increment generation here - it will be incremented in the pending_patch handler
             st.rerun()
+            # Stop execution immediately after rerun
+            return
         else:
             # Store for batch processing
             if not hasattr(st.session_state, 'pending_batch_patches'):
@@ -268,9 +272,11 @@ def apply_limit_patch(output: dict, new_limit: int, immediate_rerun: bool = True
                 "thread_id": thread_id,
                 "user_question": output.get("user_question", ""),
             }
-            # Increment generation to get fresh controls after applying patch
-            st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
+            st.session_state.skip_modification_controls = True
+            # Note: Don't increment generation here - it will be incremented in the pending_patch handler
             st.rerun()
+            # Stop execution immediately after rerun
+            return
         else:
             # Store for batch processing
             if not hasattr(st.session_state, 'pending_batch_patches'):
@@ -289,14 +295,13 @@ def apply_limit_patch(output: dict, new_limit: int, immediate_rerun: bool = True
         logger.error(f"Error in apply_limit_patch: {str(e)}", exc_info=True)
 
 
-def render_modification_controls(output: dict, modification_options: dict, placeholder=None):
+def render_modification_controls(output: dict, modification_options: dict):
     """
     Render interactive controls for modifying the query plan.
 
     Args:
         output: The state dict containing executed_plan, filtered_schema, etc.
         modification_options: Dict with available modification options
-        placeholder: Optional st.empty() placeholder for clearing controls before rerun
     """
     with st.expander("🔧 Modify Query", icon="✏️", expanded=False):
         st.write("Make multiple modifications and click **'Apply Changes'** to re-execute the query.")
@@ -339,19 +344,20 @@ def render_modification_controls(output: dict, modification_options: dict, place
 
                     for idx, col_info in enumerate(col_group):
                         with cols[idx]:
-                            col_name = col_info["name"]
+                            col_name = col_info["name"]  # Database column name (for operations)
+                            display_name = col_info.get("display_name", col_name)  # Friendly name (for display)
                             is_selected = col_info["selected"]
                             role = col_info.get("role")
                             is_pk = col_info.get("is_primary_key", False)
 
-                            # Build label
-                            label = col_name
+                            # Build label using friendly display name
+                            label = display_name
                             if is_pk:
                                 label += " 🔑"
                             if role == "filter":
                                 label += " (filter only)"
 
-                            # Create checkbox with unique key including prefix
+                            # Create checkbox with unique key using database column name
                             checkbox_key = f"col_{key_prefix}_{table_name}_{col_name}"
 
                             # Only show checkbox if it's a projection or not selected
@@ -444,14 +450,14 @@ def render_modification_controls(output: dict, modification_options: dict, place
             st.write("**Limit number of rows:**")
 
             # Limit slider
-            limit_value = current_limit if current_limit else 100
+            limit_value = current_limit if current_limit else 500
 
             new_limit = st.slider(
                 "Row limit",
                 min_value=10,
-                max_value=2000,
-                value=min(max(limit_value, 10), 2000),
-                step=10,
+                max_value=1000000,
+                value=min(max(limit_value, 10), 1000000),
+                step=100,
                 key=f"limit_slider_{key_prefix}"
             )
 
@@ -518,14 +524,9 @@ def render_modification_controls(output: dict, modification_options: dict, place
                     if limit_change:
                         apply_limit_patch(output, limit_change, immediate_rerun=False)
 
-                    # Set flag to trigger batch processing and rerun
+                    # Set flag to trigger batch processing
                     if st.session_state.pending_batch_patches:
                         st.session_state.apply_batch_patches = True
-                        # Increment generation to get fresh controls after applying patches
-                        st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
-                        # Clear the controls using the placeholder before rerunning
-                        if placeholder:
-                            placeholder.empty()
                         st.rerun()
 
                 except Exception as e:
@@ -731,14 +732,10 @@ def render_query_results(
                         st.divider()
 
     # Display modification controls if options are available
-    # Skip rendering during batch processing to avoid conflicts
-    is_batch_processing = st.session_state.get("apply_batch_patches", False)
     modification_options = output.get("modification_options")
-    if modification_options and output.get("executed_plan") and not is_batch_processing:
-        # Create a placeholder for the controls so they can be cleared before rerun
-        controls_placeholder = st.empty()
-        with controls_placeholder.container():
-            render_modification_controls(output, modification_options, controls_placeholder)
+
+    if modification_options and output.get("executed_plan"):
+        render_modification_controls(output, modification_options)
 
     # Display results
     tab1, tab2 = st.tabs(["Table View", "Raw Data"])
@@ -758,6 +755,15 @@ def render_query_results(
                 )
             else:
                 st.success(status_label)
+
+            # Display record count information
+            returned_count = len(df)
+            total_available = output.get("total_records_available")
+
+            if total_available and total_available > returned_count:
+                st.caption(f"📊 Showing **{returned_count:,}** of **{total_available:,}** records (limit applied)")
+            else:
+                st.caption(f"📊 Showing **{returned_count:,}** record{'s' if returned_count != 1 else ''}")
 
             st.dataframe(
                 df,
@@ -799,6 +805,9 @@ def initialize_session_state():
     if "current_dataframe" not in st.session_state:
         st.session_state.current_dataframe = None
 
+    if "current_output" not in st.session_state:
+        st.session_state.current_output = None
+
     if "show_results" not in st.session_state:
         st.session_state.show_results = False
 
@@ -827,6 +836,7 @@ def main():
         if st.button("➕ New Query", use_container_width=True, type="primary"):
             st.session_state.selected_thread_id = None
             st.session_state.loaded_state = None
+            st.session_state.current_output = None
             st.session_state.question_input = ""
             st.session_state.show_results = False
             st.session_state.current_dataframe = None
@@ -879,6 +889,7 @@ def main():
                     ):
                         # Load the query results
                         st.session_state.selected_thread_id = thread_id
+                        st.session_state.current_output = None  # Clear current output when viewing history
                         if queries:
                             st.session_state.loaded_state = queries[0].get("state")
                         st.rerun()
@@ -934,11 +945,13 @@ def main():
             )
 
         with pref_col2:
-            result_limit = st.selectbox(
+            result_limit = st.slider(
                 "Limit Results",
-                [0, 1, 5, 25, 100, 1000],
-                help="Limit the number of returned records (0 = no limit)",
-                index=0,
+                min_value=1,
+                max_value=1000000,
+                value=500,
+                step=100,
+                help="Limit the number of returned records (default: 500, max: 1,000,000)",
             )
 
         with pref_col3:
@@ -963,6 +976,9 @@ def main():
     if hasattr(st.session_state, 'apply_batch_patches') and st.session_state.apply_batch_patches:
         st.session_state.apply_batch_patches = False  # Clear the flag
         patches = st.session_state.get('pending_batch_patches', [])
+
+        # Increment generation counter BEFORE processing to ensure fresh keys on next render
+        st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
 
         if patches:
             status = st.status(f"Applying {len(patches)} modification(s)...")
@@ -993,6 +1009,9 @@ def main():
                 # Use the final output
                 output = current_output
 
+                # Store in session state so it persists across reruns
+                st.session_state.current_output = output
+
                 # Reload thread states to show the updated query in the sidebar
                 reload_thread_states()
 
@@ -1005,12 +1024,11 @@ def main():
                 else:
                     status.update(label=f"All {len(patches)} modifications applied successfully!", state="complete")
 
-                # Render the results and store dataframe
-                df = render_query_results(output, status_label=f"{len(patches)} modifications applied!")
-                st.session_state.current_dataframe = df
-
                 # Clear the batch patches
                 st.session_state.pending_batch_patches = []
+
+                # DON'T render here - let the normal display flow handle it at line 1193
+                # This prevents duplicate rendering which causes duplicate key errors
 
             except Exception as e:
                 status.update(label=f"Error: {str(e)}", state="error")
@@ -1023,6 +1041,9 @@ def main():
     elif hasattr(st.session_state, 'pending_patch') and st.session_state.pending_patch:
         patch_info = st.session_state.pending_patch
         st.session_state.pending_patch = None  # Clear the pending patch
+
+        # Increment generation counter BEFORE processing to ensure fresh keys on next render
+        st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
 
         status = st.status("Applying modification...")
         try:
@@ -1038,6 +1059,9 @@ def main():
             # Extract state from response
             output = response["state"]
 
+            # Store in session state so it persists across reruns
+            st.session_state.current_output = output
+
             # Reload thread states to show the updated query in the sidebar
             reload_thread_states()
 
@@ -1050,9 +1074,8 @@ def main():
             else:
                 status.update(label="Modification applied successfully!", state="complete")
 
-            # Render the results and store dataframe
-            df = render_query_results(output, status_label="Modification applied!")
-            st.session_state.current_dataframe = df
+            # DON'T render here - let the normal display flow handle it at line 1193
+            # This prevents duplicate rendering which causes duplicate key errors
 
         except Exception as e:
             status.update(label=f"Error: {str(e)}", state="error")
@@ -1091,6 +1114,7 @@ def main():
                 None  # Clear selection to show new query
             )
             st.session_state.loaded_state = None
+            st.session_state.current_output = None
             st.session_state.show_results = False
             st.session_state.current_dataframe = None
 
@@ -1107,6 +1131,9 @@ def main():
 
                 # Extract state from response
                 output = response["state"]
+
+                # Store current output in session state so it persists across reruns
+                st.session_state.current_output = output
 
                 # Reload thread states to show the new query in the sidebar
                 reload_thread_states()
@@ -1144,6 +1171,14 @@ def main():
                 st.exception(e)
         else:
             st.warning("Please enter a question first.")
+
+    # Display current output if it exists (persists across reruns from slider changes)
+    elif st.session_state.current_output:
+        df = render_query_results(
+            st.session_state.current_output,
+            status_label="Query executed successfully!"
+        )
+        st.session_state.current_dataframe = df
 
     # Display loaded state if a query from history is selected
     elif st.session_state.loaded_state:

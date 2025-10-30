@@ -28,6 +28,7 @@ class State(TypedDict):
     queries: list[str]  # History of all generated SQL queries
     query: str  # Current/latest generated SQL query (convenience field)
     result: str  # Holds query execution result
+    total_records_available: Optional[int]  # Total records available before limit applied
 
     # Router mode for conversational flow
     router_mode: Optional[str]  # "update" | "rewrite" | None

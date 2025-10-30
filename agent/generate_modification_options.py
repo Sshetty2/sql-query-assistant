@@ -1,9 +1,62 @@
 """Generate modification options for plan patching UI."""
 
+import re
 from typing import Any, Dict, List, Optional
 from utils.logger import get_logger
 
 logger = get_logger()
+
+
+def format_column_name_for_display(column_name: str) -> str:
+    """
+    Convert database column names to friendly display names.
+
+    Handles common naming patterns:
+    - PascalCase: UpdatedBy → Updated By
+    - snake_case: SW_Edition → SW Edition
+    - Mixed: CompanyID → Company ID
+    - Acronyms: ID, FK, PK remain uppercase
+
+    Args:
+        column_name: Raw database column name
+
+    Returns:
+        Friendly display name
+    """
+    if not column_name:
+        return column_name
+
+    # Handle snake_case: replace underscores with spaces
+    if '_' in column_name:
+        # Split by underscore and join with spaces
+        parts = column_name.split('_')
+        # Keep acronyms uppercase, title case others
+        formatted_parts = []
+        for part in parts:
+            if not part:  # Skip empty parts
+                continue
+            # Keep all-caps parts as-is (likely acronyms like FK, PK, SW)
+            if part.isupper():
+                formatted_parts.append(part)
+            else:
+                # Title case everything else, including 'id' -> 'Id'
+                formatted_parts.append(part.title())
+        return ' '.join(formatted_parts)
+
+    # Handle PascalCase: insert spaces before capital letters
+    # Special handling for common suffixes like ID, FK, PK
+    result = column_name
+
+    # Insert space before capital letters (except at start)
+    result = re.sub(r'(?<!^)(?=[A-Z][a-z])', ' ', result)
+
+    # Handle acronyms at end (e.g., CompanyID → Company ID)
+    result = re.sub(r'([a-z])([A-Z]+)$', r'\1 \2', result)
+
+    # Handle consecutive capitals followed by lowercase (e.g., XMLParser → XML Parser)
+    result = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1 \2', result)
+
+    return result
 
 
 def get_selected_columns_map(plan: Dict[str, Any]) -> Dict[str, Dict[str, Dict[str, Any]]]:
@@ -122,8 +175,12 @@ def generate_modification_options(
             selected = col_name in selected_map.get(table, {})
             role = selected_map.get(table, {}).get(col_name, {}).get("role") if selected else None
 
+            # Format display name for UI
+            friendly_name = format_column_name_for_display(col_name)
+
             column_info = {
                 "name": col_name,
+                "display_name": friendly_name,
                 "type": col_type,
                 "selected": selected,
                 "role": role,
@@ -137,7 +194,7 @@ def generate_modification_options(
                 "table": table,
                 "column": col_name,
                 "type": col_type,
-                "display_name": f"{table}.{col_name}"
+                "display_name": f"{table}.{friendly_name}"
             })
 
         tables_dict[table] = {
