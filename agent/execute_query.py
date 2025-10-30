@@ -211,12 +211,18 @@ def execute_query(state: State, db_connection):
             array_key="queries",
         )
 
+        # Save executed plan and query for plan patching
+        executed_plan = state.get("planner_output")
+        executed_query = query
+
         return {
             **state,
             "messages": [AIMessage(content="Query Successfully Executed")],
             "query": query,  # Explicitly include the (possibly modified) query
             "result": json_result,
             "queries": queries,
+            "executed_plan": executed_plan,  # Save for plan patching
+            "executed_query": executed_query,  # Save for plan patching
             "last_step": "execute_query",
             "last_attempt_time": datetime.now().isoformat(),
         }

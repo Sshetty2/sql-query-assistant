@@ -109,6 +109,429 @@ def format_results(result):
         return pd.DataFrame()
 
 
+def apply_column_patch(output: dict, table: str, column: str, operation: str, immediate_rerun: bool = True):
+    """
+    Apply a column add/remove patch and optionally re-execute the query.
+
+    Args:
+        output: Current state dict
+        table: Table name
+        column: Column name
+        operation: "add_column" or "remove_column"
+        immediate_rerun: If True, trigger rerun immediately. If False, store for batch processing.
+    """
+    try:
+        executed_plan = output.get("executed_plan")
+        filtered_schema = output.get("filtered_schema")
+        thread_id = output.get("thread_id")
+
+        if not executed_plan or not filtered_schema:
+            st.error("Cannot apply patch: missing executed plan or schema")
+            return
+
+        # Build patch operation
+        patch_op = {
+            "operation": operation,
+            "table": table,
+            "column": column
+        }
+
+        if immediate_rerun:
+            # Store patch in session state and trigger rerun immediately
+            st.session_state.pending_patch = {
+                "operation": patch_op,
+                "executed_plan": executed_plan,
+                "filtered_schema": filtered_schema,
+                "thread_id": thread_id,
+                "user_question": output.get("user_question", ""),
+            }
+            # Increment generation to get fresh controls after applying patch
+            st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
+            st.rerun()
+        else:
+            # Store for batch processing (will be applied when batch is triggered)
+            if not hasattr(st.session_state, 'pending_batch_patches'):
+                st.session_state.pending_batch_patches = []
+
+            st.session_state.pending_batch_patches.append({
+                "operation": patch_op,
+                "executed_plan": executed_plan,
+                "filtered_schema": filtered_schema,
+                "thread_id": thread_id,
+                "user_question": output.get("user_question", ""),
+            })
+
+    except Exception as e:
+        st.error(f"Error applying column patch: {str(e)}")
+        logger.error(f"Error in apply_column_patch: {str(e)}", exc_info=True)
+
+
+def apply_sort_patch(output: dict, selected_sort: str, direction: str, sortable_columns: list, immediate_rerun: bool = True):
+    """
+    Apply an ORDER BY patch and optionally re-execute the query.
+
+    Args:
+        output: Current state dict
+        selected_sort: Selected sort column display name or "No sorting"
+        direction: "ASC" or "DESC"
+        sortable_columns: List of sortable column dicts
+        immediate_rerun: If True, trigger rerun immediately. If False, store for batch processing.
+    """
+    try:
+        executed_plan = output.get("executed_plan")
+        filtered_schema = output.get("filtered_schema")
+        thread_id = output.get("thread_id")
+
+        if not executed_plan or not filtered_schema:
+            st.error("Cannot apply patch: missing executed plan or schema")
+            return
+
+        # Build ORDER BY specification
+        order_by = []
+        if selected_sort != "No sorting":
+            # Find the matching column
+            for col in sortable_columns:
+                if col["display_name"] == selected_sort:
+                    order_by.append({
+                        "table": col["table"],
+                        "column": col["column"],
+                        "direction": direction
+                    })
+                    break
+
+        # Build patch operation
+        patch_op = {
+            "operation": "modify_order_by",
+            "order_by": order_by
+        }
+
+        if immediate_rerun:
+            # Store patch in session state and trigger rerun immediately
+            st.session_state.pending_patch = {
+                "operation": patch_op,
+                "executed_plan": executed_plan,
+                "filtered_schema": filtered_schema,
+                "thread_id": thread_id,
+                "user_question": output.get("user_question", ""),
+            }
+            # Increment generation to get fresh controls after applying patch
+            st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
+            st.rerun()
+        else:
+            # Store for batch processing
+            if not hasattr(st.session_state, 'pending_batch_patches'):
+                st.session_state.pending_batch_patches = []
+
+            st.session_state.pending_batch_patches.append({
+                "operation": patch_op,
+                "executed_plan": executed_plan,
+                "filtered_schema": filtered_schema,
+                "thread_id": thread_id,
+                "user_question": output.get("user_question", ""),
+            })
+
+    except Exception as e:
+        st.error(f"Error applying sort patch: {str(e)}")
+        logger.error(f"Error in apply_sort_patch: {str(e)}", exc_info=True)
+
+
+def apply_limit_patch(output: dict, new_limit: int, immediate_rerun: bool = True):
+    """
+    Apply a LIMIT patch and optionally re-execute the query.
+
+    Args:
+        output: Current state dict
+        new_limit: New row limit value
+        immediate_rerun: If True, trigger rerun immediately. If False, store for batch processing.
+    """
+    try:
+        executed_plan = output.get("executed_plan")
+        filtered_schema = output.get("filtered_schema")
+        thread_id = output.get("thread_id")
+
+        if not executed_plan or not filtered_schema:
+            st.error("Cannot apply patch: missing executed plan or schema")
+            return
+
+        # Build patch operation
+        patch_op = {
+            "operation": "modify_limit",
+            "limit": new_limit
+        }
+
+        if immediate_rerun:
+            # Store patch in session state and trigger rerun immediately
+            st.session_state.pending_patch = {
+                "operation": patch_op,
+                "executed_plan": executed_plan,
+                "filtered_schema": filtered_schema,
+                "thread_id": thread_id,
+                "user_question": output.get("user_question", ""),
+            }
+            # Increment generation to get fresh controls after applying patch
+            st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
+            st.rerun()
+        else:
+            # Store for batch processing
+            if not hasattr(st.session_state, 'pending_batch_patches'):
+                st.session_state.pending_batch_patches = []
+
+            st.session_state.pending_batch_patches.append({
+                "operation": patch_op,
+                "executed_plan": executed_plan,
+                "filtered_schema": filtered_schema,
+                "thread_id": thread_id,
+                "user_question": output.get("user_question", ""),
+            })
+
+    except Exception as e:
+        st.error(f"Error applying limit patch: {str(e)}")
+        logger.error(f"Error in apply_limit_patch: {str(e)}", exc_info=True)
+
+
+def render_modification_controls(output: dict, modification_options: dict, placeholder=None):
+    """
+    Render interactive controls for modifying the query plan.
+
+    Args:
+        output: The state dict containing executed_plan, filtered_schema, etc.
+        modification_options: Dict with available modification options
+        placeholder: Optional st.empty() placeholder for clearing controls before rerun
+    """
+    with st.expander("🔧 Modify Query", icon="✏️", expanded=False):
+        st.write("Make multiple modifications and click **'Apply Changes'** to re-execute the query.")
+
+        # Create tabs for different modification types
+        col_tab, sort_tab = st.tabs(["📊 Columns", "🔀 Sort & Limit"])
+
+        # Track changes to be applied
+        column_changes = []
+        sort_change = None
+        limit_change = None
+
+        # Generate stable key prefix that only changes when patches are applied
+        # This ensures checkboxes keep their state during normal interaction
+        if "controls_generation" not in st.session_state:
+            st.session_state.controls_generation = 0
+
+        thread_id = output.get("thread_id", "default")
+        generation = st.session_state.controls_generation
+        key_prefix = f"{thread_id}_{generation}"
+
+        with col_tab:
+            st.write("**Select columns to display:**")
+
+            tables = modification_options.get("tables", {})
+
+            for table_name, table_info in tables.items():
+                alias = table_info.get("alias")
+                table_display = f"{table_name} ({alias})" if alias else table_name
+
+                st.write(f"**{table_display}**")
+
+                columns = table_info.get("columns", [])
+
+                # Group columns into rows of 3
+                col_groups = [columns[i:i+3] for i in range(0, len(columns), 3)]
+
+                for col_group in col_groups:
+                    cols = st.columns(3)
+
+                    for idx, col_info in enumerate(col_group):
+                        with cols[idx]:
+                            col_name = col_info["name"]
+                            is_selected = col_info["selected"]
+                            role = col_info.get("role")
+                            is_pk = col_info.get("is_primary_key", False)
+
+                            # Build label
+                            label = col_name
+                            if is_pk:
+                                label += " 🔑"
+                            if role == "filter":
+                                label += " (filter only)"
+
+                            # Create checkbox with unique key including prefix
+                            checkbox_key = f"col_{key_prefix}_{table_name}_{col_name}"
+
+                            # Only show checkbox if it's a projection or not selected
+                            # (don't show filter-only columns as checkboxes)
+                            if role != "filter" or not is_selected:
+                                checked = st.checkbox(
+                                    label,
+                                    value=is_selected and role == "projection",
+                                    key=checkbox_key,
+                                    help=f"Type: {col_info['type']}",
+                                )
+
+                                # Track changes (but don't apply yet)
+                                if checked != (is_selected and role == "projection"):
+                                    column_changes.append({
+                                        "operation": "add_column" if checked else "remove_column",
+                                        "table": table_name,
+                                        "column": col_name
+                                    })
+                            else:
+                                # Show as disabled for filter-only columns
+                                st.checkbox(
+                                    label,
+                                    value=False,
+                                    key=checkbox_key,
+                                    disabled=True,
+                                    help="This column is used in filters only"
+                                )
+
+                st.divider()
+
+        with sort_tab:
+            st.write("**Order results by:**")
+
+            # Get sortable columns
+            sortable_columns = modification_options.get("sortable_columns", [])
+            current_order_by = modification_options.get("current_order_by", [])
+            current_limit = modification_options.get("current_limit")
+
+            # Build options for selectbox
+            sort_options = ["No sorting"] + [col["display_name"] for col in sortable_columns]
+
+            # Determine current selection
+            current_sort_col = None
+            current_sort_dir = "ASC"
+            if current_order_by and len(current_order_by) > 0:
+                first_order = current_order_by[0]
+                current_sort_col = f"{first_order['table']}.{first_order['column']}"
+                current_sort_dir = first_order.get("direction", "ASC")
+
+            default_index = 0
+            if current_sort_col:
+                try:
+                    default_index = sort_options.index(current_sort_col)
+                except ValueError:
+                    default_index = 0
+
+            sort_col1, sort_col2 = st.columns([3, 1])
+
+            with sort_col1:
+                selected_sort = st.selectbox(
+                    "Column",
+                    sort_options,
+                    index=default_index,
+                    key=f"sort_column_select_{key_prefix}"
+                )
+
+            with sort_col2:
+                direction = st.radio(
+                    "Direction",
+                    ["ASC", "DESC"],
+                    index=0 if current_sort_dir == "ASC" else 1,
+                    key=f"sort_direction_radio_{key_prefix}",
+                    horizontal=True
+                )
+
+            # Track sort changes
+            new_sort_col = selected_sort if selected_sort != "No sorting" else None
+            old_sort_col = current_sort_col if current_order_by else None
+
+            if new_sort_col != old_sort_col or (new_sort_col and direction != current_sort_dir):
+                sort_change = {
+                    "selected_sort": selected_sort,
+                    "direction": direction,
+                    "sortable_columns": sortable_columns
+                }
+
+            st.divider()
+
+            st.write("**Limit number of rows:**")
+
+            # Limit slider
+            limit_value = current_limit if current_limit else 100
+
+            new_limit = st.slider(
+                "Row limit",
+                min_value=10,
+                max_value=2000,
+                value=min(max(limit_value, 10), 2000),
+                step=10,
+                key=f"limit_slider_{key_prefix}"
+            )
+
+            # Track limit changes
+            if new_limit != current_limit:
+                limit_change = new_limit
+
+        # Single Apply Changes button at the bottom
+        st.divider()
+
+        # Show what will be applied
+        changes_pending = bool(column_changes or sort_change or limit_change)
+        if changes_pending:
+            change_summary = []
+            if column_changes:
+                adds = sum(1 for c in column_changes if c["operation"] == "add_column")
+                removes = sum(1 for c in column_changes if c["operation"] == "remove_column")
+                if adds:
+                    change_summary.append(f"➕ {adds} column(s)")
+                if removes:
+                    change_summary.append(f"➖ {removes} column(s)")
+            if sort_change:
+                change_summary.append("🔀 Sorting")
+            if limit_change:
+                change_summary.append(f"📊 Limit: {limit_change}")
+
+            st.info(f"**Pending changes:** {', '.join(change_summary)}")
+
+        apply_col1, apply_col2 = st.columns([1, 3])
+        with apply_col1:
+            if st.button(
+                "Apply Changes" if changes_pending else "No changes to apply",
+                key=f"apply_all_changes_btn_{key_prefix}",
+                type="primary",
+                disabled=not changes_pending,
+                use_container_width=True
+            ):
+                # Apply all changes in sequence
+                try:
+                    # Clear any existing batch patches
+                    st.session_state.pending_batch_patches = []
+
+                    # Add column changes to batch
+                    for change in column_changes:
+                        apply_column_patch(
+                            output,
+                            change["table"],
+                            change["column"],
+                            change["operation"],
+                            immediate_rerun=False
+                        )
+
+                    # Add sort change to batch
+                    if sort_change:
+                        apply_sort_patch(
+                            output,
+                            sort_change["selected_sort"],
+                            sort_change["direction"],
+                            sort_change["sortable_columns"],
+                            immediate_rerun=False
+                        )
+
+                    # Add limit change to batch
+                    if limit_change:
+                        apply_limit_patch(output, limit_change, immediate_rerun=False)
+
+                    # Set flag to trigger batch processing and rerun
+                    if st.session_state.pending_batch_patches:
+                        st.session_state.apply_batch_patches = True
+                        # Increment generation to get fresh controls after applying patches
+                        st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
+                        # Clear the controls using the placeholder before rerunning
+                        if placeholder:
+                            placeholder.empty()
+                        st.rerun()
+
+                except Exception as e:
+                    st.error(f"Error applying changes: {str(e)}")
+
+
 def render_query_results(
     output: dict, status_label: str = "Query executed successfully!"
 ) -> pd.DataFrame:
@@ -307,6 +730,16 @@ def render_query_results(
 
                         st.divider()
 
+    # Display modification controls if options are available
+    # Skip rendering during batch processing to avoid conflicts
+    is_batch_processing = st.session_state.get("apply_batch_patches", False)
+    modification_options = output.get("modification_options")
+    if modification_options and output.get("executed_plan") and not is_batch_processing:
+        # Create a placeholder for the controls so they can be cleared before rerun
+        controls_placeholder = st.empty()
+        with controls_placeholder.container():
+            render_modification_controls(output, modification_options, controls_placeholder)
+
     # Display results
     tab1, tab2 = st.tabs(["Table View", "Raw Data"])
 
@@ -368,6 +801,9 @@ def initialize_session_state():
 
     if "show_results" not in st.session_state:
         st.session_state.show_results = False
+
+    if "pending_patch" not in st.session_state:
+        st.session_state.pending_patch = None
 
 
 def reload_thread_states():
@@ -448,6 +884,7 @@ def main():
                         st.rerun()
         else:
             st.info("No queries yet. Enter a question below to get started!")
+        
 
     # --- RIGHT COLUMN: Query Input and Parameters ---
     with main_col:
@@ -520,6 +957,107 @@ def main():
 
     # --- QUERY EXECUTION (Full Width Below) ---
     st.divider()
+
+    # Check if there's a pending patch operation to execute
+    # Handle batch patch operations
+    if hasattr(st.session_state, 'apply_batch_patches') and st.session_state.apply_batch_patches:
+        st.session_state.apply_batch_patches = False  # Clear the flag
+        patches = st.session_state.get('pending_batch_patches', [])
+
+        if patches:
+            status = st.status(f"Applying {len(patches)} modification(s)...")
+            try:
+                # Apply patches sequentially
+                current_output = None
+                for i, patch_info in enumerate(patches, 1):
+                    status.update(label=f"Applying modification {i} of {len(patches)}...")
+
+                    # For all patches except the first, use the output from the previous patch
+                    if current_output:
+                        # Update patch_info with latest executed_plan and filtered_schema
+                        patch_info["executed_plan"] = current_output.get("executed_plan")
+                        patch_info["filtered_schema"] = current_output.get("filtered_schema")
+
+                    # Apply the patch
+                    response = query_database(
+                        patch_info["user_question"],
+                        patch_operation=patch_info["operation"],
+                        executed_plan=patch_info["executed_plan"],
+                        filtered_schema=patch_info["filtered_schema"],
+                        thread_id=patch_info.get("thread_id"),
+                    )
+
+                    # Update current_output for next iteration
+                    current_output = response["state"]
+
+                # Use the final output
+                output = current_output
+
+                # Reload thread states to show the updated query in the sidebar
+                reload_thread_states()
+
+                # Update session state
+                st.session_state.show_results = True
+
+                # Update status
+                if output.get("result") is None:
+                    status.update(label="No results found", state="error")
+                else:
+                    status.update(label=f"All {len(patches)} modifications applied successfully!", state="complete")
+
+                # Render the results and store dataframe
+                df = render_query_results(output, status_label=f"{len(patches)} modifications applied!")
+                st.session_state.current_dataframe = df
+
+                # Clear the batch patches
+                st.session_state.pending_batch_patches = []
+
+            except Exception as e:
+                status.update(label=f"Error: {str(e)}", state="error")
+                st.error(f"An error occurred applying modifications: {str(e)}")
+                st.exception(e)
+                # Clear the batch patches even on error
+                st.session_state.pending_batch_patches = []
+
+    # Handle single patch operation (for backward compatibility)
+    elif hasattr(st.session_state, 'pending_patch') and st.session_state.pending_patch:
+        patch_info = st.session_state.pending_patch
+        st.session_state.pending_patch = None  # Clear the pending patch
+
+        status = st.status("Applying modification...")
+        try:
+            # Apply the patch by calling query_database with patch parameters
+            response = query_database(
+                patch_info["user_question"],
+                patch_operation=patch_info["operation"],
+                executed_plan=patch_info["executed_plan"],
+                filtered_schema=patch_info["filtered_schema"],
+                thread_id=patch_info.get("thread_id"),
+            )
+
+            # Extract state from response
+            output = response["state"]
+
+            # Reload thread states to show the updated query in the sidebar
+            reload_thread_states()
+
+            # Update session state
+            st.session_state.show_results = True
+
+            # Update status
+            if output.get("result") is None:
+                status.update(label="No results found", state="error")
+            else:
+                status.update(label="Modification applied successfully!", state="complete")
+
+            # Render the results and store dataframe
+            df = render_query_results(output, status_label="Modification applied!")
+            st.session_state.current_dataframe = df
+
+        except Exception as e:
+            status.update(label=f"Error: {str(e)}", state="error")
+            st.error(f"An error occurred applying modification: {str(e)}")
+            st.exception(e)
 
     # Button row: Generate Query and Download CSV on the same line
     button_col1, button_col2, button_col3 = st.columns([1, 1, 4])

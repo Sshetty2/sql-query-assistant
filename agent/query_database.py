@@ -20,6 +20,9 @@ def query_database(
     time_filter="All Time",
     thread_id: Optional[str] = None,
     previous_state: Optional[Dict[str, Any]] = {},
+    patch_operation: Optional[Dict[str, Any]] = None,
+    executed_plan: Optional[Dict[str, Any]] = None,
+    filtered_schema: Optional[list] = None,
 ):
     """Run the query workflow for a given question.
 
@@ -30,6 +33,9 @@ def query_database(
         time_filter: Time filter preference (All Time, Last 7 Days, etc.)
         thread_id: Optional thread ID for continuing a conversation. If None, creates new thread.
         previous_state: Optional previous state (if not provided, will load from thread)
+        patch_operation: Optional dict with patch operation (for plan patching)
+        executed_plan: Optional executed plan (required if patch_operation provided)
+        filtered_schema: Optional filtered schema (required if patch_operation provided)
 
     Returns:
         Dict with 'state' (final state), 'thread_id', and 'query_id'
@@ -177,6 +183,28 @@ def query_database(
                 "needs_clarification": False,
                 "clarification_suggestions": [],
             }
+
+    # Add patch-specific fields if patching is requested
+    if patch_operation is not None:
+        if executed_plan is None or filtered_schema is None:
+            raise ValueError("executed_plan and filtered_schema are required when patch_operation is provided")
+
+        logger.info(f"Patch operation requested: {patch_operation.get('operation')}")
+
+        initial_state.update({
+            "patch_requested": True,
+            "current_patch_operation": patch_operation,
+            "executed_plan": executed_plan,
+            "filtered_schema": filtered_schema,
+            "planner_output": executed_plan,  # Set as current plan for regeneration
+        })
+    else:
+        # Ensure patch fields are initialized for non-patch queries
+        initial_state.setdefault("patch_requested", False)
+        initial_state.setdefault("current_patch_operation", None)
+        initial_state.setdefault("patch_history", [])
+        initial_state.setdefault("executed_plan", None)
+        initial_state.setdefault("modification_options", None)
 
     # Execute workflow with guaranteed connection cleanup
     try:

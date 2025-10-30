@@ -60,3 +60,12 @@ class State(TypedDict):
     audit_issues: list[str]  # List of issues detected by plan audit
     audit_corrections: list[str]  # List of corrections applied by plan audit
     audit_reasoning: Optional[str]  # Explanation of audit fixes
+
+    # Plan patching fields
+    executed_plan: Optional[dict[str, Any]]  # The plan that generated currently displayed results
+    executed_query: Optional[str]  # The SQL query that generated currently displayed results
+    patch_history: list[dict[str, Any]]  # History of user-applied patch operations
+    patch_requested: bool  # Flag to route to transform_plan node
+    current_patch_operation: Optional[dict[str, Any]]  # The patch operation to apply
+    modification_options: Optional[dict[str, Any]]  # Available modification options for UI
+    parent_query_id: Optional[str]  # ID of query that was patched (for lineage tracking)

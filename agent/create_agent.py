@@ -16,6 +16,8 @@ from agent.check_clarification import check_clarification
 from agent.generate_query import generate_query
 from agent.handle_tool_error import handle_tool_error
 from agent.refine_query import refine_query
+from agent.transform_plan import transform_plan_node
+from agent.generate_modification_options import generate_modification_options_node
 
 # DISABLED: Conversational router commented out for now
 # from agent.conversational_router import conversational_router
@@ -50,15 +52,23 @@ def is_none_result(result):
 
 def route_from_start(
     state: State,
-) -> Literal["analyze_schema"]:
+) -> Literal["analyze_schema", "transform_plan"]:
     """
-    Route from START - always analyze schema.
+    Route from START.
+
+    - If patch_requested=True: route directly to transform_plan (skip analysis/planning)
+    - Otherwise: analyze schema for new query
 
     NOTE: Conversational router disabled for now. We always fetch fresh schema
     since we don't persist it in state anymore (to avoid inflating saved state).
     The router wasn't working well anyway - will revisit later.
     """
-    # Always analyze schema (don't skip based on is_continuation)
+    # Check if this is a patch operation
+    if state.get("patch_requested"):
+        logger.info("Patch requested, routing directly to transform_plan")
+        return "transform_plan"
+
+    # Normal flow: analyze schema for new query
     return "analyze_schema"
 
 
@@ -125,8 +135,65 @@ def route_after_filter_schema(
         return "format_schema_markdown"
 
 
+def route_from_execute_query(
+    state: State,
+) -> Literal["transform_plan", "generate_modification_options", "handle_error", "refine_query", "cleanup"]:
+    """
+    Route from execute_query based on patch_requested flag and query result.
+
+    - If patch_requested=True: route to transform_plan
+    - Otherwise: route based on query result (error/refine/success)
+    """
+    # Check if plan patching was requested
+    if state.get("patch_requested"):
+        logger.info("Plan patch requested, routing to transform_plan")
+        return "transform_plan"
+
+    # Otherwise use the existing should_continue logic
+    messages = state["messages"]
+    last_message = messages[-1]
+    retry_count = state["retry_count"]
+    refined_count = state["refined_count"]
+    result = state["result"]
+
+    env_retry_count = int(os.getenv("RETRY_COUNT")) if os.getenv("RETRY_COUNT") else 3
+    env_refine_count = (
+        int(os.getenv("REFINE_COUNT")) if os.getenv("REFINE_COUNT") else 2
+    )
+    none_result = is_none_result(result)
+    has_error = "Error" in last_message.content
+
+    # Handle errors - try error correction first
+    if has_error and retry_count < env_retry_count:
+        return "handle_error"
+
+    # If we hit max retries with errors, try refinement as last resort
+    if (
+        has_error
+        and retry_count >= env_retry_count
+        and refined_count < env_refine_count
+    ):
+        logger.info(
+            "Max error correction retries reached, routing to refinement as fallback"
+        )
+        return "refine_query"
+
+    # If result is None and refinement is not exhausted, refine
+    if none_result and refined_count < env_refine_count:
+        return "refine_query"
+
+    # Success - generate modification options before cleanup
+    logger.info("Query executed successfully, routing to generate_modification_options")
+    return "generate_modification_options"
+
+
 def should_continue(state: State) -> Literal["handle_error", "refine_query", "cleanup"]:
-    """Determine the next step based on the current state."""
+    """
+    Determine the next step based on the current state.
+
+    NOTE: This function is now called from route_from_execute_query.
+    Kept for backwards compatibility but prefer using route_from_execute_query.
+    """
 
     messages = state["messages"]
     last_message = messages[-1]
@@ -195,6 +262,9 @@ def create_sql_agent():
     workflow.add_node("handle_error", handle_tool_error)
     workflow.add_node("cleanup", lambda state: cleanup_connection(state, db_connection))
     workflow.add_node("refine_query", refine_query)
+    # Plan patching nodes
+    workflow.add_node("transform_plan", transform_plan_node)
+    workflow.add_node("generate_modification_options", generate_modification_options_node)
 
     # Conditional routing from START
     workflow.add_conditional_edges(START, route_from_start)
@@ -216,9 +286,13 @@ def create_sql_agent():
     # workflow.add_conditional_edges("conversational_router", route_from_router)
 
     # Error handling and refinement
-    workflow.add_conditional_edges("execute_query", should_continue)
+    workflow.add_conditional_edges("execute_query", route_from_execute_query)
     workflow.add_edge("handle_error", "generate_query")
     workflow.add_edge("refine_query", "generate_query")
+
+    # Plan patching flow
+    workflow.add_edge("transform_plan", "generate_query")  # Patched plan → regenerate SQL
+    workflow.add_edge("generate_modification_options", "cleanup")  # Success → cleanup
 
     # Cleanup
     workflow.add_edge("cleanup", END)

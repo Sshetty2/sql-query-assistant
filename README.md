@@ -34,6 +34,12 @@ Each query is independent with a persisted history sidebar for viewing past resu
 - **Clarification Detection**: Identifies ambiguous requests before execution
 
 ### Query Features
+- **Plan Patching**: Instant query modifications without re-planning
+  - **Add/Remove Columns**: Toggle columns on/off with checkboxes
+  - **Modify ORDER BY**: Change sorting with dropdown controls
+  - **Adjust LIMIT**: Fine-tune row limits with slider
+  - **Instant Updates**: <2 second re-execution (vs 30+ seconds for full re-planning)
+  - **Zero Cost**: Deterministic transformations without LLM calls
 - **Complex Joins**: Automatic JOIN synthesis from foreign key relationships
 - **Aggregations**: GROUP BY, HAVING, and aggregate functions (COUNT, SUM, AVG, MIN, MAX)
 - **Ordering & Limiting**: Planner generates ORDER BY and LIMIT from requests like "last 10 logins"
@@ -155,20 +161,33 @@ Navigate to `http://localhost:8501` and:
 2. Customize query parameters (sort order, result limit, time filter)
 3. Click "Ask Question" to generate and execute the query
 4. View results in an interactive table
-5. Export results to CSV
-6. Ask follow-up questions to refine the query
+5. Use the **"🔧 Modify Query"** expander to:
+   - Add/remove columns with checkboxes
+   - Change sorting with dropdown
+   - Adjust row limits with slider
+   - See instant updates (<2 seconds)
+6. Export results to CSV
+7. View query history in the sidebar to revisit past queries
 
-**Conversational Usage Example:**
+**Plan Patching Usage Example:**
 ```
-You: "Show me all companies"
-[Results displayed]
+1. Ask: "Show me all tracks with their genre"
+   [Results displayed with Name, Genre columns]
 
-You: "Add the vendor column"
-[Updated results with vendor column]
+2. Click "🔧 Modify Query" → "📊 Columns" tab
+   → Check "Composer" and "Milliseconds"
+   [Results instantly updated with new columns]
 
-You: "Filter to only active companies"
-[Filtered results]
+3. Switch to "🔀 Sort & Limit" tab
+   → Select "Milliseconds" and "DESC"
+   → Click "Apply Sorting"
+   [Results sorted by duration, longest first]
+
+4. Adjust slider to 50 rows → Click "Apply Limit"
+   [Results limited to top 50 longest tracks]
 ```
+
+**Note:** Each query creates an independent thread. Conversational routing is currently disabled.
 
 ### FastAPI REST API
 

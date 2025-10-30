@@ -13,6 +13,11 @@ This is a **SQL Query Assistant** that converts natural language queries into SQ
 - **Foreign Key Inference**: Automatic FK discovery for databases without explicit constraints
   - **Standalone FK Agent**: Interactive CLI tool (`fk_inferencing_agent/`) with human-in-the-loop validation
   - **Integrated Inference**: Optional automatic FK inference during query execution (`INFER_FOREIGN_KEYS=true`)
+- **Plan Patching**: Interactive query modification with immediate re-execution
+  - **Add/Remove Columns**: Toggle columns on/off without rewriting query
+  - **Modify ORDER BY**: Change sorting column and direction
+  - **Adjust LIMIT**: Row count slider (10-2000)
+  - **Instant Updates**: Deterministic patching with <2s re-execution (no LLM calls)
 - **Planner Complexity Tiers**: Three levels optimized for different model sizes (minimal/standard/full)
 - **Plan Auditing**: Deterministic validation catches and fixes common mistakes
 - **Smart Error Handling**: Automatic SQL error correction and query refinement
