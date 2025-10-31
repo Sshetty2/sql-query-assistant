@@ -981,12 +981,12 @@ def main():
         st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
 
         if patches:
-            status = st.status(f"Applying {len(patches)} modification(s)...")
+            status = st.status(f"Applying {len(patches)} modification(s)...", expanded=True)
             try:
                 # Apply patches sequentially
                 current_output = None
                 for i, patch_info in enumerate(patches, 1):
-                    status.update(label=f"Applying modification {i} of {len(patches)}...")
+                    status.update(label=f"Applying modification {i} of {len(patches)}...", state="running")
 
                     # For all patches except the first, use the output from the previous patch
                     if current_output:
@@ -994,17 +994,28 @@ def main():
                         patch_info["executed_plan"] = current_output.get("executed_plan")
                         patch_info["filtered_schema"] = current_output.get("filtered_schema")
 
-                    # Apply the patch
-                    response = query_database(
+                    # Apply the patch with streaming
+                    stream = query_database(
                         patch_info["user_question"],
                         patch_operation=patch_info["operation"],
                         executed_plan=patch_info["executed_plan"],
                         filtered_schema=patch_info["filtered_schema"],
                         thread_id=patch_info.get("thread_id"),
+                        stream_updates=True,
                     )
 
-                    # Update current_output for next iteration
-                    current_output = response["state"]
+                    # Process stream updates
+                    for update in stream:
+                        if update["type"] == "status":
+                            status.update(
+                                label=f"[{i}/{len(patches)}] {update['display_name']}...",
+                                state="running"
+                            )
+                        elif update["type"] == "complete":
+                            current_output = update["state"]
+
+                    if current_output is None:
+                        raise RuntimeError(f"Stream {i} completed but no final result was received")
 
                 # Use the final output
                 output = current_output
@@ -1020,9 +1031,13 @@ def main():
 
                 # Update status
                 if output.get("result") is None:
-                    status.update(label="No results found", state="error")
+                    status.update(label="⚠️ No results found", state="error", expanded=False)
                 else:
-                    status.update(label=f"All {len(patches)} modifications applied successfully!", state="complete")
+                    status.update(
+                        label=f"✅ All {len(patches)} modifications applied successfully!",
+                        state="complete",
+                        expanded=False
+                    )
 
                 # Clear the batch patches
                 st.session_state.pending_batch_patches = []
@@ -1031,7 +1046,7 @@ def main():
                 # This prevents duplicate rendering which causes duplicate key errors
 
             except Exception as e:
-                status.update(label=f"Error: {str(e)}", state="error")
+                status.update(label=f"❌ Error: {str(e)}", state="error", expanded=False)
                 st.error(f"An error occurred applying modifications: {str(e)}")
                 st.exception(e)
                 # Clear the batch patches even on error
@@ -1045,19 +1060,28 @@ def main():
         # Increment generation counter BEFORE processing to ensure fresh keys on next render
         st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
 
-        status = st.status("Applying modification...")
+        status = st.status("Applying modification...", expanded=True)
         try:
-            # Apply the patch by calling query_database with patch parameters
-            response = query_database(
+            # Apply the patch by calling query_database with streaming
+            stream = query_database(
                 patch_info["user_question"],
                 patch_operation=patch_info["operation"],
                 executed_plan=patch_info["executed_plan"],
                 filtered_schema=patch_info["filtered_schema"],
                 thread_id=patch_info.get("thread_id"),
+                stream_updates=True,
             )
 
-            # Extract state from response
-            output = response["state"]
+            output = None
+            # Process stream updates
+            for update in stream:
+                if update["type"] == "status":
+                    status.update(label=f"⏳ {update['display_name']}...", state="running")
+                elif update["type"] == "complete":
+                    output = update["state"]
+
+            if output is None:
+                raise RuntimeError("Stream completed but no final result was received")
 
             # Store in session state so it persists across reruns
             st.session_state.current_output = output
@@ -1070,15 +1094,15 @@ def main():
 
             # Update status
             if output.get("result") is None:
-                status.update(label="No results found", state="error")
+                status.update(label="⚠️ No results found", state="error", expanded=False)
             else:
-                status.update(label="Modification applied successfully!", state="complete")
+                status.update(label="✅ Modification applied successfully!", state="complete", expanded=False)
 
             # DON'T render here - let the normal display flow handle it at line 1193
             # This prevents duplicate rendering which causes duplicate key errors
 
         except Exception as e:
-            status.update(label=f"Error: {str(e)}", state="error")
+            status.update(label=f"❌ Error: {str(e)}", state="error", expanded=False)
             st.error(f"An error occurred applying modification: {str(e)}")
             st.exception(e)
 
@@ -1118,19 +1142,30 @@ def main():
             st.session_state.show_results = False
             st.session_state.current_dataframe = None
 
-            status = st.status("Querying database...")
+            status = st.status("Starting query workflow...", expanded=True)
             try:
-                # Call query_database (creates a new independent thread)
-                response = query_database(
+                # Call query_database with streaming enabled
+                stream = query_database(
                     user_question,
                     sort_order=sort_order,
                     result_limit=result_limit,
                     time_filter=time_filter,
                     thread_id=None,  # Each query is independent
+                    stream_updates=True,
                 )
 
-                # Extract state from response
-                output = response["state"]
+                output = None
+                # Process stream updates
+                for update in stream:
+                    if update["type"] == "status":
+                        # Update status label with current workflow step
+                        status.update(label=f"⏳ {update['display_name']}...", state="running")
+                    elif update["type"] == "complete":
+                        # Final result received
+                        output = update["state"]
+
+                if output is None:
+                    raise RuntimeError("Stream completed but no final result was received")
 
                 # Store current output in session state so it persists across reruns
                 st.session_state.current_output = output
@@ -1144,21 +1179,22 @@ def main():
                 # Update status based on result
                 planner_output = output.get("planner_output", {})
                 if planner_output.get("decision") == "terminate":
-                    status.update(label="Query terminated", state="error")
+                    status.update(label="❌ Query terminated", state="error", expanded=False)
                 elif output.get("needs_clarification"):
                     status.update(
-                        label="Query executed (clarification suggested)",
+                        label="✅ Query executed (clarification suggested)",
                         state="complete",
+                        expanded=False,
                     )
                 elif not output.get("query"):
                     status.update(
-                        label=output.get("result", "Query error"), state="error"
+                        label=f"❌ {output.get('result', 'Query error')}", state="error", expanded=False
                     )
                 elif output.get("result") is None:
-                    status.update(label="No results found", state="error")
+                    status.update(label="⚠️ No results found", state="error", expanded=False)
                 else:
                     status.update(
-                        label="Query executed successfully!", state="complete"
+                        label="✅ Query executed successfully!", state="complete", expanded=False
                     )
 
                 # Render the results and store dataframe
@@ -1166,7 +1202,7 @@ def main():
                 st.session_state.current_dataframe = df
 
             except Exception as e:
-                status.update(label=f"Error: {str(e)}", state="error")
+                status.update(label=f"❌ Error: {str(e)}", state="error", expanded=False)
                 st.error(f"An error occurred: {str(e)}")
                 st.exception(e)
         else:
