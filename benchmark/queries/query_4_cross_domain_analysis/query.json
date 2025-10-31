@@ -1,0 +1,12 @@
+{
+  "query_id": "query_4_cross_domain_analysis",
+  "natural_language_query": "Show all computers that have USB devices connected and were scanned in the last 60 days, including company name, computer name, USB device details, and scan date",
+  "description": "Tests 4+ table joins (Company, Computers, USBDevices, Scan), temporal filtering (last 60 days), data fetching without aggregation",
+  "complexity": "semi-complex",
+  "expected_tables": ["tb_Company", "tb_SaasComputers", "tb_SaasComputerUSBDeviceDetails", "tb_SaasScan"],
+  "expected_joins": [
+    {"from": "tb_SaasComputers", "to": "tb_Company", "on": "CompanyID"},
+    {"from": "tb_SaasComputerUSBDeviceDetails", "to": "tb_SaasComputers", "on": "ComputerID"},
+    {"from": "tb_SaasScan", "to": "tb_SaasComputers", "on": "ScanID"}
+  ]
+}

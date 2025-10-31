@@ -1,0 +1,26 @@
+{
+  "model_name": "gpt-5",
+  "query_id": "query_5_application_risk",
+  "timestamp": "2025-10-31T16:06:58.437167",
+  "success": true,
+  "execution_time_seconds": 15.34,
+  "sql_generated": "SELECT\nTOP 5\n  *\nFROM [tb_SaasInstalledAppsTemp]\nJOIN [tb_SaasScan]\n  ON [tb_SaasInstalledAppsTemp].[ScanID] = [tb_SaasScan].[ID]\nORDER BY\n  [tb_SaasInstalledAppsTemp].[CVENames] DESC,\n  [tb_SaasInstalledAppsTemp].[ApplicationName] ASC",
+  "sql_correct": false,
+  "error_message": null,
+  "retry_count": 0,
+  "refinement_count": 0,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 234,
+    "total_tokens": 234
+  },
+  "quality_score": 36,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.00234,
+  "ground_truth_row_count": 0
+}

@@ -1,0 +1,26 @@
+{
+  "model_name": "qwen3-4b",
+  "query_id": "query_4_cross_domain_analysis",
+  "timestamp": "2025-10-31T16:46:12.652357",
+  "success": true,
+  "execution_time_seconds": 24.92,
+  "sql_generated": "SELECT\nTOP 500\n  *\nFROM [tb_SaasComputers]\nJOIN [tb_SaasScan]\n  ON [tb_SaasComputers].[ID] = [tb_SaasScan].[CompanyID]\nJOIN [tb_SaasComputerUSBDeviceDetails]\n  ON [tb_SaasScan].[ID] = [tb_SaasComputerUSBDeviceDetails].[ScanID]",
+  "sql_correct": false,
+  "error_message": null,
+  "retry_count": 0,
+  "refinement_count": 0,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 305,
+    "total_tokens": 305
+  },
+  "quality_score": 68,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.0,
+  "ground_truth_row_count": 0
+}

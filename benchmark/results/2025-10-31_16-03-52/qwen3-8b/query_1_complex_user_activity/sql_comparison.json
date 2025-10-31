@@ -1,0 +1,59 @@
+{
+  "ground_truth_sql": "SELECT TOP 20\n    u.[Email] AS UserEmail,\n    c.[Name] AS CompanyName,\n    ul.[CreatedOn] AS LoginDateTime,\n    ul.[UserIP] AS LoginIP,\n    ul.[UserName],\n    ul.[UserDevice],\n    ul.[UserLocation]\nFROM [tb_UserLoginInfo] ul\n    INNER JOIN [tb_Users] u ON ul.[UserID] = u.[ID]\n    INNER JOIN [tb_Company] c ON u.[CompanyID] = c.[ID]\nWHERE ul.[CreatedOn] >= DATEADD(DAY, -90, GETDATE())\nORDER BY ul.[CreatedOn] DESC\n",
+  "generated_sql": "SELECT\nTOP 20\n  *\nFROM [tb_UserLoginInfo]\nJOIN [tb_Users]\n  ON [tb_UserLoginInfo].[UserID] = [tb_Users].[ID]\nORDER BY\n  [tb_UserLoginInfo].[CreatedOn] DESC",
+  "comparison_results": {
+    "tables": {
+      "ground_truth": [
+        "TB_USERS",
+        "TB_COMPANY",
+        "TB_USERLOGININFO"
+      ],
+      "generated": [
+        "TB_USERS",
+        "TB_USERLOGININFO"
+      ],
+      "match": false,
+      "missing": [
+        "TB_COMPANY"
+      ],
+      "extra": []
+    },
+    "joins": {
+      "ground_truth_count": 2,
+      "generated_count": 1,
+      "match": false
+    },
+    "conditions": {
+      "ground_truth_count": 1,
+      "generated_count": 0,
+      "match": false
+    },
+    "aggregations": {
+      "ground_truth": [],
+      "generated": [],
+      "match": true
+    },
+    "group_by": {
+      "ground_truth": [],
+      "generated": [],
+      "match": true
+    },
+    "order_by": {
+      "ground_truth": [
+        {
+          "column": "ul.\"CreatedOn\"",
+          "direction": "DESC"
+        }
+      ],
+      "generated": [
+        {
+          "column": "\"tb_UserLoginInfo\".\"CreatedOn\"",
+          "direction": "DESC"
+        }
+      ],
+      "match": false
+    }
+  },
+  "quality_score": 63,
+  "differences_summary": "### SQL Comparison Summary\n\n**Tables X**\n- Missing: TB_COMPANY\n\n**Joins X**\n- Ground truth: 2 joins\n- Generated: 1 joins\n\n**Aggregations **\n"
+}

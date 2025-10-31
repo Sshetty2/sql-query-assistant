@@ -1,0 +1,12 @@
+{
+  "query_id": "query_5_application_risk",
+  "natural_language_query": "Identify the top 5 installed applications with the highest average CVE severity score, showing the application name, number of affected computers, total CVE count, and average CVSS score, ordered by severity",
+  "description": "Tests complex joins across applications, computers, CVE mappings, and CVEs; aggregations with AVG, COUNT DISTINCT; filtering; GROUP BY; ORDER BY with LIMIT",
+  "complexity": "semi-complex",
+  "expected_tables": ["tb_SaasMasterInstalledApps", "tb_SaasComputerInstalledApps", "tb_SaasComputerCVEMap", "tb_CVE"],
+  "expected_joins": [
+    {"from": "tb_SaasComputerInstalledApps", "to": "tb_SaasMasterInstalledApps", "on": "ApplicationName/Name"},
+    {"from": "tb_SaasComputerCVEMap", "to": "tb_SaasComputerInstalledApps", "on": "ComputerID/InstalledAppID"},
+    {"from": "tb_CVE", "to": "tb_SaasComputerCVEMap", "on": "CVEID"}
+  ]
+}

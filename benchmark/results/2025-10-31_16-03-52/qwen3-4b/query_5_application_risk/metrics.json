@@ -1,0 +1,25 @@
+{
+  "model_name": "qwen3-4b",
+  "query_id": "query_5_application_risk",
+  "timestamp": "2025-10-31T16:46:42.619106",
+  "success": false,
+  "execution_time_seconds": 89.61,
+  "sql_generated": "SELECT\nTOP 5\n  [tb_CVEConfiguration].[CVEConfigurationID],\n  [tb_CVE].[CVEID]\nFROM [tb_SaasMasterInstalledApps]\nJOIN [tb_CVEConfiguration]\n  ON [tb_SaasMasterInstalledApps].[CVEID] = [tb_CVEConfiguration].[CVEID]\nWHERE\n  [tb_SaasMasterInstalledApps].[CVEID] > 0\nORDER BY\n  [tb_SaasMasterInstalledApps].[Avg_CVSSScore] DESC",
+  "sql_correct": false,
+  "error_message": "Error executing query: ('42S22', '[42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name \\'CVEID\\'. (207) (SQLExecDirectW); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name \\'Avg_CVSSScore\\'. (207); [42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]The multi-part identifier \"tb_CVE.CVEID\" could not be bound. (4104)')",
+  "retry_count": 2,
+  "refinement_count": 1,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 289,
+    "total_tokens": 289
+  },
+  "quality_score": 0,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.0
+}

@@ -1,0 +1,26 @@
+{
+  "model_name": "gpt-4o",
+  "query_id": "query_4_cross_domain_analysis",
+  "timestamp": "2025-10-31T16:11:25.687611",
+  "success": true,
+  "execution_time_seconds": 39.82,
+  "sql_generated": "SELECT\n  *\nFROM [tb_SaasComputers]\nJOIN [tb_SaasScan]\n  ON [tb_SaasComputers].[ID] = [tb_SaasScan].[CompanyID]\nJOIN [tb_SaasComputerUSBDeviceDetails]\n  ON [tb_SaasComputers].[ID] = [tb_SaasComputerUSBDeviceDetails].[ComputerID]\nWHERE\n  (\n    [tb_SaasComputers].[Name] = '%'\n    AND [tb_SaasScan].[Schedule] >= CAST('2022-01-01' AS DATE)\n  )\n  AND [tb_SaasComputerUSBDeviceDetails].[ScanID] = 1\nORDER BY\n  [tb_SaasComputers].[Name] ASC",
+  "sql_correct": false,
+  "error_message": null,
+  "retry_count": 1,
+  "refinement_count": 1,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 385,
+    "total_tokens": 385
+  },
+  "quality_score": 83,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.00385,
+  "ground_truth_row_count": 0
+}

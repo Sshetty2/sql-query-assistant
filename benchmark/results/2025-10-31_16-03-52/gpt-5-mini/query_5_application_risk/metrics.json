@@ -1,0 +1,26 @@
+{
+  "model_name": "gpt-5-mini",
+  "query_id": "query_5_application_risk",
+  "timestamp": "2025-10-31T16:09:31.671877",
+  "success": true,
+  "execution_time_seconds": 48.4,
+  "sql_generated": "SELECT\n  *\nFROM [tb_SaasMasterInstalledApps]\nJOIN [tb_CVE]\n  ON [tb_SaasMasterInstalledApps].[CVEID] = [tb_CVE].[CVEID]\nJOIN [tb_CVEConfiguration]\n  ON [tb_SaasMasterInstalledApps].[CVEConfigurationID] = [tb_CVEConfiguration].[CVEConfigurationID]\nWHERE\n  (\n    (\n      (\n        (\n          [tb_SaasMasterInstalledApps].[ID] >= 0\n          AND [tb_SaasMasterInstalledApps].[Name] = NULL\n        )\n        AND [tb_CVE].[CVEID] = NULL\n      )\n      AND [tb_CVE].[CVSSScore] >= 0\n    )\n    AND [tb_CVEConfiguration].[CVEConfigurationID] = NULL\n  )\n  AND [tb_CVEConfiguration].[ConfigurationsName] = NULL\nORDER BY\n  [tb_SaasMasterInstalledApps].[ID] DESC",
+  "sql_correct": false,
+  "error_message": null,
+  "retry_count": 1,
+  "refinement_count": 1,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 289,
+    "total_tokens": 289
+  },
+  "quality_score": 68,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.000173,
+  "ground_truth_row_count": 0
+}

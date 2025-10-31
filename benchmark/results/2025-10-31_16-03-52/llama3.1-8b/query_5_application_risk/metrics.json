@@ -1,0 +1,26 @@
+{
+  "model_name": "llama3.1-8b",
+  "query_id": "query_5_application_risk",
+  "timestamp": "2025-10-31T16:28:21.870712",
+  "success": true,
+  "execution_time_seconds": 44.25,
+  "sql_generated": "SELECT\n  [tb_SaasMasterInstalledApps].[Name],\n  [tb_CVE].[CVEID],\n  [tb_CVE].[CVSSScore]\nFROM [tb_SaasMasterInstalledApps]\nJOIN [tb_CVE]\n  ON [tb_SaasMasterInstalledApps].[CVEID] = [tb_CVE].[CVEID]\nWHERE\n  [tb_SaasMasterInstalledApps].[CVEID] = NULL AND [tb_CVE].[CVSSScore] >= 0\nORDER BY\n  [tb_SaasMasterInstalledApps].[Name] ASC",
+  "sql_correct": false,
+  "error_message": null,
+  "retry_count": 1,
+  "refinement_count": 1,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 298,
+    "total_tokens": 298
+  },
+  "quality_score": 61,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.0,
+  "ground_truth_row_count": 0
+}

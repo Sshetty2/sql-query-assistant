@@ -1,0 +1,69 @@
+{
+  "ground_truth_sql": "SELECT TOP 100\n    c.[Name] AS CompanyName,\n    comp.[Name] AS ComputerName,\n    dd.[Name] AS DiskName,\n    dd.[SerialNumber],\n    CAST(dd.[Size] AS BIGINT) / (1024 * 1024 * 1024) AS DiskSizeGB,\n    s.[CreatedOn] AS ScanDate\nFROM [tb_SaasComputerDiskDriveDetails] dd\n    INNER JOIN [tb_SaasComputers] comp ON dd.[ComputerID] = comp.[ID]\n    INNER JOIN [tb_Company] c ON comp.[CompanyID] = c.[ID]\n    INNER JOIN [tb_SaasScan] s ON dd.[ScanID] = s.[ID]\nWHERE dd.[IsDeleted] = 0\n    AND comp.[IsDeleted] = 0\n    AND dd.[IsLatest] = 1\n    AND dd.[Size] IS NOT NULL\nORDER BY s.[CreatedOn] DESC, c.[Name], comp.[Name]\n",
+  "generated_sql": "SELECT\n  [tb_SaasComputers].[Name],\n  [tb_SaasComputers].[DiskSize],\n  [tb_Company].[Name] AS [CompanyName],\n  [tb_SaasScan].[ID],\n  [tb_SaasScan].[Schedule]\nFROM [tb_SaasComputers]\nJOIN [tb_Company]\n  ON [tb_SaasComputers].[CompanyID] = [tb_Company].[ID]\nJOIN [tb_SaasScan]\n  ON [tb_SaasComputers].[ScanID] = [tb_SaasScan].[ID]\nORDER BY\n  [tb_SaasScan].[Schedule] DESC",
+  "comparison_results": {
+    "tables": {
+      "ground_truth": [
+        "TB_SAASCOMPUTERDISKDRIVEDETAILS",
+        "TB_COMPANY",
+        "TB_SAASSCAN",
+        "TB_SAASCOMPUTERS"
+      ],
+      "generated": [
+        "TB_SAASSCAN",
+        "TB_COMPANY",
+        "TB_SAASCOMPUTERS"
+      ],
+      "match": false,
+      "missing": [
+        "TB_SAASCOMPUTERDISKDRIVEDETAILS"
+      ],
+      "extra": []
+    },
+    "joins": {
+      "ground_truth_count": 3,
+      "generated_count": 2,
+      "match": false
+    },
+    "conditions": {
+      "ground_truth_count": 1,
+      "generated_count": 0,
+      "match": false
+    },
+    "aggregations": {
+      "ground_truth": [],
+      "generated": [],
+      "match": true
+    },
+    "group_by": {
+      "ground_truth": [],
+      "generated": [],
+      "match": true
+    },
+    "order_by": {
+      "ground_truth": [
+        {
+          "column": "s.\"CreatedOn\"",
+          "direction": "DESC"
+        },
+        {
+          "column": "c.\"Name\"",
+          "direction": "ASC"
+        },
+        {
+          "column": "comp.\"Name\"",
+          "direction": "ASC"
+        }
+      ],
+      "generated": [
+        {
+          "column": "\"tb_SaasScan\".\"Schedule\"",
+          "direction": "DESC"
+        }
+      ],
+      "match": false
+    }
+  },
+  "quality_score": 68,
+  "differences_summary": "### SQL Comparison Summary\n\n**Tables X**\n- Missing: TB_SAASCOMPUTERDISKDRIVEDETAILS\n\n**Joins X**\n- Ground truth: 3 joins\n- Generated: 2 joins\n\n**Aggregations **\n"
+}

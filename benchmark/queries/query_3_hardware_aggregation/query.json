@@ -1,0 +1,12 @@
+{
+  "query_id": "query_3_hardware_inventory",
+  "natural_language_query": "List all computers along with their disk drive details, showing computer name, company name, disk name, serial number, and disk size, for the most recent scan",
+  "description": "Tests joins across companies, computers, and disk drives, filtering for latest scan data, and selecting relevant hardware details",
+  "complexity": "semi-complex",
+  "expected_tables": ["tb_Company", "tb_SaasComputers", "tb_SaasComputerDiskDriveDetails", "tb_SaasScan"],
+  "expected_joins": [
+    {"from": "tb_SaasComputers", "to": "tb_Company", "on": "CompanyID"},
+    {"from": "tb_SaasComputerDiskDriveDetails", "to": "tb_SaasComputers", "on": "ComputerID"},
+    {"from": "tb_SaasScan", "to": "tb_SaasComputers", "on": "ScanID"}
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "model_name": "llama3.1-8b",
+  "query_id": "query_3_hardware_inventory",
+  "timestamp": "2025-10-31T16:27:25.435523",
+  "success": true,
+  "execution_time_seconds": 20.85,
+  "sql_generated": "SELECT\n  [tb_SaasComputers].[Name],\n  [tb_SaasComputers].[DiskSize],\n  [tb_Company].[Name] AS [CompanyName],\n  [tb_SaasScan].[ID],\n  [tb_SaasScan].[Schedule]\nFROM [tb_SaasComputers]\nJOIN [tb_Company]\n  ON [tb_SaasComputers].[CompanyID] = [tb_Company].[ID]\nJOIN [tb_SaasScan]\n  ON [tb_SaasComputers].[ScanID] = [tb_SaasScan].[ID]\nORDER BY\n  [tb_SaasScan].[Schedule] DESC",
+  "sql_correct": false,
+  "error_message": null,
+  "retry_count": 0,
+  "refinement_count": 0,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 373,
+    "total_tokens": 373
+  },
+  "quality_score": 68,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.0,
+  "ground_truth_row_count": 54
+}

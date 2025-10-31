@@ -1,0 +1,26 @@
+{
+  "model_name": "llama3-8b",
+  "query_id": "query_3_hardware_inventory",
+  "timestamp": "2025-10-31T16:30:07.311202",
+  "success": true,
+  "execution_time_seconds": 21.55,
+  "sql_generated": "SELECT\nTOP 100\n  *\nFROM [tb_SaasComputers]\nJOIN [tb_Company]\n  ON [tb_SaasComputers].[CompanyID] = [tb_Company].[ID]\nJOIN [tb_SaasScan]\n  ON [tb_SaasComputers].[ScanID] = [tb_SaasScan].[ID]\nORDER BY\n  [tb_SaasScan].[Schedule] DESC",
+  "sql_correct": false,
+  "error_message": null,
+  "retry_count": 0,
+  "refinement_count": 0,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 299,
+    "total_tokens": 299
+  },
+  "quality_score": 68,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.0,
+  "ground_truth_row_count": 54
+}

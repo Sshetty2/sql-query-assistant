@@ -1,0 +1,26 @@
+{
+  "model_name": "qwen3-8b",
+  "query_id": "query_5_application_risk",
+  "timestamp": "2025-10-31T16:43:59.068433",
+  "success": true,
+  "execution_time_seconds": 64.36,
+  "sql_generated": "SELECT\n  *\nFROM [tb_SaasMasterInstalledApps]\nJOIN [tb_CVE]\n  ON [tb_SaasMasterInstalledApps].[CVEID] = [tb_CVE].[CVEID]\nJOIN [tb_CVEConfiguration]\n  ON [tb_SaasMasterInstalledApps].[CVEConfigurationID] = [tb_CVEConfiguration].[CVEConfigurationID]\nORDER BY\n  [tb_CVE].[CVSSScore] DESC",
+  "sql_correct": false,
+  "error_message": null,
+  "retry_count": 2,
+  "refinement_count": 1,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 297,
+    "total_tokens": 297
+  },
+  "quality_score": 53,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.0,
+  "ground_truth_row_count": 0
+}

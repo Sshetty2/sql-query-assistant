@@ -1,0 +1,25 @@
+{
+  "model_name": "gpt-4o-mini",
+  "query_id": "query_4_cross_domain_analysis",
+  "timestamp": "2025-10-31T16:24:23.482036",
+  "success": false,
+  "execution_time_seconds": 48.09,
+  "sql_generated": "SELECT\n  *\nFROM [tb_SaasComputers]\nJOIN [tb_SaasScan]\n  ON [tb_SaasComputers].[ID] = [tb_SaasScan].[CompanyID]\nJOIN [tb_SaasComputerUSBDeviceDetails]\n  ON [tb_SaasComputers].[ID] = [tb_SaasComputerUSBDeviceDetails].[ComputerID]\nWHERE\n  [tb_SaasScan].[Schedule] >= 'DATEADD(DAY, -60, GETDATE())'\n  AND [tb_SaasComputerUSBDeviceDetails].[IsLatest] = 1",
+  "sql_correct": false,
+  "error_message": "Error executing query: ('22007', '[22007] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Conversion failed when converting date and/or time from character string. (241) (SQLExecDirectW)')",
+  "retry_count": 2,
+  "refinement_count": 1,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 309,
+    "total_tokens": 309
+  },
+  "quality_score": 0,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.000185
+}

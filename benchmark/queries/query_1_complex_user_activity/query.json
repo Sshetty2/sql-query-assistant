@@ -1,0 +1,11 @@
+{
+  "query_id": "query_1_complex_user_activity",
+  "natural_language_query": "Show me the last 20 user login records from the past 90 days, including user email, company name, login date, and IP address, ordered by most recent first",
+  "description": "Tests multi-table joins (Users, Company, UserLoginInfo), time-based filtering (last 90 days), ordering by date DESC, and LIMIT without aggregation",
+  "complexity": "semi-complex",
+  "expected_tables": ["tb_Users", "tb_Company", "tb_UserLoginInfo"],
+  "expected_joins": [
+    {"from": "tb_Users", "to": "tb_Company", "on": "CompanyID"},
+    {"from": "tb_UserLoginInfo", "to": "tb_Users", "on": "UserID"}
+  ]
+}

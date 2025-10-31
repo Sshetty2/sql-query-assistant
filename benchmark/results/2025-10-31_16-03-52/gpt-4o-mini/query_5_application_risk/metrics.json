@@ -1,0 +1,25 @@
+{
+  "model_name": "gpt-4o-mini",
+  "query_id": "query_5_application_risk",
+  "timestamp": "2025-10-31T16:25:16.615744",
+  "success": false,
+  "execution_time_seconds": 79.73,
+  "sql_generated": "SELECT\nTOP 5\n  [tb_CVE].[CVEID]\nFROM [tb_CVE]\nJOIN [tb_SaasMasterInstalledApps]\n  ON [tb_CVE].[CVEID] = [tb_SaasMasterInstalledApps].[CVEID]\nWHERE\n  [tb_CVE].[CVSSScore] > 5\nORDER BY\n  [tb_SaasMasterInstalledApps].[CVSSScore] DESC",
+  "sql_correct": false,
+  "error_message": "Error executing query: ('42S22', \"[42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'CVSSScore'. (207) (SQLExecDirectW)\")",
+  "retry_count": 2,
+  "refinement_count": 1,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 321,
+    "total_tokens": 321
+  },
+  "quality_score": 0,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.000193
+}

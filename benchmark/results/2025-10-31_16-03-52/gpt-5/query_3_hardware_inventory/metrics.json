@@ -1,0 +1,25 @@
+{
+  "model_name": "gpt-5",
+  "query_id": "query_3_hardware_inventory",
+  "timestamp": "2025-10-31T16:05:24.364137",
+  "success": false,
+  "execution_time_seconds": 52.9,
+  "sql_generated": "SELECT\n  [tb_SaasScan].[ID],\n  [tb_SaasScan].[CompanyID],\n  [tb_SaasComputers].[ScanName],\n  [tb_SaasComputers].[DiskSize]\nFROM [tb_SaasScan]\nJOIN [tb_SaasComputers]\n  ON [tb_SaasScan].[CompanyID] = [tb_SaasComputers].[CompanyID]",
+  "sql_correct": false,
+  "error_message": "Error executing query: ('42S22', \"[42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'ScanName'. (207) (SQLExecDirectW)\")",
+  "retry_count": 2,
+  "refinement_count": 1,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 301,
+    "total_tokens": 301
+  },
+  "quality_score": 0,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.00301
+}
