@@ -112,15 +112,15 @@ def is_sql_expression(column_value: str) -> bool:
 
     # Check for common SQL expression indicators
     sql_patterns = [
-        r'\(',  # Function calls or parentheses
-        r'\*',  # Multiplication
-        r'\+',  # Addition
-        r'-',   # Subtraction (but not in column names)
-        r'/',   # Division
-        r'COALESCE',  # COALESCE function
-        r'CASE',      # CASE expressions
-        r'CAST',      # CAST function
-        r'CONCAT',    # String concatenation
+        r"\(",  # Function calls or parentheses
+        r"\*",  # Multiplication
+        r"\+",  # Addition
+        r"-",  # Subtraction (but not in column names)
+        r"/",  # Division
+        r"COALESCE",  # COALESCE function
+        r"CASE",  # CASE expressions
+        r"CAST",  # CAST function
+        r"CONCAT",  # String concatenation
     ]
 
     for pattern in sql_patterns:
@@ -157,7 +157,9 @@ def parse_and_rewrite_expression(
                 # Replace table name with alias if it exists
                 if node.table:
                     # Get the table identifier string
-                    table_str = node.table if isinstance(node.table, str) else node.table.this
+                    table_str = (
+                        node.table if isinstance(node.table, str) else node.table.this
+                    )
                     if table_str in alias_map:
                         # Update to use the alias
                         node.set("table", exp.Identifier(this=alias_map[table_str]))
@@ -203,13 +205,19 @@ def build_aggregate_expression(
             return exp.Star()
         elif is_sql_expression(column):
             # Column contains a SQL expression - parse it
-            logger.info(f"[EXPRESSION DETECTED] Parsing complex expression in aggregate: {column}")
+            logger.info(
+                f"[EXPRESSION DETECTED] Parsing complex expression in aggregate: {column}"
+            )
             result = parse_and_rewrite_expression(column, alias_map, db_context)
-            logger.info(f"[EXPRESSION PARSED] Result: {result.sql(dialect=db_context.get('dialect', 'sqlite') if db_context else 'sqlite')}")  # noqa: E501
+            logger.info(
+                f"[EXPRESSION PARSED] Result: {result.sql(dialect=db_context.get('dialect', 'sqlite') if db_context else 'sqlite')}"  # noqa: E501
+            )  # noqa: E501
             return result
         else:
             # Simple column reference
-            logger.info(f"[SIMPLE COLUMN] Using simple column: {column} with table: {table_alias}")
+            logger.info(
+                f"[SIMPLE COLUMN] Using simple column: {column} with table: {table_alias}"
+            )
             return exp.Column(this=column, table=table_alias)
 
     # Build the aggregate expression
@@ -521,49 +529,49 @@ def infer_value_type(value) -> str:
     """
     # Handle None/NULL
     if value is None:
-        return 'null'
+        return "null"
 
     # Handle boolean values (Python bool)
     if isinstance(value, bool):
-        return 'boolean'
+        return "boolean"
 
     # Handle numeric values (int, float)
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return 'number'
+        return "number"
 
     # Handle string representations of common SQL types
     if isinstance(value, str):
         # Check for NULL string
-        if value.upper() == 'NULL':
-            return 'null'
+        if value.upper() == "NULL":
+            return "null"
 
         # Check for datetime format: YYYY-MM-DD HH:MM:SS (with optional microseconds)
         # Patterns: 2025-10-31 14:30:00 or 2025-10-31 14:30:00.123456
-        datetime_pattern = r'^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(\.\d+)?$'
+        datetime_pattern = r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(\.\d+)?$"
         if re.match(datetime_pattern, value):
-            return 'datetime'
+            return "datetime"
 
         # Check for date format: YYYY-MM-DD
-        date_pattern = r'^\d{4}-\d{2}-\d{2}$'
+        date_pattern = r"^\d{4}-\d{2}-\d{2}$"
         if re.match(date_pattern, value):
-            return 'date'
+            return "date"
 
         # Check for boolean strings (case-insensitive)
-        if value.lower() in ('true', 'false', '0', '1'):
+        if value.lower() in ("true", "false", "0", "1"):
             # If it's '0' or '1', treat as number for BIT compatibility
-            if value in ('0', '1'):
-                return 'number'
-            return 'boolean'
+            if value in ("0", "1"):
+                return "number"
+            return "boolean"
 
         # Try to parse as number
         try:
             float(value)
-            return 'number'
+            return "number"
         except (ValueError, TypeError):
             pass
 
     # Default to string
-    return 'string'
+    return "string"
 
 
 def create_typed_literal(value, db_context: Dict = None) -> exp.Expression:
@@ -582,25 +590,25 @@ def create_typed_literal(value, db_context: Dict = None) -> exp.Expression:
     """
     value_type = infer_value_type(value)
 
-    if value_type == 'null':
+    if value_type == "null":
         return exp.Null()
-    elif value_type == 'boolean':
+    elif value_type == "boolean":
         # Convert boolean to 1/0 for SQL Server BIT compatibility
         if isinstance(value, bool):
             return exp.Literal.number(1 if value else 0)
         elif isinstance(value, str):
             # Handle string booleans
-            if value.lower() == 'true':
+            if value.lower() == "true":
                 return exp.Literal.number(1)
-            elif value.lower() == 'false':
+            elif value.lower() == "false":
                 return exp.Literal.number(0)
         return exp.Literal.number(1 if value else 0)
-    elif value_type == 'number':
+    elif value_type == "number":
         # Handle numeric types
         if isinstance(value, str):
             # Parse string to appropriate numeric type
             try:
-                if '.' in value:
+                if "." in value:
                     return exp.Literal.number(float(value))
                 else:
                     return exp.Literal.number(int(value))
@@ -608,7 +616,7 @@ def create_typed_literal(value, db_context: Dict = None) -> exp.Expression:
                 # Fallback to string if parsing fails
                 return exp.Literal.string(str(value))
         return exp.Literal.number(value)
-    elif value_type == 'date':
+    elif value_type == "date":
         # ISO date format: YYYY-MM-DD
         # SQL Server: CAST('2025-10-31' AS DATE)
         # SQLite: '2025-10-31' (stores as text)
@@ -619,10 +627,9 @@ def create_typed_literal(value, db_context: Dict = None) -> exp.Expression:
         else:
             # SQL Server: CAST('2025-10-31' AS DATE)
             return exp.Cast(
-                this=exp.Literal.string(str(value)),
-                to=exp.DataType.build("DATE")
+                this=exp.Literal.string(str(value)), to=exp.DataType.build("DATE")
             )
-    elif value_type == 'datetime':
+    elif value_type == "datetime":
         # ISO datetime format: YYYY-MM-DD HH:MM:SS
         # SQL Server: CAST('2025-10-31 14:30:00' AS DATETIME)
         # SQLite: '2025-10-31 14:30:00' (stores as text)
@@ -633,8 +640,7 @@ def create_typed_literal(value, db_context: Dict = None) -> exp.Expression:
         else:
             # SQL Server: CAST('2025-10-31 14:30:00' AS DATETIME)
             return exp.Cast(
-                this=exp.Literal.string(str(value)),
-                to=exp.DataType.build("DATETIME")
+                this=exp.Literal.string(str(value)), to=exp.DataType.build("DATETIME")
             )
     else:
         # String type
@@ -735,11 +741,15 @@ def build_filter_expression(
     elif op == ">":
         return exp.GT(this=col_expr, expression=create_typed_literal(value, db_context))
     elif op == ">=":
-        return exp.GTE(this=col_expr, expression=create_typed_literal(value, db_context))
+        return exp.GTE(
+            this=col_expr, expression=create_typed_literal(value, db_context)
+        )
     elif op == "<":
         return exp.LT(this=col_expr, expression=create_typed_literal(value, db_context))
     elif op == "<=":
-        return exp.LTE(this=col_expr, expression=create_typed_literal(value, db_context))
+        return exp.LTE(
+            this=col_expr, expression=create_typed_literal(value, db_context)
+        )
     elif op == "between":
         if isinstance(value, list) and len(value) == 2:
             return exp.Between(
@@ -750,8 +760,14 @@ def build_filter_expression(
     elif op == "in":
         if isinstance(value, list):
             # Handle IN with NULL: col IN (0, NULL) needs to become (col = 0 OR col IS NULL)
-            has_null = any(v is None or (isinstance(v, str) and v.upper() == 'NULL') for v in value)
-            non_null_values = [v for v in value if v is not None and not (isinstance(v, str) and v.upper() == 'NULL')]
+            has_null = any(
+                v is None or (isinstance(v, str) and v.upper() == "NULL") for v in value
+            )
+            non_null_values = [
+                v
+                for v in value
+                if v is not None and not (isinstance(v, str) and v.upper() == "NULL")
+            ]
 
             if has_null and non_null_values:
                 # Mixed: (col IN (values) OR col IS NULL)
@@ -769,14 +785,22 @@ def build_filter_expression(
     elif op == "not_in":
         if isinstance(value, list):
             # Handle NOT IN with NULL: col NOT IN (0, NULL) needs special handling
-            has_null = any(v is None or (isinstance(v, str) and v.upper() == 'NULL') for v in value)
-            non_null_values = [v for v in value if v is not None and not (isinstance(v, str) and v.upper() == 'NULL')]
+            has_null = any(
+                v is None or (isinstance(v, str) and v.upper() == "NULL") for v in value
+            )
+            non_null_values = [
+                v
+                for v in value
+                if v is not None and not (isinstance(v, str) and v.upper() == "NULL")
+            ]
 
             if has_null and non_null_values:
                 # Mixed: (col NOT IN (values) AND col IS NOT NULL)
                 values = [create_typed_literal(v, db_context) for v in non_null_values]
                 not_in_expr = exp.Not(this=exp.In(this=col_expr, expressions=values))
-                not_null_expr = exp.Is(this=col_expr, expression=exp.Null(), inverse=True)
+                not_null_expr = exp.Is(
+                    this=col_expr, expression=exp.Null(), inverse=True
+                )
                 return exp.And(this=not_in_expr, expression=not_null_expr)
             elif has_null and not non_null_values:
                 # Only NULL: col IS NOT NULL
@@ -847,7 +871,9 @@ def build_subquery_filter_expression(
         # Build condition string for subquery
         # Note: This is in build_subquery_filter_expression which doesn't have db_context
         # For now, pass None (will use default behavior)
-        condition = format_filter_condition(sq_table, sq_column, sq_op, sq_value, db_context=None)
+        condition = format_filter_condition(
+            sq_table, sq_column, sq_op, sq_value, db_context=None
+        )
         subquery = subquery.where(condition)
 
     # Build the IN/NOT IN expression
@@ -1211,10 +1237,14 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             else:
                 # Check if column is an expression (no table prefix needed)
                 if column and is_sql_expression(column):
-                    logger.info(f"[STRING PATH] Detected expression in aggregate: {column}")
+                    logger.info(
+                        f"[STRING PATH] Detected expression in aggregate: {column}"
+                    )
                     select_cols.append(f"{function}({column}) AS {output_alias}")
                 else:
-                    select_cols.append(f"{function}({table}.{column}) AS {output_alias}")
+                    select_cols.append(
+                        f"{function}({table}.{column}) AS {output_alias}"
+                    )
     else:
         # Regular projection columns
         for table_selection in selections:
@@ -1356,7 +1386,9 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             op = filter_pred.get("op")
             value = filter_pred.get("value")
 
-            where_conditions.append(format_filter_condition(table, column, op, value, db_context=db_context))
+            where_conditions.append(
+                format_filter_condition(table, column, op, value, db_context=db_context)
+            )
 
     # Add global filters
     for filter_pred in global_filters:
@@ -1365,7 +1397,9 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         op = filter_pred.get("op")
         value = filter_pred.get("value")
 
-        where_conditions.append(format_filter_condition(table, column, op, value, db_context=db_context))
+        where_conditions.append(
+            format_filter_condition(table, column, op, value, db_context=db_context)
+        )
 
     # Add subquery filters
     for sq_filter in subquery_filters:
@@ -1384,7 +1418,9 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             sq_op = sq_f.get("op")
             sq_value = sq_f.get("value")
             subquery_where.append(
-                format_filter_condition(sq_table, sq_column, sq_op, sq_value, db_context=db_context)
+                format_filter_condition(
+                    sq_table, sq_column, sq_op, sq_value, db_context=db_context
+                )
             )
 
         subquery_str = f"SELECT {subquery_column} FROM {subquery_table}"
@@ -1442,7 +1478,9 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                 value = filter_pred.get("value")
 
                 having_conditions.append(
-                    format_filter_condition(table, column, op, value, aggregate_aliases, db_context)
+                    format_filter_condition(
+                        table, column, op, value, aggregate_aliases, db_context
+                    )
                 )
 
             for condition in having_conditions:
@@ -1544,7 +1582,14 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
     return sql_str
 
 
-def format_filter_condition(table_alias: str, column: str, op: str, value, aggregate_aliases=None, db_context: Dict = None) -> str:
+def format_filter_condition(
+    table_alias: str,
+    column: str,
+    op: str,
+    value,
+    aggregate_aliases=None,
+    db_context: Dict = None,
+) -> str:
     """
     Format a filter condition as a SQL string with proper escaping.
 
@@ -1580,9 +1625,9 @@ def format_filter_condition(table_alias: str, column: str, op: str, value, aggre
         """Format a value with proper type handling, including dates."""
         value_type = infer_value_type(v)
 
-        if value_type == 'null':
-            return 'NULL'
-        elif value_type == 'date':
+        if value_type == "null":
+            return "NULL"
+        elif value_type == "date":
             # ISO date format: YYYY-MM-DD
             # SQL Server: CAST('2025-10-31' AS DATE)
             # SQLite: '2025-10-31' (stores as text)
@@ -1591,7 +1636,7 @@ def format_filter_condition(table_alias: str, column: str, op: str, value, aggre
                 return f"'{escape_string(v)}'"
             else:
                 return f"CAST('{escape_string(v)}' AS DATE)"
-        elif value_type == 'datetime':
+        elif value_type == "datetime":
             # ISO datetime format: YYYY-MM-DD HH:MM:SS
             # SQL Server: CAST('2025-10-31 14:30:00' AS DATETIME)
             # SQLite: '2025-10-31 14:30:00' (stores as text)
@@ -1600,11 +1645,11 @@ def format_filter_condition(table_alias: str, column: str, op: str, value, aggre
                 return f"'{escape_string(v)}'"
             else:
                 return f"CAST('{escape_string(v)}' AS DATETIME)"
-        elif value_type == 'number' or value_type == 'boolean':
+        elif value_type == "number" or value_type == "boolean":
             # Numeric and boolean values: no quotes
             if isinstance(v, bool):
-                return '1' if v else '0'
-            elif isinstance(v, str) and v in ('0', '1'):
+                return "1" if v else "0"
+            elif isinstance(v, str) and v in ("0", "1"):
                 return v  # Keep as-is
             elif isinstance(v, str):
                 try:
@@ -1638,8 +1683,14 @@ def format_filter_condition(table_alias: str, column: str, op: str, value, aggre
     elif op == "in":
         if isinstance(value, list):
             # Handle IN with NULL: col IN (0, NULL) needs to become (col = 0 OR col IS NULL)
-            has_null = any(v is None or (isinstance(v, str) and v.upper() == 'NULL') for v in value)
-            non_null_values = [v for v in value if v is not None and not (isinstance(v, str) and v.upper() == 'NULL')]
+            has_null = any(
+                v is None or (isinstance(v, str) and v.upper() == "NULL") for v in value
+            )
+            non_null_values = [
+                v
+                for v in value
+                if v is not None and not (isinstance(v, str) and v.upper() == "NULL")
+            ]
 
             if has_null and non_null_values:
                 # Mixed: (col IN (values) OR col IS NULL)
@@ -1655,8 +1706,14 @@ def format_filter_condition(table_alias: str, column: str, op: str, value, aggre
     elif op == "not_in":
         if isinstance(value, list):
             # Handle NOT IN with NULL: col NOT IN (0, NULL) needs special handling
-            has_null = any(v is None or (isinstance(v, str) and v.upper() == 'NULL') for v in value)
-            non_null_values = [v for v in value if v is not None and not (isinstance(v, str) and v.upper() == 'NULL')]
+            has_null = any(
+                v is None or (isinstance(v, str) and v.upper() == "NULL") for v in value
+            )
+            non_null_values = [
+                v
+                for v in value
+                if v is not None and not (isinstance(v, str) and v.upper() == "NULL")
+            ]
 
             if has_null and non_null_values:
                 # Mixed: (col NOT IN (values) AND col IS NOT NULL)
@@ -1765,10 +1822,11 @@ def generate_query(state: State):
 
         # Debug: Save generated SQL
         from utils.debug_utils import save_debug_file, append_to_debug_array
+
         save_debug_file(
             "generated_sql.json",
             {"sql": query, "dialect": db_context.get("dialect", "unknown")},
-            step_name="generate_query"
+            step_name="generate_query",
         )
 
         # Debug: Track SQL query in the queries array
@@ -1789,10 +1847,10 @@ def generate_query(state: State):
                 "sql": query,
                 "retry_count": retry_count,
                 "refined_count": refined_count,
-                "status": "generated"
+                "status": "generated",
             },
             step_name="generate_query",
-            array_key="queries"
+            array_key="queries",
         )
 
         logger.info(

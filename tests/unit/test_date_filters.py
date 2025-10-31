@@ -1,7 +1,11 @@
 """Tests for date filter handling in query generation."""
 
 import pytest
-from agent.generate_query import infer_value_type, create_typed_literal, format_filter_condition
+from agent.generate_query import (
+    infer_value_type,
+    create_typed_literal,
+    format_filter_condition,
+)
 from sqlglot import exp
 
 
@@ -117,33 +121,73 @@ class TestDateFilterConditions:
 
     def test_format_date_filter_sql_server(self):
         """Test date filter formatting for SQL Server."""
-        db_context_sql_server = {"is_sqlite": False, "is_sql_server": True, "type": "SQL Server", "dialect": "tsql"}
+        db_context_sql_server = {
+            "is_sqlite": False,
+            "is_sql_server": True,
+            "type": "SQL Server",
+            "dialect": "tsql",
+        }
 
-        condition = format_filter_condition("tb_Users", "CreatedOn", ">=", "2025-10-01", db_context=db_context_sql_server)
+        condition = format_filter_condition(
+            "tb_Users",
+            "CreatedOn",
+            ">=",
+            "2025-10-01",
+            db_context=db_context_sql_server,
+        )
         assert "tb_Users.CreatedOn >= CAST('2025-10-01' AS DATE)" in condition
 
     def test_format_datetime_filter_sql_server(self):
         """Test datetime filter formatting for SQL Server."""
-        db_context_sql_server = {"is_sqlite": False, "is_sql_server": True, "type": "SQL Server", "dialect": "tsql"}
+        db_context_sql_server = {
+            "is_sqlite": False,
+            "is_sql_server": True,
+            "type": "SQL Server",
+            "dialect": "tsql",
+        }
 
-        condition = format_filter_condition("tb_Logins", "LoginDate", ">", "2025-10-31 14:30:00", db_context=db_context_sql_server)
-        assert "tb_Logins.LoginDate > CAST('2025-10-31 14:30:00' AS DATETIME)" in condition
+        condition = format_filter_condition(
+            "tb_Logins",
+            "LoginDate",
+            ">",
+            "2025-10-31 14:30:00",
+            db_context=db_context_sql_server,
+        )
+        assert (
+            "tb_Logins.LoginDate > CAST('2025-10-31 14:30:00' AS DATETIME)" in condition
+        )
 
     def test_format_date_filter_sqlite(self):
         """Test date filter formatting for SQLite."""
-        db_context_sqlite = {"is_sqlite": True, "is_sql_server": False, "type": "SQLite", "dialect": "sqlite"}
+        db_context_sqlite = {
+            "is_sqlite": True,
+            "is_sql_server": False,
+            "type": "SQLite",
+            "dialect": "sqlite",
+        }
 
-        condition = format_filter_condition("users", "created_on", ">=", "2025-10-01", db_context=db_context_sqlite)
+        condition = format_filter_condition(
+            "users", "created_on", ">=", "2025-10-01", db_context=db_context_sqlite
+        )
         assert "users.created_on >= '2025-10-01'" in condition
         # SQLite doesn't use CAST
         assert "CAST" not in condition
 
     def test_format_date_between_filter(self):
         """Test BETWEEN filter with dates."""
-        db_context_sql_server = {"is_sqlite": False, "is_sql_server": True, "type": "SQL Server", "dialect": "tsql"}
+        db_context_sql_server = {
+            "is_sqlite": False,
+            "is_sql_server": True,
+            "type": "SQL Server",
+            "dialect": "tsql",
+        }
 
         condition = format_filter_condition(
-            "tb_Events", "EventDate", "between", ["2025-10-01", "2025-10-31"], db_context=db_context_sql_server
+            "tb_Events",
+            "EventDate",
+            "between",
+            ["2025-10-01", "2025-10-31"],
+            db_context=db_context_sql_server,
         )
         assert "tb_Events.EventDate BETWEEN" in condition
         assert "CAST('2025-10-01' AS DATE)" in condition
@@ -156,7 +200,6 @@ class TestDateFilterIntegration:
     def test_date_filter_in_planner_output(self):
         """Test that a planner output with date filters generates correct SQL."""
         from agent.generate_query import build_sql_query
-        from agent.state import State
 
         # Create a minimal planner output with date filter
         planner_output = {
@@ -168,22 +211,32 @@ class TestDateFilterIntegration:
                     "alias": None,
                     "confidence": 0.9,
                     "columns": [
-                        {"table": "tb_Logins", "column": "LoginDate", "role": "projection", "value_type": "date"},
-                        {"table": "tb_Logins", "column": "UserName", "role": "projection", "value_type": "string"}
+                        {
+                            "table": "tb_Logins",
+                            "column": "LoginDate",
+                            "role": "projection",
+                            "value_type": "date",
+                        },
+                        {
+                            "table": "tb_Logins",
+                            "column": "UserName",
+                            "role": "projection",
+                            "value_type": "string",
+                        },
                     ],
                     "filters": [
                         {
                             "table": "tb_Logins",
                             "column": "LoginDate",
                             "op": ">=",
-                            "value": "2025-10-01"
+                            "value": "2025-10-01",
                         }
-                    ]
+                    ],
                 }
             ],
             "global_filters": [],
             "join_edges": [],
-            "ambiguities": []
+            "ambiguities": [],
         }
 
         # Create minimal state
@@ -191,11 +244,16 @@ class TestDateFilterIntegration:
             "user_question": "Show me logins from the last 30 days",
             "sort_order": "Default",
             "result_limit": 0,
-            "time_filter": "All Time"
+            "time_filter": "All Time",
         }
 
         # Build SQL (using SQLite for simpler testing)
-        db_context = {"is_sqlite": True, "is_sql_server": False, "type": "SQLite", "dialect": "sqlite"}
+        db_context = {
+            "is_sqlite": True,
+            "is_sql_server": False,
+            "type": "SQLite",
+            "dialect": "sqlite",
+        }
         sql = build_sql_query(planner_output, state, db_context)
 
         # Check that date filter is present (may have escaped quotes in SQL)

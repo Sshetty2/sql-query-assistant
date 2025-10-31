@@ -120,12 +120,24 @@ The same table appears multiple times in the query without proper distinction.
 
     prompt = dedent(
         f"""
-        # Query Plan Error Correction
+        # Error Correction Assistant
 
-        ## We are trying to correct a query plan that generated a failing SQL query.
+        We're building a SQL query assistant that converts natural language to SQL queries.
+        A query plan was created and converted to SQL, but **the SQL failed during execution**.
 
-        The query was generated deterministically from this plan, but the execution raised an error.
-        Your task is to correct the **plan** so that when regenerated, the query will succeed.
+        ## Your Role in the Pipeline
+
+        You're in the error recovery step. The pipeline works like this:
+
+        1. **Query Planning** (completed) - Created a structured plan
+        2. **SQL Generation** (completed) - Converted plan to SQL deterministically
+        3. **Execution** (failed) - SQL raised an error ❌
+        4. **Error Correction** (your step) - Fix the plan so SQL will succeed
+
+        ## What We Need From You
+
+        Analyze the error and create a **corrected plan**. When this plan is converted to SQL again,
+        it should execute successfully.
 
         ## Original Query Plan
 

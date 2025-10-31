@@ -82,7 +82,18 @@ def check_clarification(state: State) -> Dict[str, Any]:
     # Create prompt for generating suggestions
     prompt = dedent(
         f"""
-        # Query Clarification Assistance
+        # Clarification Assistant
+
+        We're building a SQL query assistant that converts natural language to SQL queries.
+        The query planner has identified ambiguities in the user's question.
+
+        ## Your Role in the Pipeline
+
+        You help resolve ambiguity before SQL generation:
+
+        1. **Query Planning** (completed) - Planner flagged the query as ambiguous
+        2. **Clarification** (your step) - Generate statements to help user clarify their intent
+        3. **Refined Planning** (next) - User selects clarifications to augment their query
 
         ## Original User Question
 
@@ -97,9 +108,9 @@ def check_clarification(state: State) -> Dict[str, Any]:
 
         ---
 
-        ## Task
+        ## What We Need From You
 
-        The planner identified potential ambiguities in the user's question.
+        Generate 3-5 declarative clarification statements to help the user refine their question.
 
         Generate 3-5 declarative clarification statements that:
         - Address the specific ambiguities mentioned

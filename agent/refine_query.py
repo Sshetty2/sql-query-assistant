@@ -99,12 +99,24 @@ def refine_query(state: State) -> Dict[str, Any]:
     # Create the prompt
     prompt = dedent(
         f"""
-        # Query Plan Refinement
+        # Query Refinement Assistant
 
-        ## We are trying to refine a query plan that generated a query returning no results.
+        We're building a SQL query assistant that converts natural language to SQL queries.
+        A query plan was created and executed successfully, but **returned zero results**.
 
-        The query was generated deterministically from this plan, but returned zero rows.
-        Your task is to refine the **plan** so that when regenerated, the query will return results.
+        ## Your Role in the Pipeline
+
+        You're in the refinement step. The pipeline works like this:
+
+        1. **Query Planning** (completed) - Created a structured plan
+        2. **SQL Generation** (completed) - Converted plan to SQL deterministically
+        3. **Execution** (completed) - SQL ran successfully but returned 0 rows
+        4. **Query Refinement** (your step) - Adjust the plan to get results
+
+        ## What We Need From You
+
+        Analyze why the query returned no results and create a **refined plan** that will return data.
+        The plan might be too restrictive - broaden filters, check joins, or verify table/column names.
 
         ## Original User Question
 

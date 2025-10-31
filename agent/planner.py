@@ -4,6 +4,7 @@ import os
 import json
 import re
 from datetime import datetime
+from textwrap import dedent
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from langchain_core.exceptions import OutputParserException
@@ -167,67 +168,82 @@ def load_domain_guidance():
 
 def _create_minimal_prompt(**format_params):
     """Create a minimal, concise prompt for small LLMs (8GB models)."""
-    system_instructions = """# CREATE A QUERY PLAN
+    system_instructions = dedent(
+        """
+        # Query Planning Assistant
 
-Analyze the user's question and database schema to create a structured query plan.
+        We're building a SQL query assistant that converts natural language questions into SQL queries.
+        Your job is to analyze the user's question and create a structured query plan that identifies
+        which tables, columns, joins, and filters are needed.
 
-**Current Date:** {current_date}
+        **Current Date:** {current_date}
 
-# RULES
+        ## What Happens Next
 
-### 1. Exact Names
-Use table/column names EXACTLY as shown in schema. Never invent names.
+        Your plan will be sent to a deterministic join synthesizer that converts it into SQL.
+        The synthesizer uses your exact specifications to build the query - so precision matters!
 
-### 2. Specify Joins
-If 2+ tables selected, add `join_edges` with columns:
-`{{"from_table": "X", "from_column": "XID", "to_table": "Y", "to_column": "ID"}}`
+        # RULES
 
-### 3. Include Lookup Tables
-When selecting foreign key columns (CompanyID, UserID, etc.):
-- Include the related table to get human-readable names
-- Add join edge to connect them
+        ### 1. Exact Names
+        Use table/column names EXACTLY as shown in schema. Never invent names.
 
-### 4. Join-Only Tables
-Tables needed only for connecting (not data): set `include_only_for_join = true`
+        ### 2. Specify Joins
+        If 2+ tables selected, add `join_edges` with columns:
+        ```json
+        {{"from_table": "X", "from_column": "XID", "to_table": "Y", "to_column": "ID"}}
+        ```
 
-### 5. Decision Field
-- **"proceed"**: You found relevant tables and created a plan → USE THIS
-- **"clarify"**: Query is answerable but has ambiguities (use `ambiguities` field to list questions)
-- **"terminate"**: Query is COMPLETELY impossible, zero relevant tables → RARE
+        ### 3. Include Lookup Tables
+        When selecting foreign key columns (CompanyID, UserID, etc.):
+        - Include the related table to get human-readable names
+        - Add join edge to connect them
 
-**CRITICAL**: If you wrote ANY `selections` or `join_edges`, you MUST use `decision="proceed"` or `decision="clarify"`, NOT "terminate".  # noqa: E501
+        ### 4. Join-Only Tables
+        Tables needed only for connecting (not data): set `include_only_for_join = true`
 
-### 6. ORDER BY and LIMIT
-For "last N", "top N", "first N" queries, use `order_by` and `limit`:
-- "Last 10 logins" → `order_by: [{{"table": "tb_Logins", "column": "LoginDate", "direction": "DESC"}}], limit: 10`
-- "Top 5 customers" → `order_by: [{{"table": "tb_Customers", "column": "Revenue", "direction": "DESC"}}], limit: 5`
-- "Last" / "Most recent" → DESC, "First" / "Oldest" → ASC
+        ### 5. Decision Field
+        - **"proceed"**: You found relevant tables and created a plan → USE THIS
+        - **"clarify"**: Query is answerable but has ambiguities (use `ambiguities` field to list questions)
+        - **"terminate"**: Query is COMPLETELY impossible, zero relevant tables → RARE
 
-### 7. Date Filters
-For relative date queries ("last 30 days", "past week"):
-- Use ISO format: `YYYY-MM-DD` (e.g., `2025-10-31`)
-- Calculate dates from current date shown above
-- Example: "last 30 days" → `{{"op": ">=", "value": "2025-10-01"}}` (30 days before {current_date})
-- For datetime columns, use `YYYY-MM-DD HH:MM:SS` format
+        **CRITICAL**: If you wrote ANY `selections` or `join_edges`, you MUST use `decision="proceed"` or `decision="clarify"`, NOT "terminate".
 
-# DOMAIN GUIDANCE
+        ### 6. ORDER BY and LIMIT
+        For "last N", "top N", "first N" queries, use `order_by` and `limit`:
+        - "Last 10 logins" → `order_by: [{{"table": "tb_Logins", "column": "LoginDate", "direction": "DESC"}}], limit: 10`
+        - "Top 5 customers" → `order_by: [{{"table": "tb_Customers", "column": "Revenue", "direction": "DESC"}}], limit: 5`
+        - "Last" / "Most recent" → DESC, "First" / "Oldest" → ASC
 
-{domain_guidance}
+        ### 7. Date Filters
+        For relative date queries ("last 30 days", "past week"):
+        - Use ISO format: `YYYY-MM-DD` (e.g., `2025-10-31`)
+        - Calculate dates from current date shown above
+        - Example: "last 30 days" → `{{"op": ">=", "value": "2025-10-01"}}` (30 days before {current_date})
+        - For datetime columns, use `YYYY-MM-DD HH:MM:SS` format
 
-# USER QUERY
+        # DOMAIN GUIDANCE
 
-"{user_query}"
+        {domain_guidance}
 
-# DATABASE SCHEMA
+        # USER QUERY
 
-{schema}
+        "{user_query}"
 
-# PARAMETERS
+        # DATABASE SCHEMA
 
-{parameters}
-"""
+        {schema}
 
-    return (system_instructions.format(**format_params), "")  # No separate user message for minimal
+        # PARAMETERS
+
+        {parameters}
+        """  # noqa: E501
+    ).strip()
+
+    return (
+        system_instructions.format(**format_params),
+        "",
+    )  # No separate user message for minimal
 
 
 def create_planner_prompt(mode: str = None, **format_params):
@@ -249,110 +265,142 @@ def create_planner_prompt(mode: str = None, **format_params):
     # For now, "standard" falls through to "full"
 
     if mode == "update":
-        system_instructions = """# SYSTEM INSTRUCTIONS
+        system_instructions = dedent(
+            """
+            # Query Plan Update Assistant
 
-## YOUR TASK
-**CREATE A REVISED QUERY EXECUTION PLAN FOR THE USER REQUEST SHOWN IN THE USER INPUT SECTION ABOVE.**
+            We're building a SQL query assistant. The user has asked for modifications to an existing query.
+            Your job is to **update the current query plan** with the requested changes.
 
-Read the user's latest request carefully, review the previous plan, and update it according to the routing instructions.
+            ## Your Role in the Pipeline
 
-## Objective
-Revise an existing SQL query execution plan based on user feedback.
+            You're receiving a conversational follow-up from the user (e.g., "add the email column" or "filter by status=active").
+            Update the existing plan incrementally - don't rebuild from scratch.
 
-## Context
-- A previous query plan exists
-- The user has requested modifications
-- UPDATE the existing plan incrementally, not from scratch
+            ## Objective
 
-## Task
-1. Review the previous plan and understand what was already decided
-2. Read the routing instructions carefully - they specify what needs to change
-3. Make ONLY the changes requested, preserving the rest of the plan
-4. Ensure the updated plan remains internally consistent
+            Revise an existing SQL query execution plan based on user feedback.
 
-## What to Preserve
-- Same tables unless instructions say otherwise
-- Existing joins unless they need modification
-- Existing columns unless specifically adding/removing
-- Overall query structure
+            ## Context
 
-## What to Update
-- Add/remove/modify filters as instructed
-- Add/remove columns as requested
-- Adjust joins if needed for new requirements
-- Update confidence if assumptions have changed
-"""
+            - A previous query plan exists
+            - The user has requested modifications
+            - UPDATE the existing plan incrementally, not from scratch
+
+            ## Task
+
+            1. Review the previous plan and understand what was already decided
+            2. Read the routing instructions carefully - they specify what needs to change
+            3. Make ONLY the changes requested, preserving the rest of the plan
+            4. Ensure the updated plan remains internally consistent
+
+            ## What to Preserve
+
+            - Same tables unless instructions say otherwise
+            - Existing joins unless they need modification
+            - Existing columns unless specifically adding/removing
+            - Overall query structure
+
+            ## What to Update
+
+            - Add/remove/modify filters as instructed
+            - Add/remove columns as requested
+            - Adjust joins if needed for new requirements
+            - Update confidence if assumptions have changed
+            """  # noqa: E501
+        ).strip()
 
     elif mode == "rewrite":
-        system_instructions = """# SYSTEM INSTRUCTIONS
+        system_instructions = dedent(
+            """
+            # Query Plan Rewrite Assistant
 
-## YOUR TASK
-**CREATE A NEW QUERY EXECUTION PLAN FOR THE USER REQUEST SHOWN IN THE USER INPUT SECTION ABOVE.**
+            We're building a SQL query assistant. The user has made a major change to their query.
+            Your job is to **create a completely new query plan** that addresses the updated request.
 
-Read the user's latest request carefully. This is a significant change from the previous query - create a fresh plan from scratch.
+            ## Your Role in the Pipeline
 
-## Objective
-Create a NEW SQL query execution plan based on an updated user request.
+            The user's new request is significantly different from their previous query (different intent, domain, or approach).
+            Create a fresh plan from scratch - but learn from the previous plan's assumptions/clarifications.
 
-## Context
-- The user had a previous query
-- Now wants something significantly different
-- Be aware of the previous plan for context
-- Create a FRESH plan from scratch that addresses the new request
+            ## Objective
 
-## Task
-1. Understand the new user request and routing instructions
-2. Review the previous plan to understand context (but don't be constrained by it)
-3. Analyze the full database schema
-4. Create a completely new plan optimized for the new request
+            Create a NEW SQL query execution plan based on an updated user request.
 
-## Considerations
-- This is a major change - different tables, different intent, or different domain
-- Start fresh but learn from previous assumptions/ambiguities
-- Use the full schema to make the best decisions
-- Don't force-fit the old plan structure onto the new request
-"""   # noqa: E501
+            ## Context
+
+            - The user had a previous query
+            - Now wants something significantly different
+            - Be aware of the previous plan for context
+            - Create a FRESH plan from scratch that addresses the new request
+
+            ## Task
+
+            1. Understand the new user request and routing instructions
+            2. Review the previous plan to understand context (but don't be constrained by it)
+            3. Analyze the full database schema
+            4. Create a completely new plan optimized for the new request
+
+            ## Considerations
+
+            - This is a major change - different tables, different intent, or different domain
+            - Start fresh but learn from previous assumptions/ambiguities
+            - Use the full schema to make the best decisions
+            - Don't force-fit the old plan structure onto the new request
+            """  # noqa: E501
+        ).strip()
 
     else:  # Initial mode (None)
-        system_instructions = """# SYSTEM INSTRUCTIONS
+        system_instructions = dedent(
+            """
+            # Query Planning Assistant
 
-## YOUR TASK
-**CREATE A QUERY EXECUTION PLAN FOR THE USER QUERY SHOWN IN THE USER INPUT SECTION ABOVE.**
+            We're building a SQL query assistant that converts natural language questions into SQL queries.
+            You're at a critical step in the pipeline: **translating the user's question into a structured query plan**.
 
-Read what the user asked for in their query. Analyze the database schema. Then create a structured plan that identifies which tables, columns, joins, and filters are needed to answer EXACTLY what the user asked for.
+            **Current Date:** {current_date}
 
-**Current Date:** {current_date}
+            ## The Pipeline
 
-## Objective
-Analyze a natural language query against a SQL database schema to create a query execution plan.
+            1. **Schema Filtering** (already done) - We've identified relevant tables/columns from the full database
+            2. **Query Planning** (your step) - You create a structured plan with tables, joins, and filters
+            3. **SQL Generation** (next step) - A deterministic synthesizer converts your plan to SQL
+            4. **Execution** - The SQL runs and returns results to the user
 
-## Pipeline Overview
-Multi-step SQL query generation system.
+            ## What We Need From You
 
-## Your Task
-1. Understand the user's intent from their natural language query
-2. Analyze the provided database schema (tables, columns, relationships)
-3. Create a structured plan that identifies:
-   - Which tables are relevant and why
-   - Which columns are needed (for display, filtering, grouping, or ordering)
-   - What filters/conditions should be applied
-   - How tables might be related (based on foreign keys and context)
-   - Any time-based constraints
-   - Ambiguities or assumptions being made
-"""   # noqa: E501
+            Create a structured query execution plan by:
+
+            1. **Understanding the user's intent** from their natural language query
+            2. **Analyzing the database schema** (tables, columns, foreign keys)
+            3. **Specifying exactly what's needed:**
+               - Which tables are required
+               - Which columns to display, filter, or aggregate
+               - How tables connect (join conditions)
+               - What filters/conditions to apply
+               - Any sorting or limits
+
+            ## Why This Matters
+
+            Your plan is a blueprint. The SQL generator follows it exactly - so precision is critical.
+            If you specify the wrong table or forget a join, the query will fail or return incorrect results.
+            """
+        ).strip()
 
     # Common continuation of system instructions
-    system_instructions += """
+    system_instructions += (
+        "\n"
+        + dedent(
+            """
+        ---
 
----
+        # DOMAIN-SPECIFIC GUIDANCE
 
-# DOMAIN-SPECIFIC GUIDANCE
+        {domain_guidance}
 
-{domain_guidance}
+        ---
 
----
-
-# ADVANCED SQL FEATURES
+        # ADVANCED SQL FEATURES
 
 ## When to Use Advanced Features
 Use these ONLY when the user query requires them. Most queries don't need advanced features.
@@ -699,71 +747,93 @@ Before responding, validate:
 - ✓ No columns appear from tables that aren't in `selections`
 - ✓ No invented table or column names
 - ✓ Output is valid PlannerOutput JSON and nothing else
-"""   # noqa: E501
+        """  # noqa: E501
+        ).strip()
+    )
 
     # User input varies by mode
     if mode == "update":
-        user_input = """
-# USER INPUT
+        user_input = dedent(
+            """
+            # USER INPUT
 
-## ⚠️ LATEST USER REQUEST (READ THIS FIRST!)
-**THE USER ASKED:** "{user_query}"
+            ## ⚠️ LATEST USER REQUEST (READ THIS FIRST!)
 
-👉 **YOUR JOB:** Update the existing plan below to answer this EXACT request. Follow the routing instructions.
+            **THE USER ASKED:** "{user_query}"
 
-## Previous Plan
-{previous_plan}
+            👉 **YOUR JOB:** Update the existing plan below to answer this EXACT request. Follow the routing instructions.
 
-## Routing Instructions
-{router_instructions}
+            ## Previous Plan
 
-## User Query History
-{conversation_history}
+            {previous_plan}
 
-## Query Parameters
-{parameters}
-"""
+            ## Routing Instructions
+
+            {router_instructions}
+
+            ## User Query History
+
+            {conversation_history}
+
+            ## Query Parameters
+
+            {parameters}
+            """  # noqa: E501
+        ).strip()
 
     elif mode == "rewrite":
-        user_input = """
-# USER INPUT
+        user_input = dedent(
+            """
+            # USER INPUT
 
-## Previous Plan (for context)
-{previous_plan}
+            ## Previous Plan (for context)
 
-## Routing Instructions
-{router_instructions}
+            {previous_plan}
 
-## User Query History
-{conversation_history}
+            ## Routing Instructions
 
-## ⚠️ LATEST USER REQUEST (READ THIS FIRST!)
-**THE USER ASKED:** "{user_query}"
+            {router_instructions}
 
-## Available Database Schema
-{schema_note}
-{schema}
+            ## User Query History
 
-## Query Parameters
-{parameters}
-"""
+            {conversation_history}
+
+            ## ⚠️ LATEST USER REQUEST (READ THIS FIRST!)
+
+            **THE USER ASKED:** "{user_query}"
+
+            ## Available Database Schema
+
+            {schema_note}
+            {schema}
+
+            ## Query Parameters
+
+            {parameters}
+            """
+        ).strip()
 
     else:  # Initial mode
-        user_input = """
-# USER INPUT
+        user_input = dedent(
+            """
+            # USER INPUT
 
-## ⚠️ USER QUERY (READ THIS FIRST!)
-**THE USER ASKED:** "{user_query}"
+            ## ⚠️ USER QUERY (READ THIS FIRST!)
 
-👉 **YOUR JOB:** Create a query execution plan to answer this EXACT question. Use the schema below to identify which tables and columns are needed.
+            **THE USER ASKED:** "{user_query}"
 
-## Available Database Schema
-{schema_note}
-{schema}
+            👉 **YOUR JOB:** Create a query execution plan to answer this EXACT question. Use the schema below to identify which tables and columns are needed.
 
-## Query Parameters
-{parameters}
-"""   # noqa: E501
+            ## Available Database Schema
+
+            {schema_note}
+            {schema}
+
+            ## Query Parameters
+
+            {parameters}
+            """  # noqa: E501
+        ).strip()
 
     # Format system and user messages separately
     formatted_system = system_instructions.format(**format_params)
@@ -900,9 +970,9 @@ def plan_query(state: State):
         is_truncated = state.get("truncated_schema") is not None
         is_filtered = state.get("filtered_schema") is not None
         if is_truncated:
-            schema_note = "**NOTE:** This is a filtered subset of the most relevant tables and columns from the full database schema, selected based on the user's query."   # noqa: E501
+            schema_note = "**NOTE:** This is a filtered subset of the most relevant tables and columns from the full database schema, selected based on the user's query."  # noqa: E501
         elif is_filtered:
-            schema_note = "**NOTE:** This is a filtered subset of the most relevant tables from the full database schema, selected based on the user's query."   # noqa: E501
+            schema_note = "**NOTE:** This is a filtered subset of the most relevant tables from the full database schema, selected based on the user's query."  # noqa: E501
         else:
             schema_note = ""
 
@@ -958,6 +1028,7 @@ def plan_query(state: State):
 
         # Debug: Save the prompt to a file
         from utils.debug_utils import save_debug_file
+
         save_debug_file(
             "planner_prompt.json",
             {
@@ -967,7 +1038,7 @@ def plan_query(state: State):
                 "format_params_keys": list(format_params.keys()),
             },
             step_name="planner",
-            include_timestamp=True
+            include_timestamp=True,
         )
 
         # Get structured LLM with appropriate model class based on complexity level
@@ -1009,7 +1080,10 @@ Please regenerate your response with this issue corrected.
                 # Get the plan with execution time tracking
                 logger.info(
                     "Invoking LLM for query planning",
-                    extra={"retry_attempt": retry_attempt + 1, "has_feedback": validation_feedback is not None}
+                    extra={
+                        "retry_attempt": retry_attempt + 1,
+                        "has_feedback": validation_feedback is not None,
+                    },
                 )
                 with log_execution_time(logger, "llm_planner_invocation"):
                     plan = structured_llm.invoke(current_messages)
@@ -1019,7 +1093,7 @@ Please regenerate your response with this issue corrected.
                     if retry_attempt > 0:
                         logger.info(
                             "Successfully parsed planner output after retry",
-                            extra={"retry_attempt": retry_attempt + 1}
+                            extra={"retry_attempt": retry_attempt + 1},
                         )
                     break
 
@@ -1043,6 +1117,7 @@ Please regenerate your response with this issue corrected.
 
                 # Save failed output to debug file
                 from utils.debug_utils import save_debug_file
+
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 save_debug_file(
                     f"failed_planner_output_attempt_{retry_attempt + 1}_{timestamp}.json",
@@ -1053,11 +1128,14 @@ Please regenerate your response with this issue corrected.
                         "user_query": user_query,
                     },
                     step_name="planner_errors",
-                    include_timestamp=False  # Already in filename
+                    include_timestamp=False,  # Already in filename
                 )
 
                 # Create validation feedback for next retry
-                if error_details["error_type"] in ["join_edges_invalid_tables", "join_edges_missing_selections"]:
+                if error_details["error_type"] in [
+                    "join_edges_invalid_tables",
+                    "join_edges_missing_selections",
+                ]:
                     missing_tables_str = ", ".join(error_details["missing_tables"])
                     validation_feedback = f"""
 The 'join_edges' field references tables that are NOT in the 'selections' array: {missing_tables_str}
@@ -1079,14 +1157,18 @@ REQUIRED FIX:
                             "total_attempts": MAX_PARSING_RETRIES,
                             "user_query": user_query,
                             "last_error": error_msg,
-                        }
+                        },
                     )
 
         # Check if we failed after all retries
         if plan is None:
-            error_message = "Unable to create a valid query plan after multiple attempts."
+            error_message = (
+                "Unable to create a valid query plan after multiple attempts."
+            )
             if last_parsing_error:
-                error_details = extract_validation_error_details(str(last_parsing_error))
+                error_details = extract_validation_error_details(
+                    str(last_parsing_error)
+                )
                 if error_details["missing_tables"]:
                     error_message += f" The system had issues with tables: {', '.join(error_details['missing_tables'])}."  # noqa: E501
 
@@ -1143,7 +1225,7 @@ REQUIRED FIX:
                 },
             },
             step_name="planner",
-            include_timestamp=True
+            include_timestamp=True,
         )
 
         # Check if clarification is needed based on planner decision

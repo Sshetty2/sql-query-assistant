@@ -2,6 +2,7 @@
 
 import os
 import json
+from textwrap import dedent
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
 from models.router_output import RouterOutput
@@ -23,15 +24,30 @@ def create_router_prompt(**format_params):
         Formatted prompt string with system instructions and user input
     """
 
-    system_instructions = """SYSTEM INSTRUCTIONS:
+    system_instructions = dedent(
+        """
+        # Conversational Router Assistant
 
-Analyze follow-up user requests in context of previous queries and decide how to handle them.
+        We're building a SQL query assistant that converts natural language to SQL queries.
+        The user is having a multi-turn conversation with previous queries and results.
 
-IMPORTANT SECURITY NOTE: You NEVER generate SQL directly. All SQL generation goes through
-the planner → join synthesizer pipeline to prevent SQL injection. Your job is to route the
-request and provide instructions to the planner.
+        ## Your Role in the Pipeline
 
-Decision Types - Choose one of two routing decisions:
+        You analyze follow-up requests and decide how to update the query. The pipeline works like this:
+
+        1. **Initial Query** (completed) - User asked a question, we generated SQL and showed results
+        2. **Follow-up Request** (current) - User wants to modify/extend the query
+        3. **Routing** (your step) - Decide if this is a minor update or major rewrite
+        4. **Query Planning** (next) - Planner uses your instructions to update/rewrite the plan
+
+        ## Security Note
+
+        You NEVER generate SQL directly. All SQL goes through the planner → join synthesizer pipeline
+        to prevent SQL injection. Your job is to route the request and provide instructions.
+
+        ## Decision Types
+
+        Choose one of two routing decisions:
 
 1. **update_plan**: Use when the user wants MINOR modifications to the existing query plan:
    - Adding/removing/modifying filters
@@ -105,24 +121,34 @@ Provide:
 - Your routing decision ("update_plan" or "rewrite_plan")
 - Clear reasoning for why you chose this decision
 - Specific routing instructions for the planner on what to change
-"""
+        """
+    ).strip()
 
-    user_input = """USER INPUT:
+    user_input = dedent(
+        """
+        # USER INPUT
 
-Conversation History:
-{conversation_history}
+        ## Conversation History
 
-Previous SQL Queries:
-{query_history}
+        {conversation_history}
 
-Previous Query Plans:
-{plan_history}
+        ## Previous SQL Queries
 
-Current Database Schema (filtered):
-{schema}
+        {query_history}
 
-Latest User Request:
-{latest_request}"""
+        ## Previous Query Plans
+
+        {plan_history}
+
+        ## Current Database Schema (filtered)
+
+        {schema}
+
+        ## Latest User Request
+
+        {latest_request}
+        """
+    ).strip()
 
     # Format and combine
     formatted_system = system_instructions
