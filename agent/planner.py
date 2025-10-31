@@ -2,8 +2,11 @@
 
 import os
 import json
+import re
+from datetime import datetime
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
+from langchain_core.exceptions import OutputParserException
 from models.planner_output import PlannerOutput
 from models.planner_output_minimal import PlannerOutputMinimal
 from models.planner_output_standard import PlannerOutputStandard
@@ -14,6 +17,49 @@ from agent.state import State
 
 load_dotenv()
 logger = get_logger()
+
+# Maximum number of retries for output parsing errors
+MAX_PARSING_RETRIES = 3
+
+
+def extract_validation_error_details(error_message: str) -> dict:
+    """
+    Extract structured validation error details from Pydantic validation error.
+
+    Args:
+        error_message: The error message from OutputParserException
+
+    Returns:
+        dict with extracted error details
+    """
+    error_info = {
+        "error_type": "unknown",
+        "missing_tables": [],
+        "problematic_field": None,
+        "raw_message": error_message,
+    }
+
+    # Extract validation error type and details
+    # Example: "join_edges reference tables not in selections: ['tb_Company']"
+    if "join_edges reference tables not" in error_message:
+        error_info["error_type"] = "join_edges_invalid_tables"
+        error_info["problematic_field"] = "join_edges"
+
+        # Extract missing tables using regex
+        match = re.search(r"\['([^']+)'(?:,\s*'([^']+)')*\]", error_message)
+        if match:
+            error_info["missing_tables"] = [g for g in match.groups() if g]
+
+    elif "join_edges reference tables not present in selections" in error_message:
+        error_info["error_type"] = "join_edges_missing_selections"
+        error_info["problematic_field"] = "join_edges"
+
+        # Extract missing tables
+        match = re.search(r"\['([^']+)'(?:,\s*'([^']+)')*\]", error_message)
+        if match:
+            error_info["missing_tables"] = [g for g in match.groups() if g]
+
+    return error_info
 
 
 # Planner complexity levels configuration
@@ -893,14 +939,119 @@ def plan_query(state: State):
             HumanMessage(content=user_content),
         ]
 
-        # Get the plan with execution time tracking
-        with log_execution_time(logger, "llm_planner_invocation"):
-            plan = structured_llm.invoke(messages)
+        # Retry loop for handling output parsing errors
+        plan = None
+        last_parsing_error = None
+        validation_feedback = None
 
+        for retry_attempt in range(MAX_PARSING_RETRIES):
+            try:
+                # Add validation feedback to messages if this is a retry
+                current_messages = messages.copy()
+                if validation_feedback and retry_attempt > 0:
+                    feedback_message = HumanMessage(
+                        content=f"""
+VALIDATION ERROR - Please fix the following issue in your response:
+
+{validation_feedback}
+
+IMPORTANT: Ensure that ALL tables referenced in join_edges are also included in the selections array.
+If you need to join to a table, you MUST add it to selections first.
+
+Please regenerate your response with this issue corrected.
+"""
+                    )
+                    current_messages.append(feedback_message)
+
+                # Get the plan with execution time tracking
+                logger.info(
+                    "Invoking LLM for query planning",
+                    extra={"retry_attempt": retry_attempt + 1, "has_feedback": validation_feedback is not None}
+                )
+                with log_execution_time(logger, "llm_planner_invocation"):
+                    plan = structured_llm.invoke(current_messages)
+
+                # Success - break out of retry loop
+                if plan is not None:
+                    if retry_attempt > 0:
+                        logger.info(
+                            "Successfully parsed planner output after retry",
+                            extra={"retry_attempt": retry_attempt + 1}
+                        )
+                    break
+
+            except OutputParserException as e:
+                last_parsing_error = e
+                error_msg = str(e)
+
+                # Extract validation error details
+                error_details = extract_validation_error_details(error_msg)
+
+                logger.warning(
+                    "Output parsing error - validation failed",
+                    extra={
+                        "retry_attempt": retry_attempt + 1,
+                        "max_retries": MAX_PARSING_RETRIES,
+                        "error_type": error_details["error_type"],
+                        "missing_tables": error_details["missing_tables"],
+                        "problematic_field": error_details["problematic_field"],
+                    },
+                )
+
+                # Save failed output to debug file
+                from utils.debug_utils import save_debug_file
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                save_debug_file(
+                    f"failed_planner_output_attempt_{retry_attempt + 1}_{timestamp}.json",
+                    {
+                        "attempt": retry_attempt + 1,
+                        "error_message": error_msg,
+                        "error_details": error_details,
+                        "user_query": user_query,
+                    },
+                    step_name="planner_errors",
+                    include_timestamp=False  # Already in filename
+                )
+
+                # Create validation feedback for next retry
+                if error_details["error_type"] in ["join_edges_invalid_tables", "join_edges_missing_selections"]:
+                    missing_tables_str = ", ".join(error_details["missing_tables"])
+                    validation_feedback = f"""
+The 'join_edges' field references tables that are NOT in the 'selections' array: {missing_tables_str}
+
+REQUIRED FIX:
+- Add these tables to the 'selections' array: {missing_tables_str}
+- OR remove the join_edges that reference these tables
+- Every table in a join_edge MUST also appear in selections
+"""
+                else:
+                    validation_feedback = f"Validation error: {error_msg}"
+
+                # If this was the last retry, we'll handle it after the loop
+                if retry_attempt == MAX_PARSING_RETRIES - 1:
+                    logger.error(
+                        "Failed to parse planner output after all retries",
+                        exc_info=True,
+                        extra={
+                            "total_attempts": MAX_PARSING_RETRIES,
+                            "user_query": user_query,
+                            "last_error": error_msg,
+                        }
+                    )
+
+        # Check if we failed after all retries
         if plan is None:
+            error_message = "Unable to create a valid query plan after multiple attempts."
+            if last_parsing_error:
+                error_details = extract_validation_error_details(str(last_parsing_error))
+                if error_details["missing_tables"]:
+                    error_message += f" The system had issues with tables: {', '.join(error_details['missing_tables'])}."
+
             return {
                 **state,
-                "messages": [AIMessage(content="Error creating query plan")],
+                "messages": [AIMessage(content=error_message)],
+                "planner_output": None,
+                "needs_clarification": False,
                 "last_step": "planner",
             }
 

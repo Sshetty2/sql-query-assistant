@@ -2,18 +2,47 @@
 
 import os
 import json
+from datetime import datetime
 from typing import Dict, Any
 from textwrap import dedent
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from agent.state import State
 from langchain_core.messages import AIMessage
+from langchain_core.exceptions import OutputParserException
 from models.planner_output import PlannerOutput
 from utils.llm_factory import get_structured_llm
 from utils.logger import get_logger, log_execution_time
 
 load_dotenv()
 logger = get_logger()
+
+# Maximum number of retries for output parsing errors
+MAX_REFINEMENT_RETRIES = 2
+
+
+def extract_validation_error_details(error_message: str) -> str:
+    """
+    Extract readable validation error details from Pydantic validation error.
+
+    Args:
+        error_message: The error message from OutputParserException
+
+    Returns:
+        Human-readable error description
+    """
+    import re
+
+    # Extract validation error type and details
+    if "join_edges reference tables not" in error_message:
+        # Extract missing tables using regex
+        match = re.search(r"\['([^']+)'(?:,\s*'([^']+)')*\]", error_message)
+        if match:
+            missing_tables = [g for g in match.groups() if g]
+            return f"Tables referenced in join_edges but not in selections: {', '.join(missing_tables)}"
+
+    # Generic fallback
+    return f"Validation error: {error_message[:200]}"
 
 
 class QueryRefinement(BaseModel):
@@ -154,30 +183,137 @@ def refine_query(state: State) -> Dict[str, Any]:
         QueryRefinement, model_name=os.getenv("AI_MODEL_REFINE"), temperature=0.6
     )
 
-    try:
-        with log_execution_time(logger, "llm_refine_plan_invocation"):
-            response = structured_llm.invoke(prompt)
+    # Retry loop for handling output parsing errors
+    response = None
+    last_parsing_error = None
+    validation_feedback = None
 
-        # Convert the refined plan to dict for state storage
-        refined_plan_dict = response.refined_plan.model_dump()
-    except Exception as e:
-        logger.error(
-            "Failed to parse refinement response from LLM",
-            exc_info=True,
-            extra={
-                "refined_count": refined_count,
-                "error": str(e)
+    for refinement_retry in range(MAX_REFINEMENT_RETRIES):
+        try:
+            # Add validation feedback if this is a retry
+            current_prompt = prompt
+            if validation_feedback and refinement_retry > 0:
+                current_prompt = f"""{prompt}
+
+IMPORTANT VALIDATION ERROR FROM PREVIOUS ATTEMPT:
+{validation_feedback}
+
+Please ensure your refined_plan field:
+1. Includes ALL tables referenced in join_edges in the selections array
+2. Uses correct column names from the schema
+3. Follows all validation rules
+4. Uses decision="proceed" or decision="clarify" (NEVER "terminate")
+
+Generate a corrected refined plan now.
+"""
+
+            logger.info(
+                "Invoking LLM for query refinement",
+                extra={"refinement_retry": refinement_retry + 1, "has_feedback": validation_feedback is not None}
+            )
+
+            with log_execution_time(logger, "llm_refine_plan_invocation"):
+                response = structured_llm.invoke(current_prompt)
+
+            # Success - break out of retry loop
+            if response is not None:
+                if refinement_retry > 0:
+                    logger.info(
+                        "Successfully parsed refinement after retry",
+                        extra={"refinement_retry": refinement_retry + 1}
+                    )
+                break
+
+        except OutputParserException as e:
+            last_parsing_error = e
+            error_msg = str(e)
+
+            # Extract validation error details
+            validation_summary = extract_validation_error_details(error_msg)
+
+            logger.warning(
+                "Refinement parsing failed",
+                extra={
+                    "refinement_retry": refinement_retry + 1,
+                    "max_retries": MAX_REFINEMENT_RETRIES,
+                    "validation_error": validation_summary,
+                    "refined_count": refined_count,
+                },
+            )
+
+            # Save failed output to debug file
+            from utils.debug_utils import save_debug_file
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_debug_file(
+                f"failed_refinement_attempt_{refinement_retry + 1}_{timestamp}.json",
+                {
+                    "attempt": refinement_retry + 1,
+                    "error_message": error_msg,
+                    "validation_summary": validation_summary,
+                    "original_query": original_query,
+                    "refined_count": refined_count,
+                },
+                step_name="refinement_errors",
+                include_timestamp=False  # Already in filename
+            )
+
+            # Create validation feedback for next retry
+            validation_feedback = f"""
+{validation_summary}
+
+CRITICAL: Every table in join_edges MUST also appear in selections.
+If you need to reference a table in a join, you MUST add it to the selections array first.
+"""
+
+            # If this was the last retry, we'll handle it after the loop
+            if refinement_retry == MAX_REFINEMENT_RETRIES - 1:
+                logger.error(
+                    "Failed to parse refinement after all retries",
+                    exc_info=True,
+                    extra={
+                        "total_attempts": MAX_REFINEMENT_RETRIES,
+                        "refined_count": refined_count,
+                        "last_error": error_msg,
+                    }
+                )
+
+        except Exception as e:
+            # Handle other unexpected errors
+            logger.error(
+                "Unexpected error during query refinement",
+                exc_info=True,
+                extra={"refined_count": refined_count, "error": str(e)},
+            )
+            return {
+                **state,
+                "messages": [AIMessage(content=f"Unexpected error during refinement: {str(e)}")],
+                "last_step": "refine_query",
+                "refined_count": state["refined_count"] + 1,
+                "error_history": state.get("error_history", [])
+                + [f"Refinement unexpected error: {str(e)}"],
             }
-        )
-        # Return state with error message - this will trigger cleanup on next iteration
-        # since refined_count will exceed max attempts
+
+    # Check if we failed after all retries
+    if response is None:
+        error_msg = "Failed to refine query plan after multiple validation attempts."
+        if last_parsing_error:
+            validation_summary = extract_validation_error_details(str(last_parsing_error))
+            error_msg += f" Last error: {validation_summary}"
+
+        logger.error(error_msg, extra={"refined_count": refined_count})
+
+        # Return state with error message - this will trigger cleanup
         return {
             **state,
-            "messages": [AIMessage(content=f"Error refining query plan: {str(e)}")],
+            "messages": [AIMessage(content=error_msg)],
             "last_step": "refine_query",
             "refined_count": state["refined_count"] + 1,
-            "error_history": state.get("error_history", []) + [f"Refinement parsing error: {str(e)}"],
+            "error_history": state.get("error_history", [])
+            + [f"Refinement parsing failed: {validation_summary}"],
         }
+
+    # Convert the refined plan to dict for state storage
+    refined_plan_dict = response.refined_plan.model_dump()
 
     logger.info(
         "Plan refinement completed",

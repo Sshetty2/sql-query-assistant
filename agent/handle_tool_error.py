@@ -2,16 +2,45 @@
 
 import os
 import json
+from datetime import datetime
 from dotenv import load_dotenv
 from textwrap import dedent
 from pydantic import BaseModel, Field
 from langchain_core.messages import AIMessage
+from langchain_core.exceptions import OutputParserException
 from models.planner_output import PlannerOutput
 from utils.llm_factory import get_structured_llm
 from utils.logger import get_logger, log_execution_time
 
 load_dotenv()
 logger = get_logger()
+
+# Maximum number of retries for output parsing errors
+MAX_ERROR_CORRECTION_RETRIES = 2
+
+
+def extract_validation_error_details(error_message: str) -> str:
+    """
+    Extract readable validation error details from Pydantic validation error.
+
+    Args:
+        error_message: The error message from OutputParserException
+
+    Returns:
+        Human-readable error description
+    """
+    import re
+
+    # Extract validation error type and details
+    if "join_edges reference tables not" in error_message:
+        # Extract missing tables using regex
+        match = re.search(r"\['([^']+)'(?:,\s*'([^']+)')*\]", error_message)
+        if match:
+            missing_tables = [g for g in match.groups() if g]
+            return f"Tables referenced in join_edges but not in selections: {', '.join(missing_tables)}"
+
+    # Generic fallback
+    return f"Validation error: {error_message[:200]}"
 
 
 class ErrorCorrection(BaseModel):
@@ -197,28 +226,136 @@ The same table appears multiple times in the query without proper distinction.
         ErrorCorrection, model_name=os.getenv("AI_MODEL"), temperature=0.3
     )
 
-    try:
-        with log_execution_time(logger, "llm_plan_correction_invocation"):
-            response = structured_llm.invoke(prompt)
+    # Retry loop for handling output parsing errors
+    response = None
+    last_parsing_error = None
+    validation_feedback = None
 
-        # Convert the corrected plan to dict for state storage
-        corrected_plan_dict = response.corrected_plan.model_dump()
-    except Exception as e:
-        logger.error(
-            "Failed to parse error correction response from LLM",
-            exc_info=True,
-            extra={"retry_count": retry_count, "error": str(e)},
-        )
-        # Return state with error message - this will trigger cleanup on next iteration
-        # since retry_count will exceed max attempts
+    for correction_retry in range(MAX_ERROR_CORRECTION_RETRIES):
+        try:
+            # Add validation feedback if this is a retry
+            current_prompt = prompt
+            if validation_feedback and correction_retry > 0:
+                current_prompt = f"""{prompt}
+
+IMPORTANT VALIDATION ERROR FROM PREVIOUS ATTEMPT:
+{validation_feedback}
+
+Please ensure your corrected_plan field:
+1. Includes ALL tables referenced in join_edges in the selections array
+2. Uses correct column names from the schema
+3. Follows all validation rules
+
+Generate a corrected response now.
+"""
+
+            logger.info(
+                "Invoking LLM for error correction",
+                extra={"correction_retry": correction_retry + 1, "has_feedback": validation_feedback is not None}
+            )
+
+            with log_execution_time(logger, "llm_plan_correction_invocation"):
+                response = structured_llm.invoke(current_prompt)
+
+            # Success - break out of retry loop
+            if response is not None:
+                if correction_retry > 0:
+                    logger.info(
+                        "Successfully parsed error correction after retry",
+                        extra={"correction_retry": correction_retry + 1}
+                    )
+                break
+
+        except OutputParserException as e:
+            last_parsing_error = e
+            error_msg = str(e)
+
+            # Extract validation error details
+            validation_summary = extract_validation_error_details(error_msg)
+
+            logger.warning(
+                "Error correction parsing failed",
+                extra={
+                    "correction_retry": correction_retry + 1,
+                    "max_retries": MAX_ERROR_CORRECTION_RETRIES,
+                    "validation_error": validation_summary,
+                    "retry_count": retry_count,
+                },
+            )
+
+            # Save failed output to debug file
+            from utils.debug_utils import save_debug_file
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_debug_file(
+                f"failed_error_correction_attempt_{correction_retry + 1}_{timestamp}.json",
+                {
+                    "attempt": correction_retry + 1,
+                    "error_message": error_msg,
+                    "validation_summary": validation_summary,
+                    "original_error": error_message,
+                    "retry_count": retry_count,
+                },
+                step_name="error_correction_errors",
+                include_timestamp=False  # Already in filename
+            )
+
+            # Create validation feedback for next retry
+            validation_feedback = f"""
+{validation_summary}
+
+CRITICAL: Every table in join_edges MUST also appear in selections.
+If you need to reference a table in a join, you MUST add it to the selections array first.
+"""
+
+            # If this was the last retry, we'll handle it after the loop
+            if correction_retry == MAX_ERROR_CORRECTION_RETRIES - 1:
+                logger.error(
+                    "Failed to parse error correction after all retries",
+                    exc_info=True,
+                    extra={
+                        "total_attempts": MAX_ERROR_CORRECTION_RETRIES,
+                        "retry_count": retry_count,
+                        "last_error": error_msg,
+                    }
+                )
+
+        except Exception as e:
+            # Handle other unexpected errors
+            logger.error(
+                "Unexpected error during error correction",
+                exc_info=True,
+                extra={"retry_count": retry_count, "error": str(e)},
+            )
+            return {
+                **state,
+                "messages": [AIMessage(content=f"Unexpected error during correction: {str(e)}")],
+                "last_step": "handle_error",
+                "retry_count": state["retry_count"] + 1,
+                "error_history": state.get("error_history", [])
+                + [f"Correction unexpected error: {str(e)}"],
+            }
+
+    # Check if we failed after all retries
+    if response is None:
+        error_msg = "Failed to correct query plan after multiple validation attempts."
+        if last_parsing_error:
+            validation_summary = extract_validation_error_details(str(last_parsing_error))
+            error_msg += f" Last error: {validation_summary}"
+
+        logger.error(error_msg, extra={"retry_count": retry_count})
+
+        # Return state with error message - this will trigger cleanup
         return {
             **state,
-            "messages": [AIMessage(content=f"Error correcting query plan: {str(e)}")],
+            "messages": [AIMessage(content=error_msg)],
             "last_step": "handle_error",
             "retry_count": state["retry_count"] + 1,
             "error_history": state.get("error_history", [])
-            + [f"Correction parsing error: {str(e)}"],
+            + [f"Correction parsing failed: {validation_summary}"],
         }
+
+    # Convert the corrected plan to dict for state storage
+    corrected_plan_dict = response.corrected_plan.model_dump()
 
     logger.info(
         "Plan correction completed",

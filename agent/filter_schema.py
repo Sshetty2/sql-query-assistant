@@ -253,6 +253,34 @@ def filter_schema(state: State, vector_store=None):
         table.get("table_name", "Unknown") for table in candidate_tables
     ]
 
+    # Debug: Save the vector search results
+    try:
+        save_debug_file(
+            "vector_search_candidates.json",
+            {
+                "user_query": user_query,
+                "top_k": top_most_relevant_tables_vector,
+                "candidate_count": len(candidate_tables),
+                "candidate_tables": candidate_table_names,
+                "candidates_with_scores": [
+                    {
+                        "table_name": doc.metadata.get("table_name"),
+                        "description": doc.metadata.get("metadata", {}).get("description", ""),
+                        "page_content": (
+                            str(doc.page_content)[:200] + "..."
+                            if len(str(doc.page_content)) > 200
+                            else str(doc.page_content)
+                        ),
+                    }
+                    for doc in candidate_docs
+                ],
+            },
+            step_name="filter_schema_stage1_results",
+            include_timestamp=True,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save debug file for stage1 results: {e}")
+
     logger.info(
         "Stage 1 completed: Vector search candidates",
         extra={
@@ -579,6 +607,38 @@ def filter_schema(state: State, vector_store=None):
     final_table_names = [
         table.get("table_name", "Unknown") for table in filtered_schema_with_fks
     ]
+
+    truncated_table_names = [
+        table.get("table_name", "Unknown") for table in truncated_schema_with_fks
+    ]
+
+    # Determine which tables were added by FK expansion
+    llm_selected_names = {t.get("table_name") for t in llm_selected_tables_full}
+    fk_added_tables = [name for name in final_table_names if name not in llm_selected_names]
+
+    # Debug: Save the FK expansion results
+    try:
+        save_debug_file(
+            "fk_expansion_results.json",
+            {
+                "user_query": user_query,
+                "stage2_llm_selected": list(llm_selected_names),
+                "stage3_fk_added": fk_added_tables,
+                "final_filtered_schema": final_table_names,
+                "final_truncated_schema": truncated_table_names,
+                "filtered_schema_count": len(filtered_schema_with_fks),
+                "truncated_schema_count": len(truncated_schema_with_fks),
+                "tables_with_column_filtering": [
+                    table.get("table_name")
+                    for table in truncated_schema_with_fks
+                    if table.get("column_filtered")
+                ],
+            },
+            step_name="filter_schema_stage3_results",
+            include_timestamp=True,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save debug file for stage3 results: {e}")
 
     logger.info(
         "3-stage schema filtering completed",
