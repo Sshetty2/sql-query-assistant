@@ -1,0 +1,25 @@
+{
+  "model_name": "gpt-5-mini",
+  "query_id": "query_5_application_risk",
+  "timestamp": "2025-10-31T17:45:10.721069",
+  "success": false,
+  "execution_time_seconds": 49.87,
+  "sql_generated": "SELECT\nTOP 5\n  [tb_CVE].[CVEID]\nFROM [tb_SaasMasterInstalledApps]\nJOIN [tb_CVE]\n  ON [tb_SaasMasterInstalledApps].[CVEID] = [tb_CVE].[CVEID]\nWHERE\n  [tb_CVE].[CVEID] IN ('select distinct CVEID from tb_SaasMasterInstalledApps')\nORDER BY\n  [tb_SaasMasterInstalledApps].[average_severity] DESC",
+  "sql_correct": false,
+  "error_message": "Error executing query: ('42S22', \"[42S22] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid column name 'average_severity'. (207) (SQLExecDirectW)\")",
+  "retry_count": 2,
+  "refinement_count": 1,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 288,
+    "total_tokens": 288
+  },
+  "quality_score": 0,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.000173
+}

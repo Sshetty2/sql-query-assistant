@@ -1,0 +1,25 @@
+{
+  "model_name": "gpt-4o",
+  "query_id": "query_4_cross_domain_analysis",
+  "timestamp": "2025-10-31T17:47:16.424417",
+  "success": false,
+  "execution_time_seconds": 31.64,
+  "sql_generated": "",
+  "sql_correct": false,
+  "error_message": "Error creating query plan: 3 validation errors for PlannerOutputMinimal\ndecision\n  Field required [type=missing, input_value={'order_by': [{'table': '...: 'DESC'}], 'limit': 10}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing\nintent_summary\n  Field required [type=missing, input_value={'order_by': [{'table': '...: 'DESC'}], 'limit': 10}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing\nselections\n  Field required [type=missing, input_value={'order_by': [{'table': '...: 'DESC'}], 'limit': 10}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing",
+  "retry_count": 0,
+  "refinement_count": 0,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 427,
+    "total_tokens": 427
+  },
+  "quality_score": 0,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.00427
+}

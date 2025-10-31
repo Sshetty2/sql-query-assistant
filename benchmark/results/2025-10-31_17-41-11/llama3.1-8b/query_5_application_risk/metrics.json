@@ -1,0 +1,25 @@
+{
+  "model_name": "llama3.1-8b",
+  "query_id": "query_5_application_risk",
+  "timestamp": "2025-10-31T17:52:15.194927",
+  "success": false,
+  "execution_time_seconds": 19.57,
+  "sql_generated": "",
+  "sql_correct": false,
+  "error_message": "Error creating query plan: 7 validation errors for PlannerOutputMinimal\ndecision\n  Field required [type=missing, input_value={'from_table': 'tb_SaasMa...': 'CVEConfigurationID'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing\nintent_summary\n  Field required [type=missing, input_value={'from_table': 'tb_SaasMa...': 'CVEConfigurationID'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing\nselections\n  Field required [type=missing, input_value={'from_table': 'tb_SaasMa...': 'CVEConfigurationID'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing\nfrom_table\n  Extra inputs are not permitted [type=extra_forbidden, input_value='tb_SaasMasterInstalledApps', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden\nfrom_column\n  Extra inputs are not permitted [type=extra_forbidden, input_value='CVEConfigurationID', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden\nto_table\n  Extra inputs are not permitted [type=extra_forbidden, input_value='tb_CVEConfiguration', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden\nto_column\n  Extra inputs are not permitted [type=extra_forbidden, input_value='CVEConfigurationID', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/extra_forbidden",
+  "retry_count": 0,
+  "refinement_count": 0,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 283,
+    "total_tokens": 283
+  },
+  "quality_score": 0,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.0
+}

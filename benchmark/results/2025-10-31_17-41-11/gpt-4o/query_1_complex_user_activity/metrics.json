@@ -1,0 +1,26 @@
+{
+  "model_name": "gpt-4o",
+  "query_id": "query_1_complex_user_activity",
+  "timestamp": "2025-10-31T17:46:05.622331",
+  "success": true,
+  "execution_time_seconds": 13.25,
+  "sql_generated": "SELECT\n  *\nFROM [tb_UserLoginInfo]\nJOIN [tb_Company]\n  ON [tb_UserLoginInfo].[CompanyID] = [tb_Company].[ID]\nJOIN [tb_Users]\n  ON [tb_UserLoginInfo].[UserID] = [tb_Users].[ID]",
+  "sql_correct": false,
+  "error_message": null,
+  "retry_count": 0,
+  "refinement_count": 0,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 285,
+    "total_tokens": 285
+  },
+  "quality_score": 80,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.00285,
+  "ground_truth_row_count": 0
+}

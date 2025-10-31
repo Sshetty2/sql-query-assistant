@@ -1,0 +1,76 @@
+{
+  "ground_truth_sql": "SELECT TOP 5\n    master_app.[Name] AS ApplicationName,\n    COUNT(DISTINCT comp_app.[ComputerID]) AS AffectedComputerCount,\n    COUNT(DISTINCT cve.[CVEID]) AS TotalCVECount,\n    AVG(CAST(cve.[CVSSScore] AS FLOAT)) AS AvgCVSSScore\nFROM [tb_SaasMasterInstalledApps] master_app\n    INNER JOIN [tb_SaasComputerInstalledApps] comp_app\n        ON master_app.[Name] = comp_app.[Name]\n    INNER JOIN [tb_SaasComputerCVEMap] cve_map\n        ON comp_app.[ID] = cve_map.[InstalledAppID]\n    INNER JOIN [tb_CVE] cve\n        ON cve_map.[CVEID] = cve.[CVEID]\nWHERE master_app.[IsDeleted] = 0\n    AND comp_app.[IsDeleted] = 0\n    AND cve_map.[IsDeleted] = 0\n    AND cve.[IsDeleted] = 0\n    AND cve.[CVSSScore] IS NOT NULL\nGROUP BY master_app.[ID], master_app.[Name]\nHAVING COUNT(DISTINCT cve.[CVEID]) > 0\nORDER BY AvgCVSSScore DESC, TotalCVECount DESC\n",
+  "generated_sql": "SELECT\nTOP 500\n  [tb_CVEConfiguration].[ConfigurationsName],\n  [tb_CVEConfiguration].[NVD_Version],\n  [tb_SaasMasterInstalledApps].[Name],\n  [tb_SaasMasterInstalledApps].[Versions],\n  [tb_CVE].[CVEName],\n  [tb_CVE].[CVSSScore]\nFROM [tb_CVEConfiguration]\nJOIN [tb_SaasMasterInstalledApps]\n  ON [tb_CVEConfiguration].[CVEConfigurationID] = [tb_SaasMasterInstalledApps].[ID]\nJOIN [tb_CVE]\n  ON [tb_SaasMasterInstalledApps].[ID] = [tb_CVE].[CVEID]\nORDER BY\n  [tb_CVE].[CVSSScore] DESC",
+  "comparison_results": {
+    "tables": {
+      "ground_truth": [
+        "TB_SAASCOMPUTERCVEMAP",
+        "TB_SAASCOMPUTERINSTALLEDAPPS",
+        "TB_CVE",
+        "TB_SAASMASTERINSTALLEDAPPS"
+      ],
+      "generated": [
+        "TB_CVE",
+        "TB_SAASMASTERINSTALLEDAPPS",
+        "TB_CVECONFIGURATION"
+      ],
+      "match": false,
+      "missing": [
+        "TB_SAASCOMPUTERCVEMAP",
+        "TB_SAASCOMPUTERINSTALLEDAPPS"
+      ],
+      "extra": [
+        "TB_CVECONFIGURATION"
+      ]
+    },
+    "joins": {
+      "ground_truth_count": 3,
+      "generated_count": 2,
+      "match": false
+    },
+    "conditions": {
+      "ground_truth_count": 1,
+      "generated_count": 0,
+      "match": false
+    },
+    "aggregations": {
+      "ground_truth": [
+        "COUNT(DISTINCT comp_app.\"ComputerID\")",
+        "COUNT(DISTINCT cve.\"CVEID\")",
+        "AVG(CAST(cve.\"CVSSScore\" AS FLOAT))",
+        "COUNT(DISTINCT cve.\"CVEID\")"
+      ],
+      "generated": [],
+      "match": false
+    },
+    "group_by": {
+      "ground_truth": [
+        "master_app.\"ID\"",
+        "master_app.\"Name\""
+      ],
+      "generated": [],
+      "match": false
+    },
+    "order_by": {
+      "ground_truth": [
+        {
+          "column": "AvgCVSSScore",
+          "direction": "DESC"
+        },
+        {
+          "column": "TotalCVECount",
+          "direction": "DESC"
+        }
+      ],
+      "generated": [
+        {
+          "column": "\"tb_CVE\".\"CVSSScore\"",
+          "direction": "DESC"
+        }
+      ],
+      "match": false
+    }
+  },
+  "quality_score": 53,
+  "differences_summary": "### SQL Comparison Summary\n\n**Tables X**\n- Missing: TB_SAASCOMPUTERCVEMAP, TB_SAASCOMPUTERINSTALLEDAPPS\n- Extra: TB_CVECONFIGURATION\n\n**Joins X**\n- Ground truth: 3 joins\n- Generated: 2 joins\n\n**Aggregations X**\n- Ground truth: COUNT(DISTINCT comp_app.\"ComputerID\"), COUNT(DISTINCT cve.\"CVEID\"), AVG(CAST(cve.\"CVSSScore\" AS FLOAT)), COUNT(DISTINCT cve.\"CVEID\")\n"
+}

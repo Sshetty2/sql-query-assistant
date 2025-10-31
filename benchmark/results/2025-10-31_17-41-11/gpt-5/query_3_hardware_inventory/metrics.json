@@ -1,0 +1,26 @@
+{
+  "model_name": "gpt-5",
+  "query_id": "query_3_hardware_inventory",
+  "timestamp": "2025-10-31T17:42:46.144453",
+  "success": true,
+  "execution_time_seconds": 15.13,
+  "sql_generated": "SELECT\n  *\nFROM [tb_SaasComputers]\nJOIN [tb_SaasNetworkDomain]\n  ON [tb_SaasComputers].[ID] = [tb_SaasNetworkDomain].[ID]\nJOIN [tb_SaasScan]\n  ON [tb_SaasComputers].[ScanID] = [tb_SaasScan].[ID]\nJOIN [tb_SaasComputerOsDetails]\n  ON [tb_SaasScan].[ID] = [tb_SaasComputerOsDetails].[ScanID]",
+  "sql_correct": false,
+  "error_message": null,
+  "retry_count": 0,
+  "refinement_count": 0,
+  "tables_selected": [],
+  "columns_selected": [],
+  "joins_used": [],
+  "filters_applied": [],
+  "aggregations_used": [],
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 369,
+    "total_tokens": 369
+  },
+  "quality_score": 70,
+  "result_row_count": null,
+  "estimated_cost_usd": 0.00369,
+  "ground_truth_row_count": 54
+}

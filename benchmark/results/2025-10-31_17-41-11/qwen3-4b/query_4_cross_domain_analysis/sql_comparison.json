@@ -1,0 +1,64 @@
+{
+  "ground_truth_sql": "SELECT TOP 100\n    c.[Name] AS CompanyName,\n    comp.[Name] AS ComputerName,\n    usb.[Antecedent] AS USBDeviceAntecedent,\n    usb.[Dependent] AS USBDeviceDependent,\n    s.[CreatedOn] AS ScanDate,\n    s.[ScanName]\nFROM [tb_SaasComputerUSBDeviceDetails] usb\n    INNER JOIN [tb_SaasComputers] comp ON usb.[ComputerID] = comp.[ID]\n    INNER JOIN [tb_Company] c ON comp.[CompanyID] = c.[ID]\n    INNER JOIN [tb_SaasScan] s ON comp.[ScanID] = s.[ID]\nWHERE comp.[IsDeleted] = 0\n    AND usb.[IsDeleted] = 0\n    AND s.[CreatedOn] >= DATEADD(DAY, -60, GETDATE())\nORDER BY s.[CreatedOn] DESC, c.[Name], comp.[Name]\n",
+  "generated_sql": "SELECT\nTOP 500\n  *\nFROM [tb_SaasComputers]\nJOIN [tb_SaasScan]\n  ON [tb_SaasComputers].[ID] = [tb_SaasScan].[CompanyID]\nJOIN [tb_SaasComputerUSBDeviceDetails]\n  ON [tb_SaasScan].[ID] = [tb_SaasComputerUSBDeviceDetails].[ScanID]",
+  "comparison_results": {
+    "tables": {
+      "ground_truth": [
+        "TB_COMPANY",
+        "TB_SAASSCAN",
+        "TB_SAASCOMPUTERUSBDEVICEDETAILS",
+        "TB_SAASCOMPUTERS"
+      ],
+      "generated": [
+        "TB_SAASSCAN",
+        "TB_SAASCOMPUTERUSBDEVICEDETAILS",
+        "TB_SAASCOMPUTERS"
+      ],
+      "match": false,
+      "missing": [
+        "TB_COMPANY"
+      ],
+      "extra": []
+    },
+    "joins": {
+      "ground_truth_count": 3,
+      "generated_count": 2,
+      "match": false
+    },
+    "conditions": {
+      "ground_truth_count": 1,
+      "generated_count": 0,
+      "match": false
+    },
+    "aggregations": {
+      "ground_truth": [],
+      "generated": [],
+      "match": true
+    },
+    "group_by": {
+      "ground_truth": [],
+      "generated": [],
+      "match": true
+    },
+    "order_by": {
+      "ground_truth": [
+        {
+          "column": "s.\"CreatedOn\"",
+          "direction": "DESC"
+        },
+        {
+          "column": "c.\"Name\"",
+          "direction": "ASC"
+        },
+        {
+          "column": "comp.\"Name\"",
+          "direction": "ASC"
+        }
+      ],
+      "generated": [],
+      "match": false
+    }
+  },
+  "quality_score": 68,
+  "differences_summary": "### SQL Comparison Summary\n\n**Tables X**\n- Missing: TB_COMPANY\n\n**Joins X**\n- Ground truth: 3 joins\n- Generated: 2 joins\n\n**Aggregations **\n"
+}
