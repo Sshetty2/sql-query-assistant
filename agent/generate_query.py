@@ -515,6 +515,55 @@ def build_join_expressions(
     return joins
 
 
+def unquote_sql_functions(value):
+    """
+    Detect and unquote SQL functions that have been incorrectly wrapped in quotes.
+
+    LLMs sometimes wrap SQL function calls in quotes, treating them as strings
+    instead of expressions. For example:
+    - 'DATEADD(DAY, -60, GETDATE())' → DATEADD(DAY, -60, GETDATE())
+    - 'GETDATE()' → GETDATE()
+    - 'CAST(...)' → CAST(...)
+
+    This function detects these patterns and removes the outer quotes.
+
+    Args:
+        value: The value to check and potentially unquote
+
+    Returns:
+        Unquoted value if it was a quoted SQL function, otherwise original value
+    """
+    if not isinstance(value, str):
+        return value
+
+    # Pattern matches: 'FUNCTION_NAME(...)' with any content inside parentheses
+    # Examples:
+    #   'DATEADD(DAY, -60, GETDATE())' ✓
+    #   'GETDATE()' ✓
+    #   'CAST(x AS INT)' ✓
+    #   'normal string' ✗ (no parentheses)
+    #   '2025-10-31' ✗ (no parentheses)
+
+    # Check if value is quoted and contains a function call pattern
+    # Pattern: string starts with quote, has uppercase letters/underscore, has parentheses, ends with quote
+    # Note: \(.*\) allows empty parentheses or any content
+    function_pattern = r"^'([A-Z_][A-Z0-9_]*\s*\(.*\))'$"
+    match = re.match(function_pattern, value, re.IGNORECASE)
+
+    if match:
+        unquoted = match.group(1)
+        logger.info(
+            "Unquoting SQL function expression",
+            extra={
+                "original_value": value,
+                "unquoted_value": unquoted
+            }
+        )
+        return unquoted
+
+    return value
+
+
 def infer_value_type(value) -> str:
     """
     Infer the SQL type of a value for proper literal generation.
@@ -1604,6 +1653,10 @@ def format_filter_condition(
         aggregate_aliases: Set of aggregate alias names (for HAVING clauses)
         db_context: Optional database context for dialect-specific handling
     """
+    # Unquote SQL functions if value is a quoted function expression
+    # This fixes LLMs wrapping functions like 'DATEADD(...)' in quotes
+    value = unquote_sql_functions(value)
+
     # Check if column is an expression or aggregate alias (don't prefix with table)
     if is_sql_expression(column):
         # Complex expression - use as-is
@@ -1623,6 +1676,16 @@ def format_filter_condition(
 
     def format_value(v):
         """Format a value with proper type handling, including dates."""
+        # Unquote SQL functions before type inference
+        # This handles both single values and values in lists (IN, NOT IN, BETWEEN)
+        v = unquote_sql_functions(v)
+
+        # Check if value is a SQL expression (function call) after unquoting
+        # If it was unquoted, it's now a raw SQL expression that should be used as-is
+        if isinstance(v, str) and re.match(r'^[A-Z_][A-Z0-9_]*\s*\(.*\)$', v, re.IGNORECASE):
+            # This is a SQL function expression - return as-is without quoting
+            return v
+
         value_type = infer_value_type(v)
 
         if value_type == "null":

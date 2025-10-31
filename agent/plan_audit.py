@@ -335,6 +335,105 @@ def fix_having_filters(plan_dict: dict) -> dict:
     return plan_dict
 
 
+def validate_table_references(plan_dict: dict) -> list[str]:
+    """
+    Validate that all tables referenced in the plan are included in selections.
+
+    This detects cases where filters, order_by, aggregations, etc. reference
+    tables that aren't in the FROM clause, which causes SQL errors like:
+    "The multi-part identifier 'tb_Table.Column' could not be bound"
+
+    Args:
+        plan_dict: The planner output dictionary
+
+    Returns:
+        List of validation issues for missing table references
+    """
+    issues = []
+
+    # Get all selected tables
+    selected_tables = {sel.get("table") for sel in plan_dict.get("selections", [])}
+
+    # Track all tables referenced in various parts of the plan
+    referenced_tables = set()
+
+    # Check filters (both table-level and global)
+    for selection in plan_dict.get("selections", []):
+        for filter_pred in selection.get("filters", []):
+            table = filter_pred.get("table")
+            if table:
+                referenced_tables.add(table)
+
+    for filter_pred in plan_dict.get("global_filters", []):
+        table = filter_pred.get("table")
+        if table:
+            referenced_tables.add(table)
+
+    # Check ORDER BY
+    for order_by in plan_dict.get("order_by", []):
+        table = order_by.get("table")
+        if table:
+            referenced_tables.add(table)
+
+    # Check GROUP BY
+    group_by = plan_dict.get("group_by")
+    if group_by:
+        # Check group_by_columns
+        for col in group_by.get("group_by_columns", []):
+            table = col.get("table")
+            if table:
+                referenced_tables.add(table)
+
+        # Check aggregates
+        for agg in group_by.get("aggregates", []):
+            table = agg.get("table")
+            if table:
+                referenced_tables.add(table)
+
+        # Check HAVING filters
+        for having_filter in group_by.get("having_filters", []):
+            table = having_filter.get("table")
+            if table:
+                referenced_tables.add(table)
+
+    # Check window functions (if they exist in full planner output)
+    for window_func in plan_dict.get("window_functions", []):
+        table = window_func.get("table")
+        if table:
+            referenced_tables.add(table)
+
+    # Check subquery filters (if they exist)
+    for subquery_filter in plan_dict.get("subquery_filters", []):
+        outer_table = subquery_filter.get("outer_table")
+        subquery_table = subquery_filter.get("subquery_table")
+        if outer_table:
+            referenced_tables.add(outer_table)
+        if subquery_table:
+            referenced_tables.add(subquery_table)
+
+    # Find missing tables
+    missing_tables = referenced_tables - selected_tables
+
+    if missing_tables:
+        for table in sorted(missing_tables):
+            issues.append(
+                f"Table '{table}' is referenced in filters/order_by/aggregations "
+                f"but not included in selections. This will cause SQL error: "
+                f"'The multi-part identifier could not be bound'. "
+                f"Add '{table}' to selections or remove references to it."
+            )
+            logger.warning(
+                f"Missing table reference detected: {table}",
+                extra={
+                    "missing_table": table,
+                    "selected_tables": list(selected_tables),
+                    "referenced_tables": list(referenced_tables)
+                }
+            )
+
+    return issues
+
+
 def run_deterministic_checks(plan_dict: dict, schema: list[dict]) -> list[str]:
     """
     Run all deterministic validation checks.
@@ -349,6 +448,7 @@ def run_deterministic_checks(plan_dict: dict, schema: list[dict]) -> list[str]:
     issues.extend(validate_join_edges(plan_dict, schema))
     issues.extend(validate_filters(plan_dict, schema))
     issues.extend(validate_group_by(plan_dict, schema))
+    issues.extend(validate_table_references(plan_dict))  # New validation
 
     return issues
 

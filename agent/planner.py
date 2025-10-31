@@ -11,7 +11,7 @@ from langchain_core.exceptions import OutputParserException
 from models.planner_output import PlannerOutput
 from models.planner_output_minimal import PlannerOutputMinimal
 from models.planner_output_standard import PlannerOutputStandard
-from utils.llm_factory import get_structured_llm
+from utils.llm_factory import get_structured_llm, is_using_ollama
 from utils.logger import get_logger, log_execution_time
 
 from agent.state import State
@@ -21,6 +21,60 @@ logger = get_logger()
 
 # Maximum number of retries for output parsing errors
 MAX_PARSING_RETRIES = 3
+
+
+def auto_fix_join_edges(planner_output_dict: dict) -> dict:
+    """
+    Auto-add missing tables referenced in join_edges to selections.
+
+    This fixes the most common planner error where LLMs create join_edges
+    referencing tables not included in the selections array.
+
+    Args:
+        planner_output_dict: Raw planner output dictionary (before Pydantic validation)
+
+    Returns:
+        Fixed planner output dictionary with missing tables added to selections
+    """
+    # Get currently selected tables
+    selections = planner_output_dict.get("selections", [])
+    selected_tables = {sel.get("table") for sel in selections if sel.get("table")}
+
+    # Get all tables referenced in join_edges
+    join_tables = set()
+    for edge in planner_output_dict.get("join_edges", []):
+        if edge.get("from_table"):
+            join_tables.add(edge["from_table"])
+        if edge.get("to_table"):
+            join_tables.add(edge["to_table"])
+
+    # Find tables in joins but not in selections
+    missing_tables = join_tables - selected_tables
+
+    # Auto-add missing tables to selections
+    if missing_tables:
+        logger.info(
+            "Auto-fixing join_edges: Adding missing tables to selections",
+            extra={
+                "missing_tables": list(missing_tables),
+                "selected_tables": list(selected_tables),
+                "join_tables": list(join_tables)
+            }
+        )
+
+        for table in missing_tables:
+            # Add table to selections with lower confidence since it was auto-added
+            selections.append({
+                "table": table,
+                "confidence": 0.7,  # Lower confidence for auto-added tables
+                "columns": [],  # No specific columns needed
+                "include_only_for_join": True,  # Table added only for joining
+                "filters": []
+            })
+
+        planner_output_dict["selections"] = selections
+
+    return planner_output_dict
 
 
 def extract_validation_error_details(error_message: str) -> dict:
@@ -1041,11 +1095,10 @@ def plan_query(state: State):
             include_timestamp=True,
         )
 
-        # Get structured LLM with appropriate model class based on complexity level
+        # Get planner model class and base LLM (not structured yet)
         planner_model_class = get_planner_model_class()
-        structured_llm = get_structured_llm(
-            planner_model_class, model_name=os.getenv("AI_MODEL"), temperature=0.3
-        )
+        from utils.llm_factory import get_chat_llm
+        base_llm = get_chat_llm(model_name=os.getenv("AI_MODEL"), temperature=0.3)
 
         # Create proper message structure for chat models
         messages = [
@@ -1085,17 +1138,80 @@ Please regenerate your response with this issue corrected.
                         "has_feedback": validation_feedback is not None,
                     },
                 )
-                with log_execution_time(logger, "llm_planner_invocation"):
-                    plan = structured_llm.invoke(current_messages)
 
-                # Success - break out of retry loop
-                if plan is not None:
-                    if retry_attempt > 0:
-                        logger.info(
-                            "Successfully parsed planner output after retry",
-                            extra={"retry_attempt": retry_attempt + 1},
-                        )
-                    break
+                # Use structured output with auto-fix applied
+                # Make ONE LLM call, get JSON, apply auto-fix, then validate
+                with log_execution_time(logger, "llm_planner_invocation"):
+                    # Use structured output to get JSON
+                    structured_llm = base_llm.with_structured_output(
+                        planner_model_class,
+                        method="json_schema" if is_using_ollama() else None
+                    )
+
+                    # Try structured output with auto-fix fallback
+                    try:
+                        # Attempt to get structured output directly
+                        plan = structured_llm.invoke(current_messages)
+
+                        # Success
+                        if retry_attempt > 0:
+                            logger.info(
+                                "Successfully parsed planner output after retry",
+                                extra={"retry_attempt": retry_attempt + 1},
+                            )
+                        break
+
+                    except OutputParserException as parse_error:
+                        # Check if this is a join_edges validation error
+                        error_details = extract_validation_error_details(str(parse_error))
+
+                        if error_details["error_type"] in [
+                            "join_edges_invalid_tables",
+                            "join_edges_missing_selections"
+                        ]:
+                            # This is the type of error auto-fix can handle
+                            logger.info(
+                                "Detected join_edges validation error, attempting auto-fix",
+                                extra={
+                                    "error_type": error_details["error_type"],
+                                    "missing_tables": error_details["missing_tables"]
+                                }
+                            )
+
+                            # Get raw response to extract and fix JSON
+                            raw_response = base_llm.invoke(current_messages)
+
+                            # Parse JSON from response
+                            try:
+                                raw_json = json.loads(raw_response.content)
+                            except json.JSONDecodeError:
+                                # Try to extract from markdown code blocks
+                                import re
+                                json_match = re.search(
+                                    r'```json\s*(\{.*?\})\s*```',
+                                    raw_response.content,
+                                    re.DOTALL
+                                )
+                                if json_match:
+                                    raw_json = json.loads(json_match.group(1))
+                                else:
+                                    # Can't parse JSON, re-raise original error
+                                    raise parse_error
+
+                            # Apply auto-fix for join_edges
+                            fixed_json = auto_fix_join_edges(raw_json)
+
+                            # Validate with Pydantic
+                            plan = planner_model_class(**fixed_json)
+
+                            logger.info(
+                                "Successfully applied auto-fix and validated planner output",
+                                extra={"retry_attempt": retry_attempt + 1}
+                            )
+                            break
+                        else:
+                            # Different type of error, re-raise to handle in outer except
+                            raise
 
             except OutputParserException as e:
                 last_parsing_error = e
