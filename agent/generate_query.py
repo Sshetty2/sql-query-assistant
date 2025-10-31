@@ -511,13 +511,13 @@ def infer_value_type(value) -> str:
     """
     Infer the SQL type of a value for proper literal generation.
 
-    Returns: 'null', 'boolean', 'number', or 'string'
+    Returns: 'null', 'boolean', 'number', 'date', 'datetime', or 'string'
 
     Args:
         value: The value to infer type for
 
     Returns:
-        Type string: 'null', 'boolean', 'number', or 'string'
+        Type string: 'null', 'boolean', 'number', 'date', 'datetime', or 'string'
     """
     # Handle None/NULL
     if value is None:
@@ -537,6 +537,17 @@ def infer_value_type(value) -> str:
         if value.upper() == 'NULL':
             return 'null'
 
+        # Check for datetime format: YYYY-MM-DD HH:MM:SS (with optional microseconds)
+        # Patterns: 2025-10-31 14:30:00 or 2025-10-31 14:30:00.123456
+        datetime_pattern = r'^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(\.\d+)?$'
+        if re.match(datetime_pattern, value):
+            return 'datetime'
+
+        # Check for date format: YYYY-MM-DD
+        date_pattern = r'^\d{4}-\d{2}-\d{2}$'
+        if re.match(date_pattern, value):
+            return 'date'
+
         # Check for boolean strings (case-insensitive)
         if value.lower() in ('true', 'false', '0', '1'):
             # If it's '0' or '1', treat as number for BIT compatibility
@@ -555,14 +566,16 @@ def infer_value_type(value) -> str:
     return 'string'
 
 
-def create_typed_literal(value) -> exp.Expression:
+def create_typed_literal(value, db_context: Dict = None) -> exp.Expression:
     """
     Create a properly typed SQLGlot literal based on value type.
 
-    This ensures BIT columns get numeric 0/1, not string '0'/'1'.
+    This ensures BIT columns get numeric 0/1, not string '0'/'1', and
+    dates/datetimes get proper SQL date/datetime literals.
 
     Args:
         value: The value to convert to a literal
+        db_context: Optional database context for dialect-specific handling
 
     Returns:
         SQLGlot Literal expression with correct type
@@ -595,6 +608,34 @@ def create_typed_literal(value) -> exp.Expression:
                 # Fallback to string if parsing fails
                 return exp.Literal.string(str(value))
         return exp.Literal.number(value)
+    elif value_type == 'date':
+        # ISO date format: YYYY-MM-DD
+        # SQL Server: CAST('2025-10-31' AS DATE)
+        # SQLite: '2025-10-31' (stores as text)
+        is_sqlite = db_context and db_context.get("is_sqlite", False)
+        if is_sqlite:
+            # SQLite stores dates as text
+            return exp.Literal.string(str(value))
+        else:
+            # SQL Server: CAST('2025-10-31' AS DATE)
+            return exp.Cast(
+                this=exp.Literal.string(str(value)),
+                to=exp.DataType.build("DATE")
+            )
+    elif value_type == 'datetime':
+        # ISO datetime format: YYYY-MM-DD HH:MM:SS
+        # SQL Server: CAST('2025-10-31 14:30:00' AS DATETIME)
+        # SQLite: '2025-10-31 14:30:00' (stores as text)
+        is_sqlite = db_context and db_context.get("is_sqlite", False)
+        if is_sqlite:
+            # SQLite stores datetimes as text
+            return exp.Literal.string(str(value))
+        else:
+            # SQL Server: CAST('2025-10-31 14:30:00' AS DATETIME)
+            return exp.Cast(
+                this=exp.Literal.string(str(value)),
+                to=exp.DataType.build("DATETIME")
+            )
     else:
         # String type
         return exp.Literal.string(str(value))
@@ -682,29 +723,29 @@ def build_filter_expression(
         if is_column_reference(value):
             value_expr = parse_column_reference(value, alias_map)
         else:
-            value_expr = create_typed_literal(value)
+            value_expr = create_typed_literal(value, db_context)
         return exp.EQ(this=col_expr, expression=value_expr)
     elif op == "!=":
         # Check if value is a column reference instead of a literal
         if is_column_reference(value):
             value_expr = parse_column_reference(value, alias_map)
         else:
-            value_expr = create_typed_literal(value)
+            value_expr = create_typed_literal(value, db_context)
         return exp.NEQ(this=col_expr, expression=value_expr)
     elif op == ">":
-        return exp.GT(this=col_expr, expression=exp.Literal.number(value))
+        return exp.GT(this=col_expr, expression=create_typed_literal(value, db_context))
     elif op == ">=":
-        return exp.GTE(this=col_expr, expression=exp.Literal.number(value))
+        return exp.GTE(this=col_expr, expression=create_typed_literal(value, db_context))
     elif op == "<":
-        return exp.LT(this=col_expr, expression=exp.Literal.number(value))
+        return exp.LT(this=col_expr, expression=create_typed_literal(value, db_context))
     elif op == "<=":
-        return exp.LTE(this=col_expr, expression=exp.Literal.number(value))
+        return exp.LTE(this=col_expr, expression=create_typed_literal(value, db_context))
     elif op == "between":
         if isinstance(value, list) and len(value) == 2:
             return exp.Between(
                 this=col_expr,
-                low=exp.Literal.number(value[0]),
-                high=exp.Literal.number(value[1]),
+                low=create_typed_literal(value[0], db_context),
+                high=create_typed_literal(value[1], db_context),
             )
     elif op == "in":
         if isinstance(value, list):
@@ -714,7 +755,7 @@ def build_filter_expression(
 
             if has_null and non_null_values:
                 # Mixed: (col IN (values) OR col IS NULL)
-                values = [create_typed_literal(v) for v in non_null_values]
+                values = [create_typed_literal(v, db_context) for v in non_null_values]
                 in_expr = exp.In(this=col_expr, expressions=values)
                 null_expr = exp.Is(this=col_expr, expression=exp.Null())
                 return exp.Or(this=in_expr, expression=null_expr)
@@ -723,7 +764,7 @@ def build_filter_expression(
                 return exp.Is(this=col_expr, expression=exp.Null())
             else:
                 # No NULL values: standard IN clause
-                values = [create_typed_literal(v) for v in value]
+                values = [create_typed_literal(v, db_context) for v in value]
                 return exp.In(this=col_expr, expressions=values)
     elif op == "not_in":
         if isinstance(value, list):
@@ -733,7 +774,7 @@ def build_filter_expression(
 
             if has_null and non_null_values:
                 # Mixed: (col NOT IN (values) AND col IS NOT NULL)
-                values = [create_typed_literal(v) for v in non_null_values]
+                values = [create_typed_literal(v, db_context) for v in non_null_values]
                 not_in_expr = exp.Not(this=exp.In(this=col_expr, expressions=values))
                 not_null_expr = exp.Is(this=col_expr, expression=exp.Null(), inverse=True)
                 return exp.And(this=not_in_expr, expression=not_null_expr)
@@ -742,7 +783,7 @@ def build_filter_expression(
                 return exp.Is(this=col_expr, expression=exp.Null(), inverse=True)
             else:
                 # No NULL values: standard NOT IN clause
-                values = [create_typed_literal(v) for v in value]
+                values = [create_typed_literal(v, db_context) for v in value]
                 in_expr = exp.In(this=col_expr, expressions=values)
                 return exp.Not(this=in_expr)
     elif op == "like":
@@ -804,7 +845,9 @@ def build_subquery_filter_expression(
         sq_value = sq_filter.get("value")
 
         # Build condition string for subquery
-        condition = format_filter_condition(sq_table, sq_column, sq_op, sq_value)
+        # Note: This is in build_subquery_filter_expression which doesn't have db_context
+        # For now, pass None (will use default behavior)
+        condition = format_filter_condition(sq_table, sq_column, sq_op, sq_value, db_context=None)
         subquery = subquery.where(condition)
 
     # Build the IN/NOT IN expression
@@ -828,6 +871,7 @@ def build_where_clause(
     global_filters: List[Dict],
     alias_map: Dict,
     subquery_filters: List[Dict] = None,
+    db_context: Dict = None,
 ) -> exp.Expression:
     """
     Build WHERE clause from table filters, global filters, and subquery filters.
@@ -837,6 +881,7 @@ def build_where_clause(
         global_filters: List of global FilterPredicate dicts
         alias_map: Mapping of table names to aliases
         subquery_filters: Optional list of SubqueryFilter dicts
+        db_context: Optional database context for dialect-specific handling
 
     Returns:
         SQLGlot WHERE expression (or None if no filters)
@@ -847,13 +892,13 @@ def build_where_clause(
     for table_selection in selections:
         table_filters = table_selection.get("filters", [])
         for filter_pred in table_filters:
-            condition = build_filter_expression(filter_pred, alias_map)
+            condition = build_filter_expression(filter_pred, alias_map, db_context)
             if condition:
                 all_conditions.append(condition)
 
     # Add global filters
     for filter_pred in global_filters:
-        condition = build_filter_expression(filter_pred, alias_map)
+        condition = build_filter_expression(filter_pred, alias_map, db_context)
         if condition:
             all_conditions.append(condition)
 
@@ -1311,7 +1356,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             op = filter_pred.get("op")
             value = filter_pred.get("value")
 
-            where_conditions.append(format_filter_condition(table, column, op, value))
+            where_conditions.append(format_filter_condition(table, column, op, value, db_context=db_context))
 
     # Add global filters
     for filter_pred in global_filters:
@@ -1320,7 +1365,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         op = filter_pred.get("op")
         value = filter_pred.get("value")
 
-        where_conditions.append(format_filter_condition(table, column, op, value))
+        where_conditions.append(format_filter_condition(table, column, op, value, db_context=db_context))
 
     # Add subquery filters
     for sq_filter in subquery_filters:
@@ -1339,7 +1384,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             sq_op = sq_f.get("op")
             sq_value = sq_f.get("value")
             subquery_where.append(
-                format_filter_condition(sq_table, sq_column, sq_op, sq_value)
+                format_filter_condition(sq_table, sq_column, sq_op, sq_value, db_context=db_context)
             )
 
         subquery_str = f"SELECT {subquery_column} FROM {subquery_table}"
@@ -1397,7 +1442,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                 value = filter_pred.get("value")
 
                 having_conditions.append(
-                    format_filter_condition(table, column, op, value, aggregate_aliases)
+                    format_filter_condition(table, column, op, value, aggregate_aliases, db_context)
                 )
 
             for condition in having_conditions:
@@ -1499,7 +1544,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
     return sql_str
 
 
-def format_filter_condition(table_alias: str, column: str, op: str, value, aggregate_aliases=None) -> str:
+def format_filter_condition(table_alias: str, column: str, op: str, value, aggregate_aliases=None, db_context: Dict = None) -> str:
     """
     Format a filter condition as a SQL string with proper escaping.
 
@@ -1512,6 +1557,7 @@ def format_filter_condition(table_alias: str, column: str, op: str, value, aggre
         op: Operator (=, >, <, etc.)
         value: Filter value
         aggregate_aliases: Set of aggregate alias names (for HAVING clauses)
+        db_context: Optional database context for dialect-specific handling
     """
     # Check if column is an expression or aggregate alias (don't prefix with table)
     if is_sql_expression(column):
@@ -1531,11 +1577,29 @@ def format_filter_condition(table_alias: str, column: str, op: str, value, aggre
         return str(s).replace("'", "''")
 
     def format_value(v):
-        """Format a value with proper type handling."""
+        """Format a value with proper type handling, including dates."""
         value_type = infer_value_type(v)
 
         if value_type == 'null':
             return 'NULL'
+        elif value_type == 'date':
+            # ISO date format: YYYY-MM-DD
+            # SQL Server: CAST('2025-10-31' AS DATE)
+            # SQLite: '2025-10-31' (stores as text)
+            is_sqlite = db_context and db_context.get("is_sqlite", False)
+            if is_sqlite:
+                return f"'{escape_string(v)}'"
+            else:
+                return f"CAST('{escape_string(v)}' AS DATE)"
+        elif value_type == 'datetime':
+            # ISO datetime format: YYYY-MM-DD HH:MM:SS
+            # SQL Server: CAST('2025-10-31 14:30:00' AS DATETIME)
+            # SQLite: '2025-10-31 14:30:00' (stores as text)
+            is_sqlite = db_context and db_context.get("is_sqlite", False)
+            if is_sqlite:
+                return f"'{escape_string(v)}'"
+            else:
+                return f"CAST('{escape_string(v)}' AS DATETIME)"
         elif value_type == 'number' or value_type == 'boolean':
             # Numeric and boolean values: no quotes
             if isinstance(v, bool):

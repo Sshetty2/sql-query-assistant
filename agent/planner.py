@@ -171,6 +171,8 @@ def _create_minimal_prompt(**format_params):
 
 Analyze the user's question and database schema to create a structured query plan.
 
+**Current Date:** {current_date}
+
 # RULES
 
 ### 1. Exact Names
@@ -200,6 +202,13 @@ For "last N", "top N", "first N" queries, use `order_by` and `limit`:
 - "Last 10 logins" → `order_by: [{{"table": "tb_Logins", "column": "LoginDate", "direction": "DESC"}}], limit: 10`
 - "Top 5 customers" → `order_by: [{{"table": "tb_Customers", "column": "Revenue", "direction": "DESC"}}], limit: 5`
 - "Last" / "Most recent" → DESC, "First" / "Oldest" → ASC
+
+### 7. Date Filters
+For relative date queries ("last 30 days", "past week"):
+- Use ISO format: `YYYY-MM-DD` (e.g., `2025-10-31`)
+- Calculate dates from current date shown above
+- Example: "last 30 days" → `{{"op": ">=", "value": "2025-10-01"}}` (30 days before {current_date})
+- For datetime columns, use `YYYY-MM-DD HH:MM:SS` format
 
 # DOMAIN GUIDANCE
 
@@ -311,6 +320,8 @@ Create a NEW SQL query execution plan based on an updated user request.
 **CREATE A QUERY EXECUTION PLAN FOR THE USER QUERY SHOWN IN THE USER INPUT SECTION ABOVE.**
 
 Read what the user asked for in their query. Analyze the database schema. Then create a structured plan that identifies which tables, columns, joins, and filters are needed to answer EXACTLY what the user asked for.
+
+**Current Date:** {current_date}
 
 ## Objective
 Analyze a natural language query against a SQL database schema to create a query execution plan.
@@ -511,17 +522,45 @@ User asks: "List all applications tagged with security risk"
 - Always set `limit` to the number specified by the user
 - Do NOT put this in `ambiguities` - specify the ORDER BY and LIMIT directly!
 
-### 10. Time Filter Handling
+### 10. Date Filters for Relative Queries
+
+**When the user asks for relative date ranges ("last 30 days", "past week", "this month"):**
+
+**Date Format:**
+- Use ISO 8601 format: `YYYY-MM-DD` for dates (e.g., `2025-10-31`)
+- Use `YYYY-MM-DD HH:MM:SS` for datetimes (e.g., `2025-10-31 14:30:00`)
+
+**Date Calculation:**
+- Calculate dates relative to the current date shown at the top of these instructions
+- Example: If current date is 2025-10-31 and user asks "last 30 days":
+  - Create filter: `{{"op": ">=", "value": "2025-10-01"}}`
+  - This is 30 days before 2025-10-31
+
+**Common Patterns:**
+- "Last 7 days" → `{{"op": ">=", "value": "[7 days ago]"}}`
+- "Last 30 days" → `{{"op": ">=", "value": "[30 days ago]"}}`
+- "Past week" → `{{"op": ">=", "value": "[7 days ago]"}}`
+- "This month" → `{{"op": ">=", "value": "[first day of current month]"}}`
+- "Before date X" → `{{"op": "<", "value": "YYYY-MM-DD"}}`
+- "After date X" → `{{"op": ">", "value": "YYYY-MM-DD"}}`
+- "Between dates" → `{{"op": "between", "value": ["YYYY-MM-DD", "YYYY-MM-DD"]}}`
+
+**Important:**
+- Always calculate the actual date value - don't use expressions like "DATEADD"
+- Use string values in ISO format
+- The join synthesizer will convert these to proper SQL date literals
+
+### 11. Time Filter Handling
 **IMPORTANT:** Do NOT create filter predicates for the "Time filter" parameter (e.g., "Last 30 Days", "Last 7 Days").
 - These will be handled by a downstream agent
 - Only include filters that are explicitly mentioned in the user's natural language query (e.g., "active users", "vendor = Cisco")
 - When a "Time filter" parameter is provided, include relevant timestamp columns (CreatedOn, UpdatedOn, etc.) in the selections with `role="projection"` or `role="filter"`
 - Let the downstream agent handle the actual date range calculation
 
-### 11. Confidence Bounds
+### 12. Confidence Bounds
 All confidence values must be between 0.0 and 1.0.
 
-### 12. Decision Field
+### 13. Decision Field
 Choose the appropriate decision value:
 
 **proceed** - Use when you can create a viable query plan
@@ -580,7 +619,7 @@ If you create a plan with tables, joins, or filters and use `decision="terminate
 - Use "clarify" when you genuinely cannot determine which table/column the user wants (e.g., "Status" exists in 5 tables)
 - Use "proceed" for everything else, even if you have concerns - document concerns in `ambiguities` field
 
-### 13. GROUP BY Completeness Rule
+### 14. GROUP BY Completeness Rule
 **CRITICAL SQL RULE:** When using aggregations (COUNT, SUM, AVG, etc.):
 - ALL columns with `role="projection"` MUST be included in `group_by_columns`
 - Exception: Columns from tables with `include_only_for_join=true` are excluded
@@ -604,7 +643,7 @@ If you create a plan with tables, joins, or filters and use `decision="terminate
 **Action Required:**
 When you add aggregates to `group_by`, review ALL projection columns and ensure each one appears in `group_by_columns`.
 
-### 14. HAVING Clause Table References
+### 15. HAVING Clause Table References
 When using HAVING filters in aggregated queries:
 - HAVING filters must reference the correct table where the column exists
 - If filtering on a joined table's column, use that table name (not the main table)
@@ -867,12 +906,16 @@ def plan_query(state: State):
         else:
             schema_note = ""
 
+        # Get current date for date-aware queries
+        current_date = datetime.now().strftime("%Y-%m-%d")
+
         # Build format parameters
         format_params = {
             "domain_guidance": domain_text,
             "user_query": user_query,
             "parameters": parameters_text,
             "schema_note": schema_note,
+            "current_date": current_date,
         }
 
         # Add mode-specific parameters
