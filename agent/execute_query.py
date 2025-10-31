@@ -109,7 +109,6 @@ def execute_query(state: State, db_connection):
     """Execute the SQL query and return the result."""
     query = state["query"]
     DEFAULT_LIMIT = 500  # Default limit for large result sets
-    MAX_LIMIT = 1000000  # Maximum allowed limit
 
     # Defensive check: ensure query is not None or empty
     if query is None or (isinstance(query, str) and not query.strip()):
@@ -158,7 +157,7 @@ def execute_query(state: State, db_connection):
                 # Remove LIMIT for counting
                 parsed.set("limit", None)
                 query_without_limit = parsed.sql(dialect="tsql", pretty=True, identify=True)
-                logger.debug(f"Removed LIMIT clause for initial count query")
+                logger.debug("Removed LIMIT clause for initial count query")
         except Exception as parse_error:
             logger.warning(f"Could not parse query to remove LIMIT: {parse_error}")
             query_without_limit = query  # Fall back to original query

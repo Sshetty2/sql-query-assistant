@@ -12,26 +12,26 @@ def test_column_reference_detection():
     print("Testing column reference detection...")
 
     # Should be detected as column references
-    assert is_column_reference("tb_Users.CompanyID") == True
+    assert is_column_reference("tb_Users.CompanyID") is True
     print("[PASS] 'tb_Users.CompanyID' detected as column reference")
 
-    assert is_column_reference("table.column") == True
+    assert is_column_reference("table.column") is True
     print("[PASS] 'table.column' detected as column reference")
 
-    assert is_column_reference("TableName.ColumnName") == True
+    assert is_column_reference("TableName.ColumnName") is True
     print("[PASS] 'TableName.ColumnName' detected as column reference")
 
     # Should NOT be detected as column references
-    assert is_column_reference("simple_value") == False
+    assert is_column_reference("simple_value") is False
     print("[PASS] 'simple_value' NOT detected as column reference")
 
-    assert is_column_reference("123") == False
+    assert is_column_reference("123") is False
     print("[PASS] '123' NOT detected as column reference")
 
-    assert is_column_reference("Active") == False
+    assert is_column_reference("Active") is False
     print("[PASS] 'Active' NOT detected as column reference")
 
-    assert is_column_reference(123) == False
+    assert is_column_reference(123) is False
     print("[PASS] Integer value NOT detected as column reference")
 
 

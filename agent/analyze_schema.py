@@ -1,8 +1,5 @@
 """Retrieve schema information for the database."""
 
-import os
-import json
-
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
 

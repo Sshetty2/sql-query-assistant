@@ -52,7 +52,7 @@ def finalize_node(state: FKInferencingState) -> dict:
     if state.get("user_quit"):
         console.print()
         console.print(Panel(
-            "[bold yellow]Session ended by user - progress saved\nRun again to resume from where you left off[/bold yellow]",
+            "[bold yellow]Session ended by user - progress saved\nRun again to resume from where you left off[/bold yellow]",  # noqa: E501
             title="⚠️  [yellow]Session Interrupted[/yellow]",
             border_style="yellow",
             padding=(1, 2)

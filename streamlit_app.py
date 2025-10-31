@@ -2,16 +2,12 @@
 
 import os
 import json
-from datetime import datetime
 from dotenv import load_dotenv
 import streamlit as st
 import pandas as pd
 from agent.query_database import query_database
 from utils.logger import get_logger
-from utils.thread_manager import (
-    load_thread_states,
-    get_thread_queries,
-)
+from utils.thread_manager import load_thread_states
 
 load_dotenv()
 logger = get_logger("streamlit")
@@ -168,7 +164,7 @@ def apply_column_patch(output: dict, table: str, column: str, operation: str, im
         logger.error(f"Error in apply_column_patch: {str(e)}", exc_info=True)
 
 
-def apply_sort_patch(output: dict, selected_sort: str, direction: str, sortable_columns: list, immediate_rerun: bool = True):
+def apply_sort_patch(output: dict, selected_sort: str, direction: str, sortable_columns: list, immediate_rerun: bool = True):  # noqa: E501
     """
     Apply an ORDER BY patch and optionally re-execute the query.
 
@@ -895,7 +891,6 @@ def main():
                         st.rerun()
         else:
             st.info("No queries yet. Enter a question below to get started!")
-        
 
     # --- RIGHT COLUMN: Query Input and Parameters ---
     with main_col:

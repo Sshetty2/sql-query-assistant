@@ -1,6 +1,5 @@
 """Tests for SQL Server reserved keyword handling in query generation."""
 
-import pytest
 from agent.generate_query import build_sql_query, get_database_context
 
 

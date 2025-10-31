@@ -14,7 +14,7 @@ os.environ["ENABLE_DEBUG_FILES"] = "true"
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils.debug_utils import save_debug_file, is_debug_enabled
+from utils.debug_utils import save_debug_file, is_debug_enabled  # noqa: E402
 
 
 def test_datetime_serialization():
@@ -54,13 +54,13 @@ def test_datetime_serialization():
             with open(result, 'r', encoding='utf-8') as f:
                 loaded_data = json.load(f)
 
-            print(f"[PASS] File contains valid JSON")
+            print("[PASS] File contains valid JSON")
             print(f"       - Keys: {list(loaded_data.keys())}")
-            print(f"       - Timestamps serialized as ISO format strings")
+            print("       - Timestamps serialized as ISO format strings")
 
             # Clean up test file
             os.remove(result)
-            print(f"[PASS] Test file cleaned up")
+            print("[PASS] Test file cleaned up")
 
             return True
         else:

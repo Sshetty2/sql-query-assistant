@@ -205,7 +205,7 @@ def build_aggregate_expression(
             # Column contains a SQL expression - parse it
             logger.info(f"[EXPRESSION DETECTED] Parsing complex expression in aggregate: {column}")
             result = parse_and_rewrite_expression(column, alias_map, db_context)
-            logger.info(f"[EXPRESSION PARSED] Result: {result.sql(dialect=db_context.get('dialect', 'sqlite') if db_context else 'sqlite')}")
+            logger.info(f"[EXPRESSION PARSED] Result: {result.sql(dialect=db_context.get('dialect', 'sqlite') if db_context else 'sqlite')}")  # noqa: E501
             return result
         else:
             # Simple column reference
@@ -1414,6 +1414,9 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                 alias = agg.get("alias")
                 if alias:
                     aggregate_aliases.add(alias)
+
+        # Create alias map for expression parsing (maps table names to themselves since no aliases)
+        alias_map = {sel.get("table"): sel.get("table") for sel in selections}
 
         # Use plan's ORDER BY specification
         for order_col_spec in plan_order_by:

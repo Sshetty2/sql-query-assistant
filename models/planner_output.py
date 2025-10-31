@@ -245,7 +245,7 @@ class PlannerOutput(BaseModel):
 
     decision: Decision = Field(
         ...,
-        description="Decision: 'proceed' (default - use when you created a plan with tables/joins), 'clarify' (ambiguous but answerable), 'terminate' (RARE - only when query is COMPLETELY impossible and you have ZERO relevant tables)"
+        description="Decision: 'proceed' (default - use when you created a plan with tables/joins), 'clarify' (ambiguous but answerable), 'terminate' (RARE - only when query is COMPLETELY impossible and you have ZERO relevant tables)"  # noqa: E501
     )
     intent_summary: str = Field(
         ..., description="One sentence summary of what the user wants"
@@ -253,7 +253,7 @@ class PlannerOutput(BaseModel):
 
     selections: Annotated[
         List[TableSelection],
-        Field(description="List of tables to include in the query with their columns and filters. Must have at least 1 item unless decision='terminate'.")
+        Field(description="List of tables to include in the query with their columns and filters. Must have at least 1 item unless decision='terminate'.")  # noqa: E501
     ]
     global_filters: List[FilterPredicate] = Field(
         default_factory=list,
@@ -285,11 +285,11 @@ class PlannerOutput(BaseModel):
     # Query ordering and limiting
     order_by: List[OrderByColumn] = Field(
         default_factory=list,
-        description="Optional ORDER BY specification. Use this for queries like 'last 10 logins' (ORDER BY LoginDate DESC), 'top 5 customers' (ORDER BY Revenue DESC), etc.",
+        description="Optional ORDER BY specification. Use this for queries like 'last 10 logins' (ORDER BY LoginDate DESC), 'top 5 customers' (ORDER BY Revenue DESC), etc.",  # noqa: E501
     )
     limit: Optional[int] = Field(
         None,
-        description="Optional LIMIT/TOP specification. Use this for queries like 'last 10 logins' (LIMIT 10), 'top 5 customers' (LIMIT 5), etc.",
+        description="Optional LIMIT/TOP specification. Use this for queries like 'last 10 logins' (LIMIT 10), 'top 5 customers' (LIMIT 5), etc.",  # noqa: E501
     )
 
     ambiguities: List[str] = Field(

@@ -221,7 +221,7 @@ class PlannerOutputStandard(BaseModel):
     # Query ordering and limiting
     order_by: List[OrderByColumnStandard] = Field(
         default_factory=list,
-        description="ORDER BY specification. Use for 'last 10 logins' (ORDER BY LoginDate DESC), 'top 5 customers' (ORDER BY Revenue DESC), etc.",
+        description="ORDER BY specification. Use for 'last 10 logins' (ORDER BY LoginDate DESC), 'top 5 customers' (ORDER BY Revenue DESC), etc.",  # noqa: E501
     )
     limit: Optional[int] = Field(
         None,

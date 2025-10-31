@@ -130,7 +130,7 @@ class TestAddColumn:
 
         genres_selection = next(s for s in result["selections"] if s["table"] == "genres")
         # GenreId should now be projection (promoted from filter)
-        genreid_col = next(c for c in genres_selection["columns"] if c["column"] =="GenreId")
+        genreid_col = next(c for c in genres_selection["columns"] if c["column"] == "GenreId")
         assert genreid_col["role"] == "projection"
 
     def test_add_column_already_selected(self, sample_plan, sample_schema):
@@ -144,7 +144,7 @@ class TestAddColumn:
         result = apply_patch_operation(sample_plan, patch, sample_schema)
 
         tracks_selection = next(s for s in result["selections"] if s["table"] == "tracks")
-        name_columns = [c for c in tracks_selection["columns"] if c["column"] =="Name"]
+        name_columns = [c for c in tracks_selection["columns"] if c["column"] == "Name"]
 
         # Should still have only one Name column
         assert len(name_columns) == 1
@@ -185,7 +185,7 @@ class TestAddColumn:
         result = apply_patch_operation(sample_plan, patch, sample_schema)
 
         tracks_selection = next(s for s in result["selections"] if s["table"] == "tracks")
-        genreid_col = next(c for c in tracks_selection["columns"] if c["column"] =="GenreId")
+        genreid_col = next(c for c in tracks_selection["columns"] if c["column"] == "GenreId")
 
         # Should be promoted to projection
         assert genreid_col["role"] == "projection"
@@ -228,7 +228,7 @@ class TestRemoveColumn:
         result = apply_patch_operation(sample_plan, patch, sample_schema)
 
         tracks_selection = next(s for s in result["selections"] if s["table"] == "tracks")
-        genreid_col = next((c for c in tracks_selection["columns"] if c["column"] =="GenreId"), None)
+        genreid_col = next((c for c in tracks_selection["columns"] if c["column"] == "GenreId"), None)
 
         # Should still exist but with filter role
         assert genreid_col is not None

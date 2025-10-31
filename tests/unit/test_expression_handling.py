@@ -1,6 +1,5 @@
 """Test handling of SQL expressions in aggregates, filters, and ORDER BY."""
 
-import pytest
 from agent.generate_query import (
     is_sql_expression,
     parse_and_rewrite_expression,

@@ -1,6 +1,5 @@
 """Tests to ensure Pydantic models generate valid OpenAI structured output schemas."""
 
-import pytest
 from models.planner_output import PlannerOutput
 from models.planner_output_minimal import PlannerOutputMinimal
 from models.planner_output_standard import PlannerOutputStandard
@@ -57,7 +56,7 @@ def test_planner_output_minimal_has_valid_schema():
     issues = check_schema_for_dict_without_additional_properties(schema)
 
     if issues:
-        print(f"\nSchema issues found in PlannerOutputMinimal:")
+        print("\nSchema issues found in PlannerOutputMinimal:")
         for issue in issues:
             print(f"  - {issue}")
 
@@ -70,7 +69,7 @@ def test_planner_output_standard_has_valid_schema():
     issues = check_schema_for_dict_without_additional_properties(schema)
 
     if issues:
-        print(f"\nSchema issues found in PlannerOutputStandard:")
+        print("\nSchema issues found in PlannerOutputStandard:")
         for issue in issues:
             print(f"  - {issue}")
 
@@ -83,7 +82,7 @@ def test_planner_output_full_has_valid_schema():
     issues = check_schema_for_dict_without_additional_properties(schema)
 
     if issues:
-        print(f"\nSchema issues found in PlannerOutput (full):")
+        print("\nSchema issues found in PlannerOutput (full):")
         for issue in issues:
             print(f"  - {issue}")
 

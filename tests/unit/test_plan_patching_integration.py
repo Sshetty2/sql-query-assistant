@@ -610,7 +610,7 @@ class TestEdgeCasesIntegration:
         patch1 = {"operation": "add_column", "table": "tracks", "column": "Composer"}
         result1 = apply_patch_operation(sample_plan, patch1, sample_schema)
 
-        patch2 = {"operation": "modify_order_by", "order_by": [{"table": "tracks", "column": "Name", "direction": "ASC"}]}
+        patch2 = {"operation": "modify_order_by", "order_by": [{"table": "tracks", "column": "Name", "direction": "ASC"}]}  # noqa: E501
         result2 = apply_patch_operation(result1, patch2, sample_schema)
 
         patch3 = {"operation": "modify_limit", "limit": 50}

@@ -19,8 +19,8 @@ class State(TypedDict):
 
     # Schema and planning
     schema: list[dict]  # Holds full schema information (JSON format)
-    filtered_schema: Optional[list[dict]]  # Holds filtered schema (top-k relevant tables with ALL columns - for modification options)
-    truncated_schema: Optional[list[dict]]  # Holds truncated schema (filtered tables with ONLY relevant columns - for planner context)
+    filtered_schema: Optional[list[dict]]  # Holds filtered schema (top-k relevant tables with ALL columns - for modification options)  # noqa: E501
+    truncated_schema: Optional[list[dict]]  # Holds truncated schema (filtered tables with ONLY relevant columns - for planner context)  # noqa: E501
     schema_markdown: Optional[str]  # Schema formatted as markdown for LLM readability
     planner_outputs: list[dict[str, Any]]  # History of planner outputs
     planner_output: Optional[dict[str, Any]]  # Current/latest planner output (convenience field)

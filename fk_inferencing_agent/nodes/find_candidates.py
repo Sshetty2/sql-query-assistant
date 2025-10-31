@@ -1,7 +1,5 @@
 """Find candidates node - run vector search for FK candidates."""
 
-import traceback
-from typing import Any
 from langgraph.types import RunnableConfig
 from fk_inferencing_agent.state import FKInferencingState
 from fk_inferencing_agent.excel_manager import write_candidates
@@ -10,7 +8,6 @@ from utils.logger import get_logger
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table as RichTable
-from rich.text import Text
 
 logger = get_logger("fk_agent")
 console = Console()

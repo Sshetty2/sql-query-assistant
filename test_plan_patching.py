@@ -16,10 +16,8 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich import print as rprint
 
 from agent.query_database import query_database
-from agent.generate_modification_options import generate_modification_options
 
 # Load environment variables
 load_dotenv()
@@ -95,7 +93,7 @@ def print_modification_options(options: dict):
         available = [c for c in columns if not c["selected"]]
 
         console.print(f"    Selected: {', '.join([c['name'] for c in selected])}")
-        console.print(f"    Available: {', '.join([c['name'] for c in available[:5]])}{'...' if len(available) > 5 else ''}")
+        console.print(f"    Available: {', '.join([c['name'] for c in available[:5]])}{'...' if len(available) > 5 else ''}")  # noqa: E501
 
 
 def test_initial_query():
@@ -345,11 +343,11 @@ def test_modify_limit(previous_state: dict):
     console.print(f"[dim]{state['query']}[/dim]")
 
     # Display results
-    print_results_table(result_data, f"Results limited to 10 rows")
+    print_results_table(result_data, "Results limited to 10 rows")
 
     # Verify exactly 10 rows returned
     assert len(result_data) == 10, f"❌ Expected 10 rows, got {len(result_data)}"
-    console.print(f"[green]✓ Returned exactly 10 rows[/green]")
+    console.print("[green]✓ Returned exactly 10 rows[/green]")
 
     return state
 
@@ -477,7 +475,7 @@ def main():
         state4 = test_modify_order_by(state3)
 
         # Test 5: Modify LIMIT
-        state5 = test_modify_limit(state4)
+        _ = test_modify_limit(state4)
 
         # Test 6: Multiple patches in sequence
         test_multiple_patches_sequence(state1)

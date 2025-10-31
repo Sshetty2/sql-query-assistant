@@ -203,7 +203,7 @@ class PlannerOutputMinimal(BaseModel):
     # Query ordering and limiting
     order_by: List[OrderByColumnMinimal] = Field(
         default_factory=list,
-        description="ORDER BY specification. Use for 'last 10 logins' (ORDER BY LoginDate DESC LIMIT 10), 'top 5 customers', etc.",
+        description="ORDER BY specification. Use for 'last 10 logins' (ORDER BY LoginDate DESC LIMIT 10), 'top 5 customers', etc.",  # noqa: E501
     )
     limit: Optional[int] = Field(
         None,

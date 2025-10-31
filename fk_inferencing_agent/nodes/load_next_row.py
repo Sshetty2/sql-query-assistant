@@ -40,7 +40,7 @@ def load_next_row_node(state: FKInferencingState) -> dict:
     processed_count = state.get("processed_count", 0) + 1
 
     is_pk = row_data.get("is_pk", False)
-    logger.info(f"[load_next_row] Loaded row {row_idx}: {row_data['table_name']}.{row_data['fk_column']} (is_pk: {is_pk})")
+    logger.info(f"[load_next_row] Loaded row {row_idx}: {row_data['table_name']}.{row_data['fk_column']} (is_pk: {is_pk})")  # noqa: E501
 
     # IMPORTANT: Reset decision fields for new FK
     return {

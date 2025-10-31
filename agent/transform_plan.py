@@ -107,7 +107,7 @@ def map_type_to_value_type(sql_type: str) -> str:
 
     if "int" in sql_type_lower or "serial" in sql_type_lower:
         return "integer"
-    elif "float" in sql_type_lower or "double" in sql_type_lower or "decimal" in sql_type_lower or "numeric" in sql_type_lower:
+    elif "float" in sql_type_lower or "double" in sql_type_lower or "decimal" in sql_type_lower or "numeric" in sql_type_lower:  # noqa: E501
         return "number"
     elif "bool" in sql_type_lower or "bit" in sql_type_lower:
         return "boolean"
@@ -115,7 +115,7 @@ def map_type_to_value_type(sql_type: str) -> str:
         return "datetime"
     elif "date" in sql_type_lower:
         return "date"
-    elif "char" in sql_type_lower or "text" in sql_type_lower or "varchar" in sql_type_lower or "nvarchar" in sql_type_lower:
+    elif "char" in sql_type_lower or "text" in sql_type_lower or "varchar" in sql_type_lower or "nvarchar" in sql_type_lower:  # noqa: E501
         return "string"
     else:
         return "unknown"

@@ -24,8 +24,6 @@ from rich.progress import (
     TaskProgressColumn,
 )
 from rich.table import Table
-from rich.text import Text
-from rich import print as rprint
 
 from fk_inferencing_agent.create_agent import create_fk_inferencing_agent
 from fk_inferencing_agent.state import FKInferencingState
@@ -94,7 +92,7 @@ Examples:
 
         logger.info(f"Starting FK Inferencing Agent for database: {database_name}")
         logger.info(
-            f"Configuration - threshold: {args.threshold}, top_k: {args.top_k}, skip_primary_keys: {args.skip_primary_keys}"
+            f"Configuration - threshold: {args.threshold}, top_k: {args.top_k}, skip_primary_keys: {args.skip_primary_keys}"  # noqa: E501
         )
 
         # Initial state (vector_store is passed via context, not in state)

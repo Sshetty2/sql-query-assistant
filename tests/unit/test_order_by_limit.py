@@ -1,6 +1,5 @@
 """Tests for ORDER BY and LIMIT support in planner models and query generation."""
 
-import pytest
 from agent.generate_query import build_sql_query, get_database_context
 
 
@@ -101,7 +100,7 @@ def test_plan_order_by_multiple_columns():
     # Country should come before Revenue in the ORDER BY clause
     country_pos = order_by_clause.upper().find("[COUNTRY]")
     revenue_pos = order_by_clause.upper().find("[REVENUE]")
-    assert country_pos < revenue_pos, f"Country should come before Revenue in ORDER BY clause"
+    assert country_pos < revenue_pos, "Country should come before Revenue in ORDER BY clause"
 
     print(f"Generated SQL:\n{sql}")
 

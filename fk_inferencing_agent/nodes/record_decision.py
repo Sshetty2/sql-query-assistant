@@ -1,6 +1,5 @@
 """Record decision node - write decision to Excel."""
 
-import traceback
 from fk_inferencing_agent.state import FKInferencingState
 from fk_inferencing_agent.excel_manager import write_decision
 from utils.logger import get_logger

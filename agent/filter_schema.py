@@ -481,7 +481,7 @@ def filter_schema(state: State, vector_store=None):
                     all_columns = truncated_table.get("columns", [])
 
                     # Create normalized set of relevant columns for matching
-                    # Remove underscores and lowercase (e.g., email_address -> emailaddress, EmailAddress -> emailaddress)
+                    # Remove underscores and lowercase (e.g., email_address -> emailaddress, EmailAddress -> emailaddress)  # noqa: E501
                     relevant_cols_normalized = {col.lower().replace("_", "") for col in relevant_cols}
 
                     # Keep only columns that match (case-insensitive, underscore-insensitive)

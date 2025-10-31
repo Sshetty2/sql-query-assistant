@@ -19,16 +19,15 @@ import sys
 import argparse
 import json
 from datetime import datetime
-from typing import List, Dict, Tuple
+from typing import List, Dict
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dotenv import load_dotenv
-from database.connection import get_pyodbc_connection
-from database.introspection import introspect_schema
-from database.infer_foreign_keys import infer_foreign_keys
-from domain_specific_guidance.combine_json_schema import combine_schema
+from dotenv import load_dotenv  # noqa: E402
+from database.connection import get_pyodbc_connection  # noqa: E402
+from database.introspection import introspect_schema  # noqa: E402
+from database.infer_foreign_keys import infer_foreign_keys  # noqa: E402
 
 load_dotenv()
 
@@ -333,7 +332,7 @@ def run_comparison(args):
         "top_k": args.top_k
     }
 
-    print(f"\nConfiguration:")
+    print("\nConfiguration:")
     print(f"  Confidence threshold: {config['confidence_threshold']}")
     print(f"  Top-k candidates: {config['top_k']}")
     print(f"  Verbose: {args.verbose}")
@@ -416,7 +415,7 @@ def run_comparison(args):
     results = calculate_metrics(inferred_fks, filtered_ground_truth)
     metrics = results["metrics"]
 
-    print(f"  [PASS] Comparison completed")
+    print("  [PASS] Comparison completed")
     print(f"\n  Precision: {metrics['precision']:.1f}%")
     print(f"  Recall: {metrics['recall']:.1f}%")
     print(f"  F1 Score: {metrics['f1_score']:.1f}%")

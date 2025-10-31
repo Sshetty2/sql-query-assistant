@@ -55,14 +55,14 @@ def test_1_initial_query():
 
     # Display plan summary
     plan = state["executed_plan"]
-    print(f"\nPlan Summary:")
+    print("\nPlan Summary:")
     print(f"  Intent: {plan.get('intent_summary', 'N/A')}")
     print(f"  Tables: {', '.join([s['table'] for s in plan.get('selections', [])])}")
 
     # Display modification options summary
     options = state["modification_options"]
     tables = options.get("tables", {})
-    print(f"\nModification Options:")
+    print("\nModification Options:")
     print(f"  Available tables: {', '.join(tables.keys())}")
 
     return state
@@ -219,7 +219,7 @@ def test_4_modify_order_by(previous_state):
 
     # Show first few track names
     if len(result_data) >= 3:
-        print(f"  Top 3 tracks (by name DESC):")
+        print("  Top 3 tracks (by name DESC):")
         for i in range(3):
             print(f"    {i+1}. {result_data[i].get('Name', 'N/A')}")
 
@@ -295,7 +295,7 @@ def main():
 
         # Test 5: Modify LIMIT
         print("\nRunning Test 5...")
-        state5 = test_5_modify_limit(state4)
+        _ = test_5_modify_limit(state4)
 
         # Summary
         print("\n" + "=" * 80)

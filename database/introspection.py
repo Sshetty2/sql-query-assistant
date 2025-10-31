@@ -202,7 +202,7 @@ def introspect_schema(connection) -> List[Dict[str, Any]]:
             schema.append(table_schema)
 
         logger.info(
-            f"Schema introspection completed",
+            "Schema introspection completed",
             extra={
                 "table_count": len(schema),
                 "total_columns": sum(len(t["columns"]) for t in schema),

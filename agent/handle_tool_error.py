@@ -396,7 +396,6 @@ If you need to reference a table in a join, you MUST add it to the selections ar
             "original_query": original_query,
             "original_plan": original_plan_dict,
             "error": error_message,
-            "error_code": error_code if 'error_code' in locals() else None,
             "correction_reasoning": response.reasoning,
             "corrected_plan": corrected_plan_dict,
         },

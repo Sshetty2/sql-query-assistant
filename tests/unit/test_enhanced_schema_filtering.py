@@ -1,14 +1,12 @@
 """Tests for enhanced 3-stage schema filtering."""
 
-import os
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from agent.filter_schema import (
     expand_with_foreign_keys,
     load_foreign_keys,
     filter_schema,
 )
-from agent.state import State
 
 
 def test_expand_with_foreign_keys():
@@ -313,7 +311,7 @@ def test_filter_schema_column_filtering(
 def test_filter_schema_case_insensitive_column_matching(
     mock_load_fks, mock_get_llm, mock_get_embedding, mock_chroma
 ):
-    """Test that column filtering works with case-insensitive matching (LLM returns snake_case, schema has PascalCase)."""
+    """Test that column filtering works with case-insensitive matching (LLM returns snake_case, schema has PascalCase)."""  # noqa: E501
     # Mock state with PascalCase column names (typical SQL Server naming)
     state = {
         "schema": [

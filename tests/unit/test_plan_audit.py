@@ -338,7 +338,7 @@ class TestRunDeterministicChecks:
                         {"table": "tb_Company", "column": "TagID"},  # Issue 1: Invalid selection
                     ],
                     "filters": [
-                        {"table": "tb_Company", "column": "Impact", "op": "=", "value": "High"}  # Issue 2: Invalid filter
+                        {"table": "tb_Company", "column": "Impact", "op": "=", "value": "High"}  # Issue 2: Invalid filter  # noqa: E501
                     ]
                 },
                 {

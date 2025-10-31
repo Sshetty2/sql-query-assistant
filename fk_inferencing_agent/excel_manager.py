@@ -2,7 +2,6 @@
 
 import openpyxl
 from datetime import datetime
-from pathlib import Path
 from typing import List, Tuple, Dict, Optional
 
 from database.infer_foreign_keys import has_existing_fk

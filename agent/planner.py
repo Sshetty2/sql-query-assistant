@@ -193,7 +193,7 @@ Tables needed only for connecting (not data): set `include_only_for_join = true`
 - **"clarify"**: Query is answerable but has ambiguities (use `ambiguities` field to list questions)
 - **"terminate"**: Query is COMPLETELY impossible, zero relevant tables → RARE
 
-**CRITICAL**: If you wrote ANY `selections` or `join_edges`, you MUST use `decision="proceed"` or `decision="clarify"`, NOT "terminate".
+**CRITICAL**: If you wrote ANY `selections` or `join_edges`, you MUST use `decision="proceed"` or `decision="clarify"`, NOT "terminate".  # noqa: E501
 
 ### 6. ORDER BY and LIMIT
 For "last N", "top N", "first N" queries, use `order_by` and `limit`:
@@ -302,7 +302,7 @@ Create a NEW SQL query execution plan based on an updated user request.
 - Start fresh but learn from previous assumptions/ambiguities
 - Use the full schema to make the best decisions
 - Don't force-fit the old plan structure onto the new request
-"""  # noqa: E501
+"""   # noqa: E501
 
     else:  # Initial mode (None)
         system_instructions = """# SYSTEM INSTRUCTIONS
@@ -328,7 +328,7 @@ Multi-step SQL query generation system.
    - How tables might be related (based on foreign keys and context)
    - Any time-based constraints
    - Ambiguities or assumptions being made
-"""  # noqa: E501
+"""   # noqa: E501
 
     # Common continuation of system instructions
     system_instructions += """
@@ -660,7 +660,7 @@ Before responding, validate:
 - ✓ No columns appear from tables that aren't in `selections`
 - ✓ No invented table or column names
 - ✓ Output is valid PlannerOutput JSON and nothing else
-"""  # noqa: E501
+"""   # noqa: E501
 
     # User input varies by mode
     if mode == "update":
@@ -724,7 +724,7 @@ Before responding, validate:
 
 ## Query Parameters
 {parameters}
-"""  # noqa: E501
+"""   # noqa: E501
 
     # Format system and user messages separately
     formatted_system = system_instructions.format(**format_params)
@@ -861,9 +861,9 @@ def plan_query(state: State):
         is_truncated = state.get("truncated_schema") is not None
         is_filtered = state.get("filtered_schema") is not None
         if is_truncated:
-            schema_note = "**NOTE:** This is a filtered subset of the most relevant tables and columns from the full database schema, selected based on the user's query."  # noqa: E501
+            schema_note = "**NOTE:** This is a filtered subset of the most relevant tables and columns from the full database schema, selected based on the user's query."   # noqa: E501
         elif is_filtered:
-            schema_note = "**NOTE:** This is a filtered subset of the most relevant tables from the full database schema, selected based on the user's query."  # noqa: E501
+            schema_note = "**NOTE:** This is a filtered subset of the most relevant tables from the full database schema, selected based on the user's query."   # noqa: E501
         else:
             schema_note = ""
 
@@ -1045,7 +1045,7 @@ REQUIRED FIX:
             if last_parsing_error:
                 error_details = extract_validation_error_details(str(last_parsing_error))
                 if error_details["missing_tables"]:
-                    error_message += f" The system had issues with tables: {', '.join(error_details['missing_tables'])}."
+                    error_message += f" The system had issues with tables: {', '.join(error_details['missing_tables'])}."  # noqa: E501
 
             return {
                 **state,

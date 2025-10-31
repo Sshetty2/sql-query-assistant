@@ -1,7 +1,7 @@
 """Generate modification options for plan patching UI."""
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from utils.logger import get_logger
 
 logger = get_logger()

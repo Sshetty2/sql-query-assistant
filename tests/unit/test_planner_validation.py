@@ -1,6 +1,5 @@
 """Unit tests for planner validation logic."""
 
-import pytest
 from agent.planner import validate_group_by_completeness
 
 
