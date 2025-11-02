@@ -1381,7 +1381,47 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
     # Track which tables have been added to the query
     tables_in_query = {table_name}  # Start with the base FROM table
 
-    for i, edge in enumerate(join_edges):
+    # Reorder join_edges to ensure proper dependency order
+    # Process joins in multiple passes, adding those that connect to existing tables first
+    remaining_edges = join_edges.copy()
+    ordered_edges = []
+    max_iterations = len(remaining_edges) * 2  # Prevent infinite loops
+    iteration = 0
+
+    while remaining_edges and iteration < max_iterations:
+        iteration += 1
+        made_progress = False
+
+        for edge in remaining_edges[:]:  # Create a copy to iterate
+            from_table = edge.get("from_table")
+            to_table = edge.get("to_table")
+
+            # Check if at least one table is already in query
+            if from_table in tables_in_query or to_table in tables_in_query:
+                ordered_edges.append(edge)
+                remaining_edges.remove(edge)
+                made_progress = True
+
+                # Add the new table to tables_in_query for dependency tracking
+                if from_table in tables_in_query:
+                    tables_in_query.add(to_table)
+                else:
+                    tables_in_query.add(from_table)
+
+        if not made_progress:
+            # No joins could be added - might be disconnected joins or circular dependency
+            logger.warning(
+                f"Could not order {len(remaining_edges)} joins - they may be disconnected from the base table. "
+                f"Remaining: {remaining_edges}"
+            )
+            # Add remaining joins anyway to avoid losing them
+            ordered_edges.extend(remaining_edges)
+            break
+
+    # Reset tables_in_query to just the base FROM table for actual join processing
+    tables_in_query = {table_name}
+
+    for i, edge in enumerate(ordered_edges):
         from_table = edge.get("from_table")
         from_column = edge.get("from_column")
         to_table = edge.get("to_table")
@@ -1406,9 +1446,15 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             join_table_name = to_table
             on_condition = f"{from_table}.{from_column} = {to_table}.{to_column}"
         else:
-            # Neither table in query yet - add to_table by default
-            join_table_name = to_table
+            # Neither table in query yet - this should rarely happen after reordering
+            # Add from_table first so it's available for the ON condition
+            logger.warning(
+                f"Neither {from_table} nor {to_table} in query yet - join reordering may have failed. "
+                f"Adding {from_table} to ensure ON condition works."
+            )
+            join_table_name = from_table
             on_condition = f"{from_table}.{from_column} = {to_table}.{to_column}"
+            # Note: to_table will need to be added in a subsequent join
 
         # Track that this table is now in the query
         tables_in_query.add(join_table_name)
@@ -1613,14 +1659,22 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
     # Apply LIMIT
     # Priority: 1) Plan's limit, 2) State's result_limit
     plan_limit = plan_dict.get("limit")
+    result_limit = state.get("result_limit", 0)
+
+    logger.debug(f"LIMIT DEBUG: plan_limit={plan_limit}, result_limit={result_limit}")
+    logger.debug(f"LIMIT DEBUG: plan_dict keys: {list(plan_dict.keys())}")
+
     if plan_limit and plan_limit > 0:
         # Use plan's LIMIT specification
+        logger.info(f"Using plan's LIMIT: {plan_limit}")
         query = query.limit(plan_limit)
     else:
         # Fall back to state's result_limit (legacy behavior)
-        result_limit = state.get("result_limit", 0)
         if result_limit and result_limit > 0:
+            logger.info(f"Using state's result_limit: {result_limit}")
             query = query.limit(result_limit)
+        else:
+            logger.debug("No LIMIT applied")
 
     # Convert to SQL string
     dialect = db_context["dialect"]

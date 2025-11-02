@@ -77,6 +77,84 @@ def auto_fix_join_edges(planner_output_dict: dict) -> dict:
     return planner_output_dict
 
 
+def repair_planner_output(planner_output_dict: dict) -> dict:
+    """
+    Repair common validation issues in planner output before Pydantic validation.
+
+    This function adds missing required fields with sensible defaults and fixes
+    common formatting issues that cause Pydantic validation errors.
+
+    Fixes applied:
+    - Add missing 'intent_summary' field
+    - Add missing 'decision' field
+    - Add missing 'selections' field
+    - Add missing 'confidence' fields in selections
+    - Convert string columns to dict objects
+    - Remove extra forbidden fields
+
+    Args:
+        planner_output_dict: Raw planner output dictionary (before Pydantic validation)
+
+    Returns:
+        Repaired planner output dictionary
+    """
+    # Add intent_summary if missing
+    if 'intent_summary' not in planner_output_dict:
+        planner_output_dict['intent_summary'] = "Query plan generated"
+        logger.info("Repair: Added missing intent_summary field")
+
+    # Add decision if missing
+    if 'decision' not in planner_output_dict:
+        planner_output_dict['decision'] = 'proceed'
+        logger.info("Repair: Added missing decision field")
+
+    # Add selections if missing
+    if 'selections' not in planner_output_dict:
+        # This is a critical error - try to infer from other fields
+        planner_output_dict['selections'] = []
+        logger.warning("Repair: Added missing selections field (will likely fail downstream)")
+
+    # Fix selections array
+    selections = planner_output_dict.get('selections', [])
+    for i, sel in enumerate(selections):
+        # Add confidence if missing
+        if 'confidence' not in sel:
+            sel['confidence'] = 0.7
+
+        # Fix columns format - convert strings to dicts
+        if 'columns' in sel:
+            fixed_columns = []
+            for col in sel['columns']:
+                if isinstance(col, str):
+                    # Convert string to dict
+                    fixed_columns.append({
+                        'column': col,
+                        'role': 'projection'
+                    })
+                    logger.info(f"Repair: Converted string column '{col}' to dict in selection {i}")
+                else:
+                    fixed_columns.append(col)
+            sel['columns'] = fixed_columns
+
+        # Remove forbidden fields that exist in older schema versions
+        forbidden_fields = ['conditions', 'date_filters']
+        for field in forbidden_fields:
+            if field in sel:
+                del sel[field]
+                logger.info(f"Repair: Removed forbidden field '{field}' from selection {i}")
+
+    planner_output_dict['selections'] = selections
+
+    # Remove forbidden top-level fields
+    top_level_forbidden = ['filters', 'aggregations', 'join_only_tables', 'date_filters']
+    for field in top_level_forbidden:
+        if field in planner_output_dict:
+            del planner_output_dict[field]
+            logger.info(f"Repair: Removed forbidden top-level field '{field}'")
+
+    return planner_output_dict
+
+
 def extract_validation_error_details(error_message: str) -> dict:
     """
     Extract structured validation error details from Pydantic validation error.
@@ -298,6 +376,228 @@ def _create_minimal_prompt(**format_params):
         system_instructions.format(**format_params),
         "",
     )  # No separate user message for minimal
+
+
+def _create_minimal_planner_prompt_with_strategy(**format_params):
+    """Create minimal planner prompt that uses pre-plan strategy (no schema)."""
+    system_instructions = dedent(
+        """
+        # Query Plan Structuring Agent
+
+        We're building a SQL query assistant using a two-stage approach.
+        A strategic planning agent analyzed the database schema and created a plan.
+        Your job: Structure that plan into PlannerOutputMinimal JSON.
+
+        ## The Pipeline
+
+        1. **Pre-Planner** (completed): Analyzed schema, created text-based strategy
+        2. **You**: Convert strategy → structured JSON
+        3. **SQL Generator**: Converts your JSON → executable SQL
+        4. **Database**: Executes the SQL
+
+        ## Your Role
+
+        You're translating strategic intent into precise structure.
+        The SQL generator will follow your JSON exactly, so accuracy matters.
+
+        ## Key Responsibilities
+
+        - Preserve all table/column names exactly as written in the strategy
+        - Structure joins properly (every table in join_edges must be in selections)
+        - Format filters correctly (arrays for 'between'/'in', scalars for others)
+        - Maintain the strategic decisions (don't second-guess the pre-planner)
+
+        ## JSON Structure
+
+        - `decision`: "proceed", "clarify", or "terminate"
+        - `intent_summary`: One sentence summary
+        - `selections`: Tables with columns and filters
+        - `join_edges`: Table joins (from_table/column → to_table/column)
+        - `global_filters`: Cross-table filters
+        - `group_by`: Aggregations (if needed)
+        - `order_by`: Sorting (if needed)
+        - `limit`: Row limit (if needed)
+        - `ambiguities`: Assumptions
+        - `termination_reason`: Why terminated (if decision='terminate')
+
+        ## Filter Operators
+
+        `=`, `!=`, `>`, `>=`, `<`, `<=`, `between` (array [low, high]), `in` (array), `not_in` (array), `like`, `starts_with`, `ends_with`, `is_null`, `is_not_null`
+
+        # STRATEGY
+
+        {pre_plan_strategy}
+
+        # USER QUERY
+
+        "{user_query}"
+        """
+    ).strip()
+
+    return (system_instructions.format(**format_params), "")
+
+
+def _create_standard_planner_prompt_with_strategy(**format_params):
+    """Create standard planner prompt that uses pre-plan strategy (no schema)."""
+    system_instructions = dedent(
+        """
+        # Query Plan Structuring Agent (Standard Tier)
+
+        We're building a SQL query assistant using a two-stage approach.
+        A strategic planning agent analyzed the database and created a detailed plan with reasoning.
+        Your job: Structure that plan into PlannerOutputStandard JSON with reasons preserved.
+
+        ## The Pipeline
+
+        1. **Pre-Planner** (completed): Analyzed schema, reasoned about approach, created strategy
+        2. **You**: Convert strategy → structured JSON (preserving reasoning)
+        3. **SQL Generator**: Converts your JSON → executable SQL
+        4. **Database**: Executes the SQL
+
+        ## Your Role
+
+        You're translating strategic intent into precise structure while preserving the reasoning trail.
+        This tier includes `reason` fields for debugging and transparency.
+
+        ## Key Responsibilities
+
+        - Preserve all table/column names exactly as written
+        - Copy reasoning from the strategy into `reason` fields
+        - Structure joins properly (every table in join_edges must be in selections)
+        - Format filters correctly (arrays for 'between'/'in', scalars for others)
+        - When aggregating, ensure all projection columns are in group_by_columns
+
+        ## JSON Structure
+
+        **Core:**
+        - `decision`, `intent_summary`
+        - `selections`: Tables with columns, filters, and reasons
+        - `join_edges`: Joins with reasons
+        - `global_filters`: Cross-table filters with reasons
+
+        **Aggregations:**
+        - `group_by`: GROUP BY columns, aggregates with reasons, having filters
+
+        **Ordering:**
+        - `order_by`: Sort specifications with reasons
+        - `limit`: Row limit with reason
+
+        **Metadata:**
+        - `ambiguities`: Assumptions
+        - `termination_reason`: If terminated
+
+        ## Filter Operators
+
+        `=`, `!=`, `>`, `>=`, `<`, `<=`, `between` (array [low, high]), `in` (array), `not_in` (array), `like`, `starts_with`, `ends_with`, `is_null`, `is_not_null`
+
+        # STRATEGY
+
+        {pre_plan_strategy}
+
+        # USER QUERY
+
+        "{user_query}"
+        """
+    ).strip()
+
+    return (system_instructions.format(**format_params), "")
+
+
+def _create_full_planner_prompt_with_strategy(**format_params):
+    """Create full planner prompt that uses pre-plan strategy (no schema)."""
+    system_instructions = dedent(
+        """
+        # Query Plan Structuring Agent (Full Tier)
+
+        We're building a SQL query assistant using a two-stage approach.
+        A strategic planning agent performed comprehensive analysis and created a detailed plan.
+        Your job: Structure that plan into complete PlannerOutput JSON with all features.
+
+        ## The Pipeline
+
+        1. **Pre-Planner** (completed): Deep schema analysis, strategic reasoning, comprehensive planning
+        2. **You**: Convert strategy → structured JSON (with advanced features)
+        3. **SQL Generator**: Converts your JSON → executable SQL via SQLGlot
+        4. **Database**: Executes the SQL and returns results
+
+        ## Your Role
+
+        You're the bridge between strategic thinking and deterministic SQL generation.
+        The SQL generator is algorithmic - it will follow your structure exactly.
+        Your accurate structuring ensures the query matches the user's intent.
+
+        ## Key Responsibilities
+
+        - Preserve all table/column names exactly as written
+        - Copy reasoning from the strategy into `reason` fields
+        - Structure joins properly (every table in join_edges must be in selections)
+        - Format filters correctly (arrays for 'between'/'in', scalars for others)
+        - When aggregating, ensure all projection columns are in group_by_columns
+        - Structure advanced features (window functions, CTEs, subqueries) when present
+
+        ## JSON Structure
+
+        **Core:**
+        - `decision`, `intent_summary`
+        - `selections`: Tables with columns, filters, reasons
+        - `join_edges`: Joins with reasons
+        - `global_filters`: Cross-table filters with reasons
+
+        **Aggregations:**
+        - `group_by`: GROUP BY columns, aggregates with reasons, having filters
+
+        **Advanced Features (if in strategy):**
+        - `window_functions`: ROW_NUMBER, RANK, DENSE_RANK, LAG, LEAD, etc.
+        - `subquery_filters`: WHERE col IN (SELECT...) patterns
+        - `ctes`: WITH clause definitions
+
+        **Ordering:**
+        - `order_by`: Sort specifications with reasons
+        - `limit`: Row limit with reason
+
+        **Metadata:**
+        - `ambiguities`: Assumptions made
+        - `termination_reason`: If query impossible
+
+        ## Filter Operators
+
+        `=`, `!=`, `>`, `>=`, `<`, `<=`, `between` (array [low, high]), `in` (array), `not_in` (array), `like`, `starts_with`, `ends_with`, `is_null`, `is_not_null`
+
+        # STRATEGY
+
+        {pre_plan_strategy}
+
+        # USER QUERY
+
+        "{user_query}"
+        """
+    ).strip()
+
+    return (system_instructions.format(**format_params), "")
+
+
+def create_planner_prompt_with_strategy(mode: str = None, **format_params):
+    """Create planner prompt that uses pre-plan strategy instead of schema.
+
+    This is for the two-stage planning approach:
+    1. Pre-planner generates text-based strategy
+    2. Planner converts strategy to JSON
+
+    Args:
+        mode: Optional mode - "update", "rewrite", or None for initial
+        format_params: Must include 'pre_plan_strategy' field
+
+    Returns:
+        Tuple of (system_instructions, user_input)
+    """
+    # Check complexity level and route to appropriate prompt builder
+    complexity = get_planner_complexity()
+    if complexity == "minimal":
+        return _create_minimal_planner_prompt_with_strategy(**format_params)
+    elif complexity == "standard":
+        return _create_standard_planner_prompt_with_strategy(**format_params)
+    else:  # full
+        return _create_full_planner_prompt_with_strategy(**format_params)
 
 
 def create_planner_prompt(mode: str = None, **format_params):
@@ -1033,6 +1333,10 @@ def plan_query(state: State):
         # Get current date for date-aware queries
         current_date = datetime.now().strftime("%Y-%m-%d")
 
+        # Check if we're using two-stage planning (pre-plan strategy exists)
+        pre_plan_strategy = state.get("pre_plan_strategy")
+        using_two_stage = pre_plan_strategy is not None
+
         # Build format parameters
         format_params = {
             "domain_guidance": domain_text,
@@ -1062,23 +1366,38 @@ def plan_query(state: State):
             format_params["previous_plan"] = previous_plan
             format_params["router_instructions"] = router_instructions
 
-            # Only include schema for rewrite mode
-            if router_mode == "rewrite":
+            # Only include schema for rewrite mode AND when NOT using two-stage planning
+            if router_mode == "rewrite" and not using_two_stage:
                 # Use markdown schema if available, otherwise fallback to JSON
                 format_params["schema"] = schema_markdown or json.dumps(
                     schema_to_use, indent=2
                 )
         else:
-            # Initial mode - include schema (filtered if available)
-            # Use markdown schema if available, otherwise fallback to JSON
-            format_params["schema"] = schema_markdown or json.dumps(
-                schema_to_use, indent=2
-            )
+            # Initial mode - include schema ONLY if NOT using two-stage planning
+            if not using_two_stage:
+                # Use markdown schema if available, otherwise fallback to JSON
+                format_params["schema"] = schema_markdown or json.dumps(
+                    schema_to_use, indent=2
+                )
 
-        # Create the prompt (returns tuple of system and user messages)
-        system_content, user_content = create_planner_prompt(
-            mode=router_mode, **format_params
-        )
+        if using_two_stage:
+            # Two-stage planning: Use pre-plan strategy instead of schema
+            format_params["pre_plan_strategy"] = pre_plan_strategy
+            logger.info(
+                "Using two-stage planning approach",
+                extra={"pre_plan_length": len(pre_plan_strategy)}
+            )
+            # Create the prompt with strategy (returns tuple of system and user messages)
+            system_content, user_content = create_planner_prompt_with_strategy(
+                mode=router_mode, **format_params
+            )
+        else:
+            # Single-stage planning: Use schema directly
+            logger.info("Using single-stage planning approach (direct schema)")
+            # Create the prompt (returns tuple of system and user messages)
+            system_content, user_content = create_planner_prompt(
+                mode=router_mode, **format_params
+            )
 
         # Debug: Save the prompt to a file
         from utils.debug_utils import save_debug_file
@@ -1143,10 +1462,18 @@ Please regenerate your response with this issue corrected.
                 # Make ONE LLM call, get JSON, apply auto-fix, then validate
                 with log_execution_time(logger, "llm_planner_invocation"):
                     # Use structured output to get JSON
-                    structured_llm = base_llm.with_structured_output(
-                        planner_model_class,
-                        method="json_schema" if is_using_ollama() else None
-                    )
+                    # For OpenAI: use function_calling (default, most reliable)
+                    # For Ollama: use json_schema (required for local models)
+                    if is_using_ollama():
+                        structured_llm = base_llm.with_structured_output(
+                            planner_model_class,
+                            method="json_schema"
+                        )
+                    else:
+                        # OpenAI - don't specify method, uses function_calling by default
+                        structured_llm = base_llm.with_structured_output(
+                            planner_model_class
+                        )
 
                     # Try structured output with auto-fix fallback
                     try:
@@ -1162,34 +1489,35 @@ Please regenerate your response with this issue corrected.
                         break
 
                     except OutputParserException as parse_error:
-                        # Check if this is a join_edges validation error
+                        # ANY validation error - try to repair
                         error_details = extract_validation_error_details(str(parse_error))
 
-                        if error_details["error_type"] in [
-                            "join_edges_invalid_tables",
-                            "join_edges_missing_selections"
-                        ]:
-                            # This is the type of error auto-fix can handle
-                            logger.info(
-                                "Detected join_edges validation error, attempting auto-fix",
-                                extra={
-                                    "error_type": error_details["error_type"],
-                                    "missing_tables": error_details["missing_tables"]
-                                }
-                            )
+                        logger.info(
+                            "Detected validation error, attempting repair",
+                            extra={
+                                "error_type": error_details["error_type"],
+                                "missing_tables": error_details["missing_tables"],
+                                "problematic_field": error_details["problematic_field"]
+                            }
+                        )
 
-                            # Get raw response to extract and fix JSON
-                            raw_response = base_llm.invoke(current_messages)
+                        # Extract raw JSON from exception (don't make a new LLM call!)
+                        try:
+                            # Get the raw LLM output that failed validation
+                            raw_llm_output = parse_error.llm_output
+                            if not raw_llm_output:
+                                # If exception doesn't have llm_output, can't repair
+                                raise parse_error
 
-                            # Parse JSON from response
+                            # Parse JSON from raw output
                             try:
-                                raw_json = json.loads(raw_response.content)
+                                raw_json = json.loads(raw_llm_output)
                             except json.JSONDecodeError:
                                 # Try to extract from markdown code blocks
                                 import re
                                 json_match = re.search(
                                     r'```json\s*(\{.*?\})\s*```',
-                                    raw_response.content,
+                                    raw_llm_output,
                                     re.DOTALL
                                 )
                                 if json_match:
@@ -1198,20 +1526,26 @@ Please regenerate your response with this issue corrected.
                                     # Can't parse JSON, re-raise original error
                                     raise parse_error
 
-                            # Apply auto-fix for join_edges
-                            fixed_json = auto_fix_join_edges(raw_json)
+                            # Apply ALL repair functions
+                            fixed_json = repair_planner_output(raw_json)  # General repairs
+                            fixed_json = auto_fix_join_edges(fixed_json)  # Join-specific fix
 
                             # Validate with Pydantic
                             plan = planner_model_class(**fixed_json)
 
                             logger.info(
-                                "Successfully applied auto-fix and validated planner output",
+                                "Successfully applied repairs and validated planner output",
                                 extra={"retry_attempt": retry_attempt + 1}
                             )
                             break
-                        else:
-                            # Different type of error, re-raise to handle in outer except
-                            raise
+
+                        except Exception as repair_error:
+                            # Repair failed, re-raise original validation error to retry
+                            logger.warning(
+                                "Repair attempt failed, will retry with feedback",
+                                extra={"repair_error": str(repair_error)}
+                            )
+                            raise parse_error
 
             except OutputParserException as e:
                 last_parsing_error = e

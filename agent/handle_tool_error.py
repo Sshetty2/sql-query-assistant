@@ -60,6 +60,7 @@ def handle_tool_error(state) -> dict:
     original_query = state["query"]
     original_plan = state["planner_output"]
     retry_count = state.get("retry_count", 0)
+    user_question = state.get("user_question", "")
 
     logger.info(
         "Starting plan correction for error",
@@ -195,8 +196,30 @@ The same table appears multiple times in the query without proper distinction.
         - Use the schema to find correct table and column combinations
 
         **Second Priority - MAINTAIN THE ORIGINAL INTENT:**
-        - Keep the user's original question and intent in mind
-        - Don't remove essential columns or tables unless they're causing errors
+
+        ⚠️ **CRITICAL: DO NOT CHANGE THE USER'S ORIGINAL QUESTION!**
+
+        The user asked a specific question. Your job is to FIX ERRORS, NOT REWRITE THE QUERY.
+
+        **Original User Question:**
+        ```
+        {user_question}
+        ```
+
+        **Your corrected plan MUST answer this SAME question.**
+
+        ❌ **FORBIDDEN:** Changing the intent to a different question
+        - Example: User asks "Count CVEs by priority" → You change to "Find computers with apps" ← WRONG!
+        - Example: User asks "Show companies" → You change to "Show applications" ← WRONG!
+
+        ✅ **CORRECT:** Keep the same intent, just fix the technical errors
+        - User asks "Count CVEs by priority" → Fix joins but keep counting CVEs by priority
+        - User asks "Show companies" → Fix column names but keep showing companies
+
+        **Rules:**
+        - Keep the user's original question in mind ALWAYS
+        - Don't remove essential columns or tables unless they're DIRECTLY causing errors
+        - If unsure how to fix, simplify BUT KEEP THE SAME INTENT
 
         **Third Priority - Verify Schema Accuracy:**
         - Ensure all columns exist in their respective tables
@@ -220,6 +243,11 @@ The same table appears multiple times in the query without proper distinction.
         - Review the error history to avoid repeating mistakes
         - Pay special attention to type conversion errors - these often indicate wrong join columns
         - Ensure proper SQL Server T-SQL syntax compatibility
+
+        **IMPORTANT: Preserve ORDER BY and LIMIT**
+        - If the original plan had `order_by` or `limit` fields, **preserve them in your corrected plan**
+        - These specify sorting and result count (e.g., "top 5 customers", "last 10 logins")
+        - Only remove them if they're directly causing the error
 
         ---
 
@@ -338,11 +366,15 @@ If you need to reference a table in a join, you MUST add it to the selections ar
                 exc_info=True,
                 extra={"retry_count": retry_count, "error": str(e)},
             )
+            # Add placeholder entries to arrays so UI can display the error
             return {
                 **state,
                 "messages": [AIMessage(content=f"Unexpected error during correction: {str(e)}")],
                 "last_step": "handle_error",
                 "retry_count": state["retry_count"] + 1,
+                "corrected_queries": state["corrected_queries"] + [original_query],
+                "corrected_plans": state["corrected_plans"] + [original_plan_dict],
+                "error_reasoning": state.get("error_reasoning", []) + [f"⚠️ UNEXPECTED ERROR: {str(e)}"],
                 "error_history": state.get("error_history", [])
                 + [f"Correction unexpected error: {str(e)}"],
             }
@@ -356,12 +388,16 @@ If you need to reference a table in a join, you MUST add it to the selections ar
 
         logger.error(error_msg, extra={"retry_count": retry_count})
 
-        # Return state with error message - this will trigger cleanup
+        # Add placeholder entries to arrays so UI can display the parse error
+        # This keeps arrays in sync with retry_count
         return {
             **state,
             "messages": [AIMessage(content=error_msg)],
             "last_step": "handle_error",
             "retry_count": state["retry_count"] + 1,
+            "corrected_queries": state["corrected_queries"] + [original_query],
+            "corrected_plans": state["corrected_plans"] + [original_plan_dict],
+            "error_reasoning": state.get("error_reasoning", []) + [f"⚠️ PARSING FAILED: {validation_summary}"],
             "error_history": state.get("error_history", [])
             + [f"Correction parsing failed: {validation_summary}"],
         }

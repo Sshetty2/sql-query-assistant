@@ -434,6 +434,103 @@ def validate_table_references(plan_dict: dict) -> list[str]:
     return issues
 
 
+def validate_table_connectivity(plan_dict: dict) -> list[str]:
+    """
+    Validate that all tables in selections are connected via join edges.
+
+    This detects "orphaned" tables that are in selections but have no join
+    path connecting them to the rest of the query. This causes SQL to create
+    a CROSS JOIN (Cartesian product), which is almost never intended and leads
+    to incorrect results or query errors.
+
+    Example of disconnected table issue:
+    - Selections: [tb_Company, tb_CVE, tb_SaasComputers]
+    - Join edges: [tb_Company <-> tb_SaasComputers]
+    - Problem: tb_CVE has no join connecting it! This creates CROSS JOIN.
+
+    Args:
+        plan_dict: The planner output dictionary
+
+    Returns:
+        List of validation issues for disconnected tables
+    """
+    issues = []
+
+    # Get all tables from selections
+    selected_tables = {sel.get("table") for sel in plan_dict.get("selections", [])}
+
+    # If only one table, no joins needed
+    if len(selected_tables) <= 1:
+        return issues
+
+    # Get join edges
+    join_edges = plan_dict.get("join_edges", [])
+
+    # If multiple tables but no joins, all tables are disconnected
+    if len(selected_tables) > 1 and not join_edges:
+        issues.append(
+            f"Multiple tables in selections ({', '.join(sorted(selected_tables))}) "
+            f"but no join edges defined. This will create a CROSS JOIN (Cartesian product). "
+            f"Add join edges to connect these tables."
+        )
+        logger.warning(
+            "No join edges found for multi-table query",
+            extra={"selected_tables": list(selected_tables)}
+        )
+        return issues
+
+    # Build adjacency graph from join edges
+    # Each table tracks which other tables it's connected to
+    adjacency = {table: set() for table in selected_tables}
+
+    for edge in join_edges:
+        from_table = edge.get("from_table")
+        to_table = edge.get("to_table")
+
+        # Only track joins between selected tables
+        if from_table in selected_tables and to_table in selected_tables:
+            adjacency[from_table].add(to_table)
+            adjacency[to_table].add(from_table)  # Bidirectional
+
+    # Find connected components using DFS
+    # Start from the first table and see which tables we can reach
+    visited = set()
+    start_table = next(iter(selected_tables))  # Pick first table as starting point
+
+    # DFS to find all reachable tables
+    def dfs(table):
+        if table in visited:
+            return
+        visited.add(table)
+        for neighbor in adjacency[table]:
+            dfs(neighbor)
+
+    dfs(start_table)
+
+    # Find disconnected tables (not reachable from start_table)
+    disconnected = selected_tables - visited
+
+    if disconnected:
+        for table in sorted(disconnected):
+            issues.append(
+                f"Table '{table}' is in selections but has no join edges connecting it "
+                f"to the rest of the query. This will cause a CROSS JOIN (Cartesian product). "
+                f"Either add a join edge from '{table}' to another table, or remove '{table}' "
+                f"from selections if it's not needed."
+            )
+            logger.warning(
+                f"Disconnected table detected: {table}",
+                extra={
+                    "disconnected_table": table,
+                    "connected_tables": list(visited),
+                    "all_selected_tables": list(selected_tables),
+                    "adjacency_graph": {k: list(v) for k, v in adjacency.items()}
+                }
+            )
+
+    return issues
+
+
 def run_deterministic_checks(plan_dict: dict, schema: list[dict]) -> list[str]:
     """
     Run all deterministic validation checks.
@@ -448,7 +545,8 @@ def run_deterministic_checks(plan_dict: dict, schema: list[dict]) -> list[str]:
     issues.extend(validate_join_edges(plan_dict, schema))
     issues.extend(validate_filters(plan_dict, schema))
     issues.extend(validate_group_by(plan_dict, schema))
-    issues.extend(validate_table_references(plan_dict))  # New validation
+    issues.extend(validate_table_references(plan_dict))
+    issues.extend(validate_table_connectivity(plan_dict))  # Detect disconnected tables
 
     return issues
 
@@ -487,6 +585,10 @@ Fix the issues in the plan by using the correct table and column names from the 
 2. **Column in Wrong Table:** Column exists but referenced with wrong table name
    - Example: `TagName` is in `tb_SoftwareTagsAndColors`, not `tb_ApplicationTagMap`
 3. **Typos:** Column name is misspelled (check schema for exact names)
+4. **Disconnected Tables:** Table is in selections but has no join connecting it
+   - This creates a CROSS JOIN (Cartesian product) which is almost never correct
+   - Fix: Add a join_edge to connect the table, or remove it from selections if not needed
+   - Example: If tb_CVE is disconnected, check schema foreign_keys to find how to join it
 
 **Rules:**
 - Use EXACT column names from the schema (case-sensitive)
@@ -494,6 +596,7 @@ Fix the issues in the plan by using the correct table and column names from the 
 - If a column doesn't exist, find the correct table that has it
 - Maintain the original query intent
 - **IMPORTANT:** Do NOT change the `decision` field - preserve it exactly as is
+- For disconnected tables, check the schema's foreign_keys section to find correct join columns
 
 **Output:** Return the corrected plan with all issues fixed.
 """

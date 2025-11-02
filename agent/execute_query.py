@@ -184,13 +184,15 @@ def execute_query(state: State, db_connection):
             logger.info(f"Query returned {total_count} total records")
 
             # Determine which limit to apply:
-            # 1. If query had explicit limit (e.g., from user modification), use that
+            # 1. If query had explicit limit (e.g., from planner or user modification), use that
             # 2. Otherwise, apply DEFAULT_LIMIT if results exceed it
             if extracted_limit:
                 # Query had explicit limit - always respect it
                 limit_to_apply = int(str(extracted_limit.expression))
-                should_apply_limit = total_count > limit_to_apply
-                logger.info(f"Query has explicit limit of {limit_to_apply}")
+                # ALWAYS apply explicit limits, even if total_count is less than limit
+                # This preserves the planner's intent (e.g., "top 5" should always have TOP 5)
+                should_apply_limit = True
+                logger.info(f"Query has explicit limit of {limit_to_apply}, will always apply it")
             else:
                 # No explicit limit - use smart default
                 limit_to_apply = DEFAULT_LIMIT

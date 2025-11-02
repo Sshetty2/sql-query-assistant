@@ -161,6 +161,11 @@ def refine_query(state: State) -> Dict[str, Any]:
         - **Simplify joins** - Complex joins might be filtering out all results
         - **Check join_edges** - Ensure join columns are correct and exist in both tables
 
+        **IMPORTANT: Preserve ORDER BY and LIMIT**
+        - If the original plan had `order_by` or `limit` fields, **preserve them in your refined plan**
+        - These specify sorting and result count (e.g., "top 5 customers", "last 10 logins")
+        - Only remove them if they're causing the no-results issue
+
         ---
 
         ## Instructions
@@ -296,11 +301,15 @@ If you need to reference a table in a join, you MUST add it to the selections ar
                 exc_info=True,
                 extra={"refined_count": refined_count, "error": str(e)},
             )
+            # Add placeholder entries to arrays so UI can display the error
             return {
                 **state,
                 "messages": [AIMessage(content=f"Unexpected error during refinement: {str(e)}")],
                 "last_step": "refine_query",
                 "refined_count": state["refined_count"] + 1,
+                "refined_queries": state["refined_queries"] + [original_query],
+                "refined_plans": state["refined_plans"] + [original_plan_dict],
+                "refined_reasoning": state["refined_reasoning"] + [f"⚠️ UNEXPECTED ERROR: {str(e)}"],
                 "error_history": state.get("error_history", [])
                 + [f"Refinement unexpected error: {str(e)}"],
             }
@@ -314,12 +323,16 @@ If you need to reference a table in a join, you MUST add it to the selections ar
 
         logger.error(error_msg, extra={"refined_count": refined_count})
 
-        # Return state with error message - this will trigger cleanup
+        # Add placeholder entries to arrays so UI can display the parse error
+        # This keeps arrays in sync with refined_count
         return {
             **state,
             "messages": [AIMessage(content=error_msg)],
             "last_step": "refine_query",
             "refined_count": state["refined_count"] + 1,
+            "refined_queries": state["refined_queries"] + [original_query],
+            "refined_plans": state["refined_plans"] + [original_plan_dict],
+            "refined_reasoning": state["refined_reasoning"] + [f"⚠️ PARSING FAILED: {validation_summary}"],
             "error_history": state.get("error_history", [])
             + [f"Refinement parsing failed: {validation_summary}"],
         }

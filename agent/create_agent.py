@@ -9,6 +9,7 @@ from agent.analyze_schema import analyze_schema
 from agent.filter_schema import filter_schema
 from agent.infer_foreign_keys import infer_foreign_keys_node
 from agent.format_schema_markdown import convert_schema_to_markdown
+from agent.pre_planner import create_preplan_strategy
 from agent.execute_query import execute_query
 from agent.planner import plan_query
 from agent.plan_audit import plan_audit
@@ -250,6 +251,7 @@ def create_sql_agent():
     workflow.add_node("filter_schema", filter_schema)
     workflow.add_node("infer_foreign_keys", infer_foreign_keys_node)
     workflow.add_node("format_schema_markdown", convert_schema_to_markdown)
+    workflow.add_node("pre_planner", create_preplan_strategy)  # Two-stage planning: strategy generation
     # DISABLED: Conversational router commented out for now
     # workflow.add_node("conversational_router", conversational_router)
     workflow.add_node("planner", plan_query)
@@ -274,7 +276,9 @@ def create_sql_agent():
     # Conditional routing from filter_schema based on FK inference flag
     workflow.add_conditional_edges("filter_schema", route_after_filter_schema)
     workflow.add_edge("infer_foreign_keys", "format_schema_markdown")
-    workflow.add_edge("format_schema_markdown", "planner")
+    # Two-stage planning: format_schema_markdown → pre_planner → planner
+    workflow.add_edge("format_schema_markdown", "pre_planner")
+    workflow.add_edge("pre_planner", "planner")
     workflow.add_edge("planner", "plan_audit")  # Audit plan before clarification
     workflow.add_edge(
         "plan_audit", "check_clarification"
