@@ -325,8 +325,9 @@ class TestRunDeterministicChecks:
             "global_filters": [],
             "group_by": None,
         }
-        issues = run_deterministic_checks(plan, sample_schema)
-        assert len(issues) == 0
+        critical_issues, non_critical_issues = run_deterministic_checks(plan, sample_schema)
+        assert len(critical_issues) == 0
+        assert len(non_critical_issues) == 0
 
     def test_multiple_issues_detected(self, sample_schema):
         """Test that multiple issues across different checks are detected."""
@@ -364,8 +365,9 @@ class TestRunDeterministicChecks:
                 ]
             },
         }
-        issues = run_deterministic_checks(plan, sample_schema)
-        assert len(issues) == 4  # Should detect all 4 issues
+        critical_issues, non_critical_issues = run_deterministic_checks(plan, sample_schema)
+        total_issues = len(critical_issues) + len(non_critical_issues)
+        assert total_issues == 4  # Should detect all 4 issues
 
 
 class TestFixGroupByCompleteness:

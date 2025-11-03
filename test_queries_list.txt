@@ -1,0 +1,137 @@
+## 15 Semi-Complex Test Queries for Manual Testing
+## Created: 2025-10-31
+## Database: IT Asset Management and Vulnerability Tracking
+
+===================================================================================
+Q1: Multi-Company Scan Summary (Medium)
+===================================================================================
+Show me a summary of scan activity for each company in the last 90 days, including total scans, full scans, and rescanned items
+
+Expected: Multi-table join (Company, Scan), date filtering, aggregation, GROUP BY
+
+
+===================================================================================
+Q2: High Severity CVE Computers (Medium-High)
+===================================================================================
+List all computers that have CVEs with CVSS score greater than 8.0, including company name, computer name, CVE name, and CVSS score
+
+Expected: 4-table join (Company, Computers, CVEMap, CVE), numeric filtering
+
+
+===================================================================================
+Q3: Pending Patches by Company (Medium)
+===================================================================================
+Show the top 5 companies with the most pending patches, ordered by count descending
+
+Expected: 2-table join (Company, PendingPatch), aggregation, ORDER BY, LIMIT
+
+
+===================================================================================
+Q4: USB Device Inventory (Medium)
+===================================================================================
+Find all computers with USB devices connected that were scanned in the last 30 days, showing company name, computer name, scan date, and USB device details
+
+Expected: 4-table join (Company, Computers, USBDevices, Scan), date filtering
+
+
+===================================================================================
+Q5: Application Vulnerability Count (Medium)
+===================================================================================
+Show applications with more than 10 associated CVEs, including application name and CVE count, sorted by CVE count
+
+Expected: 2-table join (MasterInstalledApps, CVE), aggregation, HAVING, ORDER BY
+
+
+===================================================================================
+Q6: User Login Activity (Medium)
+===================================================================================
+List the last 20 user login events including username, company name, login time, IP address, and device information
+
+Expected: 2-table join (Company, UserLoginInfo), ORDER BY, LIMIT
+
+
+===================================================================================
+Q7: Disk Space Low (Medium)
+===================================================================================
+Find computers where any logical disk has less than 20% free space, showing company name, computer ID, device ID, total size, and free space
+
+Expected: 3-table join (Company, Computers, LogicalDisk), calculated filtering
+
+
+===================================================================================
+Q8: Windows Updates Summary (Low-Medium)
+===================================================================================
+Summarize Windows updates by importance level, showing the count of updates for each importance level across all computers
+
+Expected: Aggregation, GROUP BY (simple)
+
+
+===================================================================================
+Q9: Service Port Correlation (High)
+===================================================================================
+Show computers that have both open port 445 and SMB-related services running, including company name, computer name, port number, and service name
+
+Expected: 4-table join (Company, Computers, Ports, Services), multiple filtering
+
+
+===================================================================================
+Q10: Hardware Inventory Summary (High)
+===================================================================================
+For each company, count the total number of computers, monitors, printers, and USB devices
+
+Expected: 5-table join with multiple aggregations, complex GROUP BY
+
+
+===================================================================================
+Q11: Critical Patches Missing (High)
+===================================================================================
+Find computers that have critical CVEs (CVSS >= 9.0) but no corresponding pending patches, showing company, computer, and CVE details
+
+Expected: 5-table join, LEFT JOIN or NOT EXISTS, numeric filtering
+
+
+===================================================================================
+Q12: Scan Frequency Analysis (Medium)
+===================================================================================
+Show companies that haven't had a full scan in the last 60 days, including company name and date of last full scan
+
+Expected: 2-table join (Company, Scan), date filtering, aggregation (MAX)
+
+
+===================================================================================
+Q13: Processor Memory Specs (Medium)
+===================================================================================
+List computers with more than 8 processor cores and at least 16GB of memory, showing company name, computer name, core count, and total memory
+
+Expected: 4-table join (Company, Computers, Processor, OS), multiple numeric filters
+
+
+===================================================================================
+Q14: App Installation Timeline (Medium)
+===================================================================================
+Show the 10 most recently installed applications across all computers, including company name, computer name, application name, and installation date
+
+Expected: 3-table join (Company, Computers, InstalledApps), date ORDER BY, LIMIT
+
+
+===================================================================================
+Q15: Vulnerability Trend (Medium-High)
+===================================================================================
+Count CVEs by priority level (Critical, High, Medium, Low) for all active computers, grouped by company name
+
+Expected: 4-table join (Company, Computers, CVEMap, CVE), GROUP BY multiple columns
+
+
+===================================================================================
+## Testing Notes:
+## - Run each query independently in the Streamlit UI
+## - Audit results manually
+## - Check for:
+##   * Correct table selection
+##   * Proper join logic
+##   * Accurate filtering
+##   * Correct aggregations
+##   * Valid SQL syntax
+##   * Meaningful results
+## - Save any errors or unexpected behavior for analysis
+===================================================================================

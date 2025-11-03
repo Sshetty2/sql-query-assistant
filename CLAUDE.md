@@ -9,10 +9,15 @@ This is a **SQL Query Assistant** that converts natural language queries into SQ
 ### Key Features
 
 - **Deterministic SQL Generation**: SQLGlot-based join synthesizer (no LLM for SQL, zero cost)
+- **Two-Stage Planning Architecture**: Text-based strategy generation followed by structured JSON planning
+  - **Pre-Planner**: Creates high-level text strategy with domain understanding
+  - **Planner**: Converts strategy to structured JSON (PlannerOutput)
+  - **Strategy-First Error Correction**: Feedback loops regenerate strategy, not JSON patches
 - **3-Stage Schema Filtering**: Vector search + LLM reasoning + FK expansion reduces context to relevant tables only
 - **Foreign Key Inference**: Automatic FK discovery for databases without explicit constraints
   - **Standalone FK Agent**: Interactive CLI tool (`fk_inferencing_agent/`) with human-in-the-loop validation
   - **Integrated Inference**: Optional automatic FK inference during query execution (`INFER_FOREIGN_KEYS=true`)
+  - **Smart FK Resolution**: Intelligent column name matching for tables without explicit PKs
 - **Plan Patching**: Interactive query modification with immediate re-execution
   - **Add/Remove Columns**: Toggle columns on/off without rewriting query
   - **Modify ORDER BY**: Change sorting column and direction
@@ -20,7 +25,10 @@ This is a **SQL Query Assistant** that converts natural language queries into SQ
   - **Instant Updates**: Deterministic patching with <2s re-execution (no LLM calls)
 - **Planner Complexity Tiers**: Three levels optimized for different model sizes (minimal/standard/full)
 - **Plan Auditing**: Deterministic validation catches and fixes common mistakes
-- **Smart Error Handling**: Automatic SQL error correction and query refinement
+- **Smart Error Handling**: Feedback-based error correction with iteration limits
+  - Error feedback routes back to pre-planner for strategy regeneration
+  - Refinement feedback for empty results
+  - Separate iteration counters (error: 3, refinement: 3)
 - **ORDER BY/LIMIT Support**: Planner generates ordering from requests like "last 10 logins"
 - **SQL Server Safety**: Automatic identifier quoting for reserved keywords
 - **Query History**: Recent queries sidebar in Streamlit UI (each query is independent, not conversational)
@@ -159,28 +167,37 @@ The agent uses a **LangGraph state machine workflow** (defined in `agent/create_
 2. **filter_schema** - Uses **vector similarity search** to find the top-k most relevant tables (default: 8)
 3. **infer_foreign_keys** (optional) - Automatically infers missing FK relationships using vector similarity (only runs if `INFER_FOREIGN_KEYS=true`)
 4. **format_schema_markdown** - Converts filtered schema to markdown format optimized for LLM consumption
-5. **planner** - LLM generates structured query plan (PlannerOutput) with:
+   - Intelligent FK resolution: matches column names when PK not specified (e.g., CVEID → CVEID)
+5. **pre_planner** - LLM generates text-based strategic plan:
+   - High-level query strategy in natural language
+   - Table selection reasoning
+   - Join path explanations
+   - Filter and aggregation strategy
+   - Incorporates feedback from error/refinement loops
+6. **planner** - LLM converts strategy to structured query plan (PlannerOutput):
    - Table selections with columns and filters
    - Join edges (foreign key relationships)
    - Aggregations (GROUP BY, HAVING)
    - ORDER BY and LIMIT specifications
    - Three operational modes: initial, update, rewrite
    - Three complexity tiers: minimal, standard, full
-6. **plan_audit** - Deterministic validation and fixes:
+7. **plan_audit** - Deterministic validation and fixes (feedback loop DISABLED):
    - Validates column existence
    - Fixes orphaned filter columns
    - Completes GROUP BY clauses
    - Removes invalid joins and filters
-7. **check_clarification** - Analyzes planner decision (proceed/clarify/terminate)
-8. **generate_query** - Deterministic join synthesizer using SQLGlot:
+   - Logs issues but continues execution (lets real SQL errors surface)
+8. **check_clarification** - Analyzes planner decision (proceed/clarify/terminate)
+9. **generate_query** - Deterministic join synthesizer using SQLGlot:
    - No LLM calls - purely algorithmic transformation
    - Builds SQL AST from PlannerOutput
    - Automatic identifier quoting for reserved keywords
    - Multi-dialect support (SQL Server, SQLite, PostgreSQL, MySQL)
-9. **execute_query** - Executes the query against the database
-10. **Conditional routing:**
-   - **handle_error** - LLM-based SQL error correction (loops back to generate_query)
-   - **refine_query** - LLM-based query improvement for empty results (loops back to generate_query)
+10. **execute_query** - Executes the query against the database
+11. **Feedback loops (strategy-first error correction):**
+   - **handle_error** - Analyzes SQL errors, generates feedback, routes to **pre_planner** (max 3 iterations)
+   - **refine_query** - Analyzes empty results, generates feedback, routes to **pre_planner** (max 3 iterations)
+   - **generate_modification_options** - On success, generates interactive modification options
    - **cleanup** - Closes database connection and exits
 
 #### Conversational Follow-up Workflow (Currently Disabled)
@@ -205,15 +222,26 @@ The `State` TypedDict (in `agent/state.py`) tracks:
 - `query` - Current SQL query
 - `result` - Query execution results
 - `sort_order`, `result_limit`, `time_filter` - User preferences
-- `is_continuation` - Flag for conversational routing
 - `router_mode` - Conversational router mode ("update" or "rewrite")
 - `router_instructions` - Instructions from router to planner
 - `planner_output` - Current PlannerOutput object
 - `needs_clarification` - Flag for ambiguous queries
 - `clarification_suggestions` - List of clarification questions
-- `retry_count`, `refined_count` - Iteration counters
+- **Feedback loop fields (strategy-first error correction):**
+  - `pre_plan_strategy` - Current text-based strategy from pre-planner
+  - `preplan_history` - List of previous strategies (for tracking iterations)
+  - `audit_feedback` - Feedback from plan audit (currently disabled)
+  - `error_feedback` - Feedback from error analysis for pre-planner
+  - `refinement_feedback` - Feedback from empty results analysis for pre-planner
+  - `audit_iteration` - Audit iteration counter (max: 2, currently unused)
+  - `error_iteration` - Error correction iteration counter (max: 3)
+  - `refinement_iteration` - Refinement iteration counter (max: 3)
+  - `needs_termination` - Flag for iteration exhaustion
+  - `termination_reason` - Explanation for workflow termination
 - `error_history` - List of errors encountered
 - `refined_reasoning` - Explanations for refinements
+- `corrected_plans` - Plans corrected during error handling
+- `refined_plans` - Plans refined for empty results
 
 ### Key Components
 
@@ -244,7 +272,34 @@ The `State` TypedDict (in `agent/state.py`) tracks:
 - Run with: `python -m fk_inferencing_agent.cli`
 - **See**: `fk_inferencing_agent/README.md` for detailed documentation
 
-**Query Planning (`agent/planner.py`):**
+**FK Resolution (`agent/format_schema_markdown.py`):**
+- Intelligent primary key column resolution for FK relationships
+- **Resolution strategy** (applied in order):
+  1. Use explicit `to_column` if specified in FK definition
+  2. Look up actual primary key from referenced table's schema
+  3. Try matching FK column name (e.g., CVEID → CVEID, CompanyID → CompanyID)
+  4. Fall back to "ID" as last resort
+- **Solves common issues**:
+  - Tables without explicit PK constraints
+  - Domain-specific FKs missing `to_column` specification
+  - Non-standard PK column names (not "ID")
+- **Example**: `CVEID → tb_CVE.CVEID` (not `tb_CVE.ID`) when tb_CVE has CVEID column
+- Prevents "Invalid column name 'ID'" errors in generated SQL
+
+**Two-Stage Planning Architecture:**
+
+*Stage 1: Pre-Planner (`agent/pre_planner.py`):*
+- Creates high-level text-based strategic plan
+- Natural language description of query approach
+- Table selection with reasoning
+- Join path explanations
+- Filter and aggregation strategy
+- **Feedback Integration**: Incorporates error/refinement feedback from failed attempts
+- Schema optimization: Omits schema when feedback present (already in feedback text)
+- Tracks strategy history for debugging
+
+*Stage 2: Planner (`agent/planner.py`):*
+- Converts text strategy to structured JSON (PlannerOutput)
 - Three complexity tiers (configured via `PLANNER_COMPLEXITY`):
   - **minimal** (8GB models): 93% token reduction, basic features
   - **standard** (13B-30B models): 61% token reduction, includes reason fields
@@ -254,6 +309,7 @@ The `State` TypedDict (in `agent/state.py`) tracks:
   - **update**: Minor plan modifications, omits schema
   - **rewrite**: Major changes, uses full filtered schema
 - Outputs structured PlannerOutput Pydantic model
+- Auto-fix logic for common issues (unquoting SQL functions, table reference validation)
 
 **Plan Auditing (`agent/plan_audit.py`):**
 - Deterministic validation and fixes (no LLM calls)
@@ -262,6 +318,10 @@ The `State` TypedDict (in `agent/state.py`) tracks:
 - Completes GROUP BY clauses (adds missing projection columns)
 - Removes invalid joins and filters
 - Filters schema to only tables in plan
+- **Audit feedback loop DISABLED**: Logs issues but continues execution
+  - Lets real SQL errors surface (more informative than pre-execution warnings)
+  - Planner auto-fix handles most issues
+  - Error feedback provides better correction guidance
 
 **Clarification Detection (`agent/check_clarification.py`):**
 - Analyzes planner decision field: "proceed", "clarify", or "terminate"
@@ -290,15 +350,27 @@ The `State` TypedDict (in `agent/state.py`) tracks:
 - Always routes through planner → join synthesizer (prevents SQL injection)
 
 **Error Handling (`agent/handle_tool_error.py`):**
-- Analyzes SQL execution errors
-- Uses LLM to correct syntax/semantic issues
-- Updates PlannerOutput with corrections
-- Tracks correction history
+- **Strategy-first approach**: Generates feedback for pre-planner, not JSON patches
+- Analyzes SQL execution errors using LLM
+- Generates `ErrorFeedback` with:
+  - `error_analysis`: What went wrong (wrong column, wrong join, type mismatch, etc.)
+  - `strategic_guidance`: What to change in the strategy (specific tables/columns)
+- Routes back to **pre_planner** with feedback
+- Iteration limit: 3 attempts (tracked via `error_iteration`)
+- On exhaustion: Terminates with clear error message
+- Tracks error history for debugging
 
 **Query Refinement (`agent/refine_query.py`):**
-- Triggered when query returns no/empty results
-- Analyzes why query failed (e.g., wrong filters, missing joins)
-- Uses LLM to generate improved PlannerOutput
+- **Strategy-first approach**: Generates feedback for pre-planner, not JSON patches
+- Triggered when query returns zero results
+- Analyzes why query failed using LLM
+- Generates `RefinementFeedback` with:
+  - `no_results_analysis`: Why no results (too restrictive filters, wrong columns, etc.)
+  - `strategic_guidance`: How to broaden the strategy to get results
+- Routes back to **pre_planner** with feedback
+- Iteration limit: 3 attempts (tracked via `refinement_iteration`)
+- On exhaustion: Terminates with explanation
+- Preserves user intent while broadening approach
 - Tracks refinement history and reasoning
 
 ### Planner Complexity Tiers

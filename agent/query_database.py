@@ -226,14 +226,15 @@ def query_database(
         "analyze_schema": "filter_schema",
         "filter_schema": "format_schema_markdown",  # Or infer_foreign_keys if enabled
         "infer_foreign_keys": "format_schema_markdown",
-        "format_schema_markdown": "planner",
+        "format_schema_markdown": "pre_planner",  # Two-stage planning: strategy first
+        "pre_planner": "planner",  # Strategy → structured plan
         "planner": "plan_audit",
-        "plan_audit": "check_clarification",
+        "plan_audit": "check_clarification",  # Audit feedback disabled, always continues
         "check_clarification": "generate_query",
         "generate_query": "execute_query",
         "execute_query": "generate_modification_options",  # On success
-        "handle_error": "generate_query",
-        "refine_query": "generate_query",
+        "handle_error": "pre_planner",  # Feedback loop: error → pre-planner → planner → SQL
+        "refine_query": "pre_planner",  # Feedback loop: refinement → pre-planner → planner → SQL
         "transform_plan": "generate_query",
         "generate_modification_options": "cleanup",
         "cleanup": "__end__",
@@ -244,13 +245,14 @@ def query_database(
         "filter_schema": "Filtering relevant tables",
         "infer_foreign_keys": "Inferring foreign key relationships",
         "format_schema_markdown": "Formatting schema for AI",
-        "planner": "Planning query structure",
+        "pre_planner": "Creating query strategy",  # Stage 1: Text-based strategy
+        "planner": "Planning query structure",  # Stage 2: Structured JSON plan
         "plan_audit": "Validating query plan",
         "check_clarification": "Checking for ambiguities",
         "generate_query": "Generating SQL query",
         "execute_query": "Executing query",
-        "handle_error": "Correcting SQL errors",
-        "refine_query": "Refining query (no results)",
+        "handle_error": "Analyzing error and regenerating strategy",  # Routes back to pre-planner
+        "refine_query": "Analyzing empty results and regenerating strategy",  # Routes back to pre-planner
         "transform_plan": "Applying plan modifications",
         "generate_modification_options": "Generating modification options",
         "cleanup": "Finalizing results",
@@ -270,7 +272,9 @@ def query_database(
             }
 
             result = None
-            for chunk in agent.stream(initial_state, stream_mode="updates"):
+            for chunk in agent.stream(
+                initial_state, config={"recursion_limit": 1000}, stream_mode="updates"
+            ):
                 # chunk is a dict with node name as key
                 for node_name, node_output in chunk.items():
                     logger.debug(f"Workflow node completed: {node_name}")

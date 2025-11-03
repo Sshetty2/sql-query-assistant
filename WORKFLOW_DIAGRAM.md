@@ -1,17 +1,21 @@
-# SQL Query Assistant - Workflow Diagram (Updated 2025-10-28)
+# SQL Query Assistant - Workflow Diagram (Updated 2025-11-02)
 
 ## Architecture Overview
 
-The SQL Query Assistant uses a **LangGraph state machine** workflow with deterministic SQL generation, 3-stage schema filtering, and optional foreign key inference.
+The SQL Query Assistant uses a **LangGraph state machine** workflow with **two-stage planning**, deterministic SQL generation, 3-stage schema filtering, and **strategy-first error correction** via feedback loops.
 
 ### Key Architecture Highlights
 
+🔹 **Two-Stage Planning**: Pre-planner creates text strategy → Planner converts to structured JSON
+🔹 **Strategy-First Error Correction**: Feedback loops regenerate strategy, not JSON patches (error/refinement → pre-planner)
 🔹 **Deterministic Join Synthesizer**: Uses SQLGlot to generate SQL from structured plans (no LLM, instant, free)
 🔹 **3-Stage Schema Filtering**: Vector search + LLM reasoning + FK expansion reduces context to relevant tables
 🔹 **Foreign Key Inference**: Optional automatic FK discovery for databases without explicit constraints (`INFER_FOREIGN_KEYS=true`)
+🔹 **Intelligent FK Resolution**: Smart column matching for tables without explicit PKs (e.g., CVEID → CVEID)
 🔹 **Plan Patching**: Instant query modifications (add/remove columns, change ORDER BY/LIMIT) with <2s re-execution
 🔹 **Planner Complexity Tiers**: Three levels (minimal/standard/full) for different model sizes
-🔹 **Plan Auditing**: Deterministic validation/fixes before SQL generation
+🔹 **Plan Auditing**: Deterministic validation/fixes (feedback loop disabled - lets SQL errors surface)
+🔹 **Iteration Limits**: Separate counters for error (3) and refinement (3) with graceful termination
 🔹 **Clarification Detection**: Identifies ambiguous queries before execution
 🔹 **ORDER BY/LIMIT Support**: Planner generates ordering and limiting directly
 🔹 **SQL Server Safety**: Automatic identifier quoting prevents reserved keyword errors

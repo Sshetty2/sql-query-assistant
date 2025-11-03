@@ -170,7 +170,7 @@ def check_clarification(state: State) -> Dict[str, Any]:
     structured_llm = get_structured_llm(
         ClarificationSuggestions,
         model_name=os.getenv("AI_MODEL"),
-        temperature=0.7,
+        
     )
 
     with log_execution_time(logger, "llm_clarification_suggestions"):

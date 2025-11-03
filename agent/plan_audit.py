@@ -1,35 +1,11 @@
 """Audit and validate query plans before SQL generation."""
 
-import os
-import json
-from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
-from pydantic import BaseModel, Field
-from models.planner_output import PlannerOutput
-from utils.llm_factory import get_structured_llm
-from utils.logger import get_logger, log_execution_time
+from utils.logger import get_logger
 
 from agent.state import State
 
-load_dotenv()
 logger = get_logger()
-
-
-class PlanAuditResult(BaseModel):
-    """Pydantic model for plan audit output."""
-
-    audit_passed: bool = Field(
-        description="Whether the plan passed all validation checks"
-    )
-    issues_found: list[str] = Field(
-        description="List of validation issues detected", default_factory=list
-    )
-    corrected_plan: PlannerOutput = Field(
-        description="The corrected plan (same as original if no issues)"
-    )
-    audit_reasoning: str = Field(
-        description="Explanation of what was checked and any fixes applied"
-    )
 
 
 def filter_schema_to_plan_tables(
@@ -87,9 +63,14 @@ def validate_column_exists(
     return False
 
 
+def validate_table_exists(table_name: str, schema: list[dict]) -> bool:
+    """Check if a table exists in schema."""
+    return any(table.get("table_name") == table_name for table in schema)
+
+
 def validate_selections(plan_dict: dict, schema: list[dict]) -> list[str]:
     """
-    Validate that all columns in selections exist in their tables.
+    Validate that all selections reference existing tables and columns.
 
     Returns:
         List of validation issues
@@ -97,11 +78,21 @@ def validate_selections(plan_dict: dict, schema: list[dict]) -> list[str]:
     issues = []
 
     for selection in plan_dict.get("selections", []):
+        table_name = selection.get("table")
+
+        # FIRST: Validate table exists in schema
+        if not validate_table_exists(table_name, schema):
+            issues.append(
+                f"Table '{table_name}' does not exist in schema. "
+                f"Remove this table from the plan or check schema for correct table name."
+            )
+            continue  # Skip column validation for non-existent tables
+
         columns = selection.get("columns", [])
 
         for col_info in columns:
             column = col_info.get("column")
-            col_table = col_info.get("table")  # Should match selection table
+            col_table = col_info.get("table", table_name)  # Should match selection table
 
             # Verify column exists
             if not validate_column_exists(col_table, column, schema):
@@ -127,6 +118,21 @@ def validate_join_edges(plan_dict: dict, schema: list[dict]) -> list[str]:
         from_column = edge.get("from_column")
         to_table = edge.get("to_table")
         to_column = edge.get("to_column")
+
+        # FIRST: Validate tables exist in schema
+        if not validate_table_exists(from_table, schema):
+            issues.append(
+                f"JOIN from_table '{from_table}' does not exist in schema. "
+                f"Remove this join or check schema for correct table name."
+            )
+            continue  # Skip column validation for non-existent table
+
+        if not validate_table_exists(to_table, schema):
+            issues.append(
+                f"JOIN to_table '{to_table}' does not exist in schema. "
+                f"Remove this join or check schema for correct table name."
+            )
+            continue  # Skip column validation for non-existent table
 
         # Validate from_column exists
         if not validate_column_exists(from_table, from_column, schema):
@@ -162,6 +168,14 @@ def validate_filters(plan_dict: dict, schema: list[dict]) -> list[str]:
             filter_table = filter_pred.get("table")
             filter_column = filter_pred.get("column")
 
+            # Validate table exists first
+            if not validate_table_exists(filter_table, schema):
+                issues.append(
+                    f"Filter table '{filter_table}' does not exist in schema. "
+                    f"Remove this filter or check schema for correct table name."
+                )
+                continue
+
             if not validate_column_exists(filter_table, filter_column, schema):
                 issues.append(
                     f"Filter column '{filter_column}' does not exist in table '{filter_table}'."
@@ -171,6 +185,14 @@ def validate_filters(plan_dict: dict, schema: list[dict]) -> list[str]:
     for filter_pred in plan_dict.get("global_filters", []):
         filter_table = filter_pred.get("table")
         filter_column = filter_pred.get("column")
+
+        # Validate table exists first
+        if not validate_table_exists(filter_table, schema):
+            issues.append(
+                f"Global filter table '{filter_table}' does not exist in schema. "
+                f"Remove this filter or check schema for correct table name."
+            )
+            continue
 
         if not validate_column_exists(filter_table, filter_column, schema):
             issues.append(
@@ -183,6 +205,14 @@ def validate_filters(plan_dict: dict, schema: list[dict]) -> list[str]:
         for having_filter in group_by.get("having_filters", []):
             having_table = having_filter.get("table")
             having_column = having_filter.get("column")
+
+            # Validate table exists first
+            if not validate_table_exists(having_table, schema):
+                issues.append(
+                    f"HAVING filter table '{having_table}' does not exist in schema. "
+                    f"Remove this filter or check schema for correct table name."
+                )
+                continue
 
             if not validate_column_exists(having_table, having_column, schema):
                 issues.append(
@@ -531,83 +561,114 @@ def validate_table_connectivity(plan_dict: dict) -> list[str]:
     return issues
 
 
-def run_deterministic_checks(plan_dict: dict, schema: list[dict]) -> list[str]:
+def classify_issue_severity(issue: str) -> str:
+    """
+    Classify validation issues as 'critical' or 'non-critical'.
+
+    Critical issues are those that will ALWAYS cause SQL errors and cannot be
+    recovered from (e.g., hallucinated tables). Non-critical issues might be
+    fixable by SQL execution errors or refinement.
+
+    Args:
+        issue: The validation issue text
+
+    Returns:
+        'critical' or 'non-critical'
+    """
+    # Critical: Table doesn't exist in schema (hallucination)
+    if "does not exist in schema" in issue.lower():
+        return "critical"
+
+    # Non-critical: Everything else (column issues, connectivity, etc.)
+    return "non-critical"
+
+
+def run_deterministic_checks(plan_dict: dict, schema: list[dict]) -> tuple[list[str], list[str]]:
     """
     Run all deterministic validation checks.
 
     Returns:
-        List of all validation issues found
+        Tuple of (critical_issues, non_critical_issues)
     """
-    issues = []
+    all_issues = []
 
     # Run all validation checks
-    issues.extend(validate_selections(plan_dict, schema))
-    issues.extend(validate_join_edges(plan_dict, schema))
-    issues.extend(validate_filters(plan_dict, schema))
-    issues.extend(validate_group_by(plan_dict, schema))
-    issues.extend(validate_table_references(plan_dict))
-    issues.extend(validate_table_connectivity(plan_dict))  # Detect disconnected tables
+    all_issues.extend(validate_selections(plan_dict, schema))
+    all_issues.extend(validate_join_edges(plan_dict, schema))
+    all_issues.extend(validate_filters(plan_dict, schema))
+    all_issues.extend(validate_group_by(plan_dict, schema))
+    all_issues.extend(validate_table_references(plan_dict))
+    all_issues.extend(validate_table_connectivity(plan_dict))  # Detect disconnected tables
 
-    return issues
+    # Classify issues by severity
+    critical_issues = [issue for issue in all_issues if classify_issue_severity(issue) == "critical"]
+    non_critical_issues = [issue for issue in all_issues if classify_issue_severity(issue) == "non-critical"]
+
+    return critical_issues, non_critical_issues
 
 
-def create_audit_prompt(plan_dict: dict, schema: list[dict], issues: list[str]) -> str:
-    """Create a focused prompt for LLM to fix detected issues."""
-    prompt = f"""# Plan Audit: Fix Column/Table Mismatches
+def generate_audit_feedback(issues: list[str], plan_dict: dict, schema: list[dict]) -> str:
+    """
+    Generate concise feedback for pre-planner about validation issues.
 
-## Issues Detected
+    Instead of correcting the plan directly, we generate natural language feedback
+    that the pre-planner can use to regenerate a better strategy.
 
-The following validation issues were found in the query plan:
+    Args:
+        issues: List of validation issues detected
+        plan_dict: The planner output dictionary
+        schema: Filtered schema for the plan
 
-{chr(10).join([f"- {issue}" for issue in issues])}
+    Returns:
+        Concise feedback text describing what went wrong and what to fix
+    """
+    # Group issues by type for clearer feedback
+    column_issues = [i for i in issues if "does not exist" in i or "Column" in i]
+    join_issues = [i for i in issues if "JOIN" in i or "join" in i]
+    disconnect_issues = [i for i in issues if "disconnected" in i or "CROSS JOIN" in i]
+    reference_issues = [i for i in issues if "referenced" in i and "not included" in i]
+    group_by_issues = [i for i in issues if "GROUP BY" in i]
 
-## Current Plan
+    feedback_parts = []
 
-```json
-{json.dumps(plan_dict, indent=2)}
-```
+    if column_issues:
+        feedback_parts.append("**Column Validation Errors:**\n" + "\n".join(f"- {issue}" for issue in column_issues))
 
-## Schema (Relevant Tables Only)
+    if disconnect_issues:
+        feedback_parts.append(
+            "**Table Connectivity Errors:**\n" + "\n".join(f"- {issue}" for issue in disconnect_issues)
+        )
+        feedback_parts.append(
+            "\n**Fix**: Check schema foreign_keys to find how to join disconnected tables."
+        )
 
-```json
-{json.dumps(schema, indent=2)}
-```
+    if join_issues:
+        feedback_parts.append("**Join Errors:**\n" + "\n".join(f"- {issue}" for issue in join_issues))
 
----
+    if reference_issues:
+        feedback_parts.append("**Table Reference Errors:**\n" + "\n".join(f"- {issue}" for issue in reference_issues))
 
-## Your Task
+    if group_by_issues:
+        feedback_parts.append("**GROUP BY Errors:**\n" + "\n".join(f"- {issue}" for issue in group_by_issues))
 
-Fix the issues in the plan by using the correct table and column names from the schema.
+    # Add guidance on how to fix
+    feedback_parts.append(
+        "\n**How to Fix:**\n"
+        "1. Review the schema carefully - use EXACT column names (case-sensitive)\n"
+        "2. For disconnected tables: Add join edges using foreign_keys from schema\n"
+        "3. For wrong columns: Check which table actually contains the column\n"
+        "4. For join errors: Foreign keys often join to primary keys with different names"
+    )
 
-**Common Fixes:**
-1. **JOIN Column Mismatches:** Foreign keys often join to primary keys with different names
-   - Example: `TagID` (foreign key) joins to `ID` (primary key), not `TagID`
-2. **Column in Wrong Table:** Column exists but referenced with wrong table name
-   - Example: `TagName` is in `tb_SoftwareTagsAndColors`, not `tb_ApplicationTagMap`
-3. **Typos:** Column name is misspelled (check schema for exact names)
-4. **Disconnected Tables:** Table is in selections but has no join connecting it
-   - This creates a CROSS JOIN (Cartesian product) which is almost never correct
-   - Fix: Add a join_edge to connect the table, or remove it from selections if not needed
-   - Example: If tb_CVE is disconnected, check schema foreign_keys to find how to join it
-
-**Rules:**
-- Use EXACT column names from the schema (case-sensitive)
-- Verify join columns exist in BOTH tables
-- If a column doesn't exist, find the correct table that has it
-- Maintain the original query intent
-- **IMPORTANT:** Do NOT change the `decision` field - preserve it exactly as is
-- For disconnected tables, check the schema's foreign_keys section to find correct join columns
-
-**Output:** Return the corrected plan with all issues fixed.
-"""
-    return prompt
+    return "\n\n".join(feedback_parts)
 
 
 def plan_audit(state: State):
     """
     Audit the query plan and fix any column/table mismatches.
 
-    Runs deterministic checks first, then uses LLM to fix issues if found.
+    Runs deterministic checks first. If validation issues are found, generates
+    feedback for pre-planner to regenerate strategy instead of directly patching JSON.
     """
     logger.info("Starting plan audit")
 
@@ -645,101 +706,114 @@ def plan_audit(state: State):
 
     # Deterministically fix common SQL issues
     # These are mechanical fixes that don't require LLM intelligence
-    original_decision = plan_dict.get("decision")  # Preserve original decision
     plan_dict = fix_group_by_completeness(plan_dict)
     plan_dict = fix_having_filters(plan_dict)  # Move invalid HAVING filters to WHERE
 
-    # Run deterministic checks
-    issues = run_deterministic_checks(plan_dict, plan_schema)
+    # Fix invalid column names (CompanyName → Name, etc.)
+    from agent.fix_invalid_columns import fix_plan_columns
+    plan_dict, column_fixes = fix_plan_columns(plan_dict, plan_schema)
 
-    if not issues:
-        # No issues found - plan is valid (may have GROUP BY fixes applied)
+    if column_fixes:
+        logger.info(
+            f"Applied {len(column_fixes)} deterministic column name fixes",
+            extra={"fixes": column_fixes}
+        )
+
+    # Run deterministic checks AFTER fixes
+    critical_issues, non_critical_issues = run_deterministic_checks(plan_dict, plan_schema)
+    all_issues = critical_issues + non_critical_issues
+
+    if not all_issues:
+        # No issues found - plan is valid (may have fixes applied)
         logger.info("Plan audit passed - no issues detected")
         return {
             **state,
             "messages": [AIMessage(content="Plan audit passed")],
-            "planner_output": plan_dict,  # Return plan with GROUP BY fixes if any
+            "planner_output": plan_dict,  # Return plan with fixes applied
             "audit_passed": True,
             "audit_issues": [],
-            "audit_corrections": [],
+            "audit_corrections": column_fixes,  # Track what was fixed
             "last_step": "plan_audit",
         }
 
-    # Issues found - use LLM to fix them
-    logger.warning(
-        f"Plan audit found {len(issues)} issues, requesting LLM correction",
-        extra={"issues": issues},
-    )
-
-    try:
-        # Create audit prompt
-        prompt = create_audit_prompt(plan_dict, plan_schema, issues)
-
-        # Get structured LLM for audit
-        structured_llm = get_structured_llm(
-            PlanAuditResult,
-            model_name=os.getenv("AI_MODEL"),
-            temperature=0.2,  # Lower temp for corrections
+    # CRITICAL ISSUES: Block execution immediately
+    if critical_issues:
+        logger.error(
+            f"Plan audit found {len(critical_issues)} CRITICAL issues - terminating execution",
+            extra={"critical_issues": critical_issues},
         )
 
-        with log_execution_time(logger, "llm_plan_audit_invocation"):
-            audit_result = structured_llm.invoke(prompt)
+        # Format critical issues for user
+        critical_msg = "\n".join([f"• {issue}" for issue in critical_issues])
 
-        # Convert corrected plan to dict
-        corrected_plan_dict = audit_result.corrected_plan.model_dump()
-
-        # IMPORTANT: Restore original decision field
-        # The auditor should only fix column/table issues, not change query decisions
-        corrected_plan_dict["decision"] = original_decision
-        if original_decision == "terminate":
-            # Also preserve termination_reason if it was terminated
-            corrected_plan_dict["termination_reason"] = plan_dict.get(
-                "termination_reason"
-            )
-
-        logger.info(
-            "Plan audit completed with corrections",
-            extra={
-                "issues_found": len(issues),
-                "audit_passed": audit_result.audit_passed,
-                "reasoning": audit_result.audit_reasoning,
-            },
-        )
-
-        # Debug: Save audit results
-        from utils.debug_utils import save_debug_file
-        save_debug_file(
-            "plan_audit_result.json",
-            {
-                "original_plan": plan_dict,
-                "issues": issues,
-                "corrected_plan": corrected_plan_dict,
-                "reasoning": audit_result.audit_reasoning,
-            },
-            step_name="plan_audit"
-        )
-
-        return {
-            **state,
-            "messages": [AIMessage(content="Plan audit completed with corrections")],
-            "planner_output": corrected_plan_dict,  # Replace with corrected plan
-            "audit_passed": audit_result.audit_passed,
-            "audit_issues": issues,
-            "audit_corrections": audit_result.issues_found,  # What LLM fixed
-            "audit_reasoning": audit_result.audit_reasoning,
-            "last_step": "plan_audit",
-        }
-
-    except Exception as e:
-        logger.error(f"Error during plan audit LLM correction: {str(e)}", exc_info=True)
-        # If audit fails, continue with original plan (better than blocking)
         return {
             **state,
             "messages": [
-                AIMessage(content=f"Plan audit error (using original plan): {str(e)}")
+                AIMessage(
+                    content=f"Query plan validation failed with critical errors:\n\n{critical_msg}\n\n"
+                    f"These are hallucinated tables that do not exist in the database schema. "
+                    f"The query cannot be executed."
+                )
             ],
+            "planner_output": plan_dict,
+            "needs_termination": True,
+            "termination_reason": f"Critical plan validation errors: {len(critical_issues)} non-existent tables",
             "audit_passed": False,
-            "audit_issues": issues,
-            "audit_corrections": [],
+            "audit_issues": all_issues,
+            "audit_corrections": column_fixes,
             "last_step": "plan_audit",
         }
+
+    # Non-critical issues only - log them but continue execution (audit feedback loop DISABLED)
+    logger.warning(
+        f"Plan audit found {len(non_critical_issues)} non-critical issues but continuing to execution",
+        extra={"non_critical_issues": non_critical_issues},
+    )
+
+    # NOTE: Audit feedback loop is DISABLED. The audit validates and applies deterministic
+    # fixes (GROUP BY, HAVING, etc.) but doesn't block execution or generate feedback.
+    # This allows:
+    # 1. Planner.py auto-fix logic to handle corrections
+    # 2. Real SQL execution errors to trigger error_feedback (more valuable)
+    # 3. Empty results to trigger refinement_feedback
+    #
+    # Audit feedback can be re-enabled later by uncommenting the code below.
+
+    # DISABLED: Generate feedback and route back to pre-planner
+    # audit_iteration = state.get("audit_iteration", 0)
+    # if audit_iteration >= 2:
+    #     return {..., "needs_termination": True, ...}
+    # feedback = generate_audit_feedback(issues, plan_dict, plan_schema)
+    # return {..., "audit_feedback": feedback, ...}
+
+    # Continue to execution despite audit issues
+    logger.info("Continuing to check_clarification despite audit issues (feedback disabled)")
+
+    # Debug: Save audit issues for inspection
+    from utils.debug_utils import save_debug_file
+    save_debug_file(
+        "audit_issues.json",
+        {
+            "critical_issues": critical_issues,
+            "non_critical_issues": non_critical_issues,
+            "all_issues": all_issues,
+            "plan": plan_dict,
+            "column_fixes_applied": column_fixes,
+        },
+        step_name="plan_audit"
+    )
+
+    # Return plan with deterministic fixes applied, but don't block execution for non-critical issues
+    msg = (
+        f"Plan audit found {len(non_critical_issues)} non-critical issues "
+        f"but continuing to execution"
+    )
+    return {
+        **state,
+        "messages": [AIMessage(content=msg)],
+        "planner_output": plan_dict,  # Return plan with fixes applied
+        "audit_passed": False,  # Mark as not passed, but don't block
+        "audit_issues": all_issues,  # Track all issues for debugging
+        "audit_corrections": column_fixes,  # Track what was fixed
+        "last_step": "plan_audit",
+    }

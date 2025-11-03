@@ -265,12 +265,10 @@ def filter_schema(state: State, vector_store=None):
                 "candidates_with_scores": [
                     {
                         "table_name": doc.metadata.get("table_name"),
-                        "description": doc.metadata.get("metadata", {}).get("description", ""),
-                        "page_content": (
-                            str(doc.page_content)[:200] + "..."
-                            if len(str(doc.page_content)) > 200
-                            else str(doc.page_content)
+                        "description": doc.metadata.get("metadata", {}).get(
+                            "description", ""
                         ),
+                        "page_content": (str(doc.page_content)),
                     }
                     for doc in candidate_docs
                 ],
@@ -327,7 +325,7 @@ def filter_schema(state: State, vector_store=None):
             # WARNING: If we have no columns, the LLM will hallucinate!
             logger.warning(
                 f"No columns found for table {table_name}. LLM may hallucinate column names.",
-                extra={"table": table_name}
+                extra={"table": table_name},
             )
 
         table_summaries.append(summary)
@@ -410,7 +408,7 @@ def filter_schema(state: State, vector_store=None):
     ).strip()
 
     with log_execution_time(logger, "stage2_llm_reasoning"):
-        llm = get_chat_llm(model_name=os.getenv("AI_MODEL"), temperature=0)
+        llm = get_chat_llm(model_name=os.getenv("AI_MODEL"))
         structured_llm = llm.with_structured_output(TableSelectionOutput)
 
         # Create message list for chat models
@@ -461,13 +459,17 @@ def filter_schema(state: State, vector_store=None):
             # NOTE: Use full_schema_lookup to get tables WITH columns (candidate_tables has filtered metadata)
 
             llm_selected_tables_full = []  # Full columns (for filtered_schema)
-            llm_selected_tables_truncated = []  # Truncated columns (for truncated_schema)
+            llm_selected_tables_truncated = (
+                []
+            )  # Truncated columns (for truncated_schema)
 
             for table_name in relevant_table_names_set:
                 # Get the FULL table with columns from the original schema
                 table = full_schema_lookup.get(table_name)
                 if not table:
-                    logger.warning(f"Table {table_name} not found in full schema, skipping")
+                    logger.warning(
+                        f"Table {table_name} not found in full schema, skipping"
+                    )
                     continue
 
                 relevant_cols = column_filter_map.get(table_name, [])
@@ -482,13 +484,16 @@ def filter_schema(state: State, vector_store=None):
 
                     # Create normalized set of relevant columns for matching
                     # Remove underscores and lowercase (e.g., email_address -> emailaddress, EmailAddress -> emailaddress)  # noqa: E501
-                    relevant_cols_normalized = {col.lower().replace("_", "") for col in relevant_cols}
+                    relevant_cols_normalized = {
+                        col.lower().replace("_", "") for col in relevant_cols
+                    }
 
                     # Keep only columns that match (case-insensitive, underscore-insensitive)
                     truncated_columns = [
                         col
                         for col in all_columns
-                        if col.get("column_name", "").lower().replace("_", "") in relevant_cols_normalized
+                        if col.get("column_name", "").lower().replace("_", "")
+                        in relevant_cols_normalized
                     ]
 
                     # If no columns matched (LLM hallucinated column names), keep all columns
@@ -614,7 +619,9 @@ def filter_schema(state: State, vector_store=None):
 
     # Determine which tables were added by FK expansion
     llm_selected_names = {t.get("table_name") for t in llm_selected_tables_full}
-    fk_added_tables = [name for name in final_table_names if name not in llm_selected_names]
+    fk_added_tables = [
+        name for name in final_table_names if name not in llm_selected_names
+    ]
 
     # Debug: Save the FK expansion results
     try:

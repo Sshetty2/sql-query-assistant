@@ -260,7 +260,7 @@ def conversational_router(state: State):
         # Get structured LLM
         # (handles method="json_schema" for Ollama automatically)
         structured_llm = get_structured_llm(
-            RouterOutput, model_name=os.getenv("AI_MODEL"), temperature=0.3
+            RouterOutput, model_name=os.getenv("AI_MODEL")
         )
 
         with log_execution_time(logger, "llm_router_invocation"):

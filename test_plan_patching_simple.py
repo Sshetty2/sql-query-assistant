@@ -20,7 +20,7 @@ def print_section(title):
     """Print a section header."""
     print(f"\n{'=' * 80}")
     print(f"{title}")
-    print('=' * 80)
+    print("=" * 80)
 
 
 def test_1_initial_query():
@@ -30,9 +30,7 @@ def test_1_initial_query():
     print("Executing query: 'Show me all tracks with their genre'")
 
     response = query_database(
-        "Show me all tracks with their genre",
-        result_limit=0,
-        thread_id=None
+        "Show me all tracks with their genre", result_limit=0, thread_id=None
     )
 
     state = response["state"]
@@ -46,7 +44,7 @@ def test_1_initial_query():
     print("[PASS] Query executed successfully")
 
     # Display SQL (first 200 chars)
-    sql = state['query'][:200]
+    sql = state["query"]
     print(f"\nGenerated SQL: {sql}...")
 
     # Display result count
@@ -77,18 +75,16 @@ def test_2_add_column(initial_state):
     thread_id = initial_state["thread_id"]
 
     # Find the Track table
-    track_table = next((s for s in executed_plan["selections"] if "track" in s["table"].lower()), None)
+    track_table = next(
+        (s for s in executed_plan["selections"] if "track" in s["table"].lower()), None
+    )
     assert track_table, "ERROR: Track table not found in plan"
 
     table_name = track_table["table"]
     print(f"Adding column 'Composer' to table '{table_name}'")
 
     # Create patch operation
-    patch_op = {
-        "operation": "add_column",
-        "table": table_name,
-        "column": "Composer"
-    }
+    patch_op = {"operation": "add_column", "table": table_name, "column": "Composer"}
 
     # Execute patch
     response = query_database(
@@ -96,7 +92,7 @@ def test_2_add_column(initial_state):
         patch_operation=patch_op,
         executed_plan=executed_plan,
         filtered_schema=filtered_schema,
-        thread_id=thread_id
+        thread_id=thread_id,
     )
 
     state = response["state"]
@@ -129,17 +125,15 @@ def test_3_remove_column(previous_state):
     thread_id = previous_state["thread_id"]
 
     # Find the Track table
-    track_table = next((s for s in executed_plan["selections"] if "track" in s["table"].lower()), None)
+    track_table = next(
+        (s for s in executed_plan["selections"] if "track" in s["table"].lower()), None
+    )
     table_name = track_table["table"]
 
     print(f"Removing column 'Composer' from table '{table_name}'")
 
     # Create patch operation
-    patch_op = {
-        "operation": "remove_column",
-        "table": table_name,
-        "column": "Composer"
-    }
+    patch_op = {"operation": "remove_column", "table": table_name, "column": "Composer"}
 
     # Execute patch
     response = query_database(
@@ -147,7 +141,7 @@ def test_3_remove_column(previous_state):
         patch_operation=patch_op,
         executed_plan=executed_plan,
         filtered_schema=filtered_schema,
-        thread_id=thread_id
+        thread_id=thread_id,
     )
 
     state = response["state"]
@@ -163,7 +157,9 @@ def test_3_remove_column(previous_state):
 
     # Verify Composer column is gone from results
     if result_data:
-        assert "Composer" not in result_data[0], "ERROR: Composer column still in results"
+        assert (
+            "Composer" not in result_data[0]
+        ), "ERROR: Composer column still in results"
         print("[PASS] Composer column removed from results")
 
     return state
@@ -178,7 +174,9 @@ def test_4_modify_order_by(previous_state):
     thread_id = previous_state["thread_id"]
 
     # Find Track table
-    track_table = next((s for s in executed_plan["selections"] if "track" in s["table"].lower()), None)
+    track_table = next(
+        (s for s in executed_plan["selections"] if "track" in s["table"].lower()), None
+    )
     table_name = track_table["table"]
 
     print(f"Setting ORDER BY to {table_name}.Name DESC")
@@ -186,13 +184,7 @@ def test_4_modify_order_by(previous_state):
     # Create patch operation
     patch_op = {
         "operation": "modify_order_by",
-        "order_by": [
-            {
-                "table": table_name,
-                "column": "Name",
-                "direction": "DESC"
-            }
-        ]
+        "order_by": [{"table": table_name, "column": "Name", "direction": "DESC"}],
     }
 
     # Execute patch
@@ -201,7 +193,7 @@ def test_4_modify_order_by(previous_state):
         patch_operation=patch_op,
         executed_plan=executed_plan,
         filtered_schema=filtered_schema,
-        thread_id=thread_id
+        thread_id=thread_id,
     )
 
     state = response["state"]
@@ -237,10 +229,7 @@ def test_5_modify_limit(previous_state):
     print("Setting LIMIT to 10")
 
     # Create patch operation
-    patch_op = {
-        "operation": "modify_limit",
-        "limit": 10
-    }
+    patch_op = {"operation": "modify_limit", "limit": 10}
 
     # Execute patch
     response = query_database(
@@ -248,7 +237,7 @@ def test_5_modify_limit(previous_state):
         patch_operation=patch_op,
         executed_plan=executed_plan,
         filtered_schema=filtered_schema,
-        thread_id=thread_id
+        thread_id=thread_id,
     )
 
     state = response["state"]
@@ -318,6 +307,7 @@ def main():
     except Exception as e:
         print(f"\n[ERROR] Unexpected error: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 1
 

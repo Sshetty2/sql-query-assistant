@@ -8,6 +8,65 @@ from utils.logger import get_logger
 logger = get_logger()
 
 
+def resolve_foreign_key_column(fk: dict, to_table_name: str, all_tables: list) -> str:
+    """
+    Intelligently resolve the primary key column name for a foreign key relationship.
+
+    Args:
+        fk: Foreign key dictionary with 'foreign_key' and optional 'to_column'
+        to_table_name: Name of the referenced table
+        all_tables: List of all table dictionaries in the schema
+
+    Returns:
+        The primary key column name to use
+
+    Resolution strategy:
+    1. Use explicit 'to_column' if specified in FK definition
+    2. Look up actual primary key from referenced table's schema
+    3. Try matching FK column name (e.g., CVEID → CVEID, CompanyID → CompanyID)
+    4. Fall back to "ID" as last resort
+    """
+    # 1. Use explicit to_column if provided
+    if fk.get("to_column"):
+        return fk["to_column"]
+
+    # 2. Find the referenced table in schema and check for primary key
+    referenced_table = next((t for t in all_tables if t.get("table_name") == to_table_name), None)
+
+    if referenced_table:
+        # Check if table has primary_key field
+        if referenced_table.get("primary_key"):
+            pk = referenced_table["primary_key"]
+            # Could be a list or a single column
+            if isinstance(pk, list) and pk:
+                return pk[0]  # Use first PK column for composite keys
+            elif isinstance(pk, str):
+                return pk
+
+        # 3. Try matching FK column name with columns in referenced table
+        fk_col_name = fk.get("foreign_key", "")
+        if fk_col_name and referenced_table.get("columns"):
+            # Check if a column with the same name exists in the referenced table
+            matching_col = next(
+                (col for col in referenced_table["columns"]
+                 if col.get("column_name") == fk_col_name),
+                None
+            )
+            if matching_col:
+                logger.debug(
+                    f"FK resolution: Matched {fk_col_name} to {to_table_name}.{fk_col_name} "
+                    f"(no explicit PK, using name matching)"
+                )
+                return fk_col_name
+
+    # 4. Fall back to "ID" as last resort
+    logger.debug(
+        f"FK resolution: Using default 'ID' for {fk.get('foreign_key')} → {to_table_name} "
+        f"(no PK found, no name match)"
+    )
+    return "ID"
+
+
 def format_schema_to_markdown(schema: list) -> str:
     """
     Convert JSON schema to well-organized markdown format.
@@ -85,7 +144,9 @@ def format_schema_to_markdown(schema: list) -> str:
                 # Schema uses: "foreign_key" and "primary_key_table"
                 from_col = fk.get("foreign_key", fk.get("from_column", ""))
                 to_table = fk.get("primary_key_table", fk.get("to_table", ""))
-                to_col = fk.get("to_column", "ID")  # Assume ID if not specified
+
+                # Intelligently resolve the PK column name
+                to_col = resolve_foreign_key_column(fk, to_table, all_tables)
 
                 if from_col and to_table:
                     markdown_lines.append(f"- **{from_col}** → `{to_table}.{to_col}`")

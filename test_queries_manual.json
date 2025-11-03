@@ -1,0 +1,116 @@
+{
+  "test_queries": [
+    {
+      "id": "q1_multi_company_scan_summary",
+      "question": "Show me a summary of scan activity for each company in the last 90 days, including total scans, full scans, and rescanned items",
+      "complexity": "medium",
+      "expected_features": ["multi-table join (Company, Scan)", "date filtering", "aggregation", "GROUP BY"],
+      "notes": "Tests date filtering, aggregation, and company-level reporting"
+    },
+    {
+      "id": "q2_high_severity_cve_computers",
+      "question": "List all computers that have CVEs with CVSS score greater than 8.0, including company name, computer name, CVE name, and CVSS score",
+      "complexity": "medium-high",
+      "expected_features": ["4-table join (Company, Computers, CVEMap, CVE)", "numeric filtering", "vulnerability tracking"],
+      "notes": "Tests multi-table joins across vulnerability and asset tables"
+    },
+    {
+      "id": "q3_pending_patches_by_company",
+      "question": "Show the top 5 companies with the most pending patches, ordered by count descending",
+      "complexity": "medium",
+      "expected_features": ["2-table join (Company, PendingPatch)", "aggregation", "ORDER BY", "LIMIT"],
+      "notes": "Tests aggregation with ordering and limiting"
+    },
+    {
+      "id": "q4_usb_device_inventory",
+      "question": "Find all computers with USB devices connected that were scanned in the last 30 days, showing company name, computer name, scan date, and USB device details",
+      "complexity": "medium",
+      "expected_features": ["4-table join (Company, Computers, USBDevices, Scan)", "date filtering"],
+      "notes": "Tests hardware detail joins with temporal filtering"
+    },
+    {
+      "id": "q5_application_vulnerability_count",
+      "question": "Show applications with more than 10 associated CVEs, including application name and CVE count, sorted by CVE count",
+      "complexity": "medium",
+      "expected_features": ["2-table join (MasterInstalledApps, CVE)", "aggregation", "HAVING", "ORDER BY"],
+      "notes": "Tests HAVING clause and aggregation filtering"
+    },
+    {
+      "id": "q6_user_login_activity",
+      "question": "List the last 20 user login events including username, company name, login time, IP address, and device information",
+      "complexity": "medium",
+      "expected_features": ["2-table join (Company, UserLoginInfo)", "ORDER BY", "LIMIT"],
+      "notes": "Tests user activity tracking with ordering"
+    },
+    {
+      "id": "q7_disk_space_low",
+      "question": "Find computers where any logical disk has less than 20% free space, showing company name, computer ID, device ID, total size, and free space",
+      "complexity": "medium",
+      "expected_features": ["3-table join (Company, Computers, LogicalDisk)", "calculated filtering (percentage)"],
+      "notes": "Tests percentage calculations in filters"
+    },
+    {
+      "id": "q8_windows_updates_summary",
+      "question": "Summarize Windows updates by importance level, showing the count of updates for each importance level across all computers",
+      "complexity": "low-medium",
+      "expected_features": ["aggregation", "GROUP BY"],
+      "notes": "Tests simple aggregation without complex joins"
+    },
+    {
+      "id": "q9_service_port_correlation",
+      "question": "Show computers that have both open port 445 and SMB-related services running, including company name, computer name, port number, and service name",
+      "complexity": "high",
+      "expected_features": ["4-table join (Company, Computers, Ports, Services)", "multiple filtering conditions"],
+      "notes": "Tests correlation between ports and services"
+    },
+    {
+      "id": "q10_hardware_inventory_summary",
+      "question": "For each company, count the total number of computers, monitors, printers, and USB devices",
+      "complexity": "high",
+      "expected_features": ["5-table join with multiple aggregations", "complex GROUP BY"],
+      "notes": "Tests multiple aggregations across different hardware tables"
+    },
+    {
+      "id": "q11_critical_patches_missing",
+      "question": "Find computers that have critical CVEs (CVSS >= 9.0) but no corresponding pending patches, showing company, computer, and CVE details",
+      "complexity": "high",
+      "expected_features": ["5-table join (Company, Computers, CVEMap, CVE, PendingPatch)", "LEFT JOIN or NOT EXISTS", "numeric filtering"],
+      "notes": "Tests gap analysis between vulnerabilities and patches"
+    },
+    {
+      "id": "q12_scan_frequency_analysis",
+      "question": "Show companies that haven't had a full scan in the last 60 days, including company name and date of last full scan",
+      "complexity": "medium",
+      "expected_features": ["2-table join (Company, Scan)", "date filtering", "aggregation (MAX)"],
+      "notes": "Tests date-based analysis with aggregation"
+    },
+    {
+      "id": "q13_processor_memory_specs",
+      "question": "List computers with more than 8 processor cores and at least 16GB of memory, showing company name, computer name, core count, and total memory",
+      "complexity": "medium",
+      "expected_features": ["4-table join (Company, Computers, Processor, OS)", "multiple numeric filters"],
+      "notes": "Tests hardware specification filtering across multiple detail tables"
+    },
+    {
+      "id": "q14_app_installation_timeline",
+      "question": "Show the 10 most recently installed applications across all computers, including company name, computer name, application name, and installation date",
+      "complexity": "medium",
+      "expected_features": ["3-table join (Company, Computers, InstalledApps)", "date ORDER BY", "LIMIT"],
+      "notes": "Tests recent activity tracking"
+    },
+    {
+      "id": "q15_vulnerability_trend",
+      "question": "Count CVEs by priority level (Critical, High, Medium, Low) for all active computers, grouped by company name",
+      "complexity": "medium-high",
+      "expected_features": ["4-table join (Company, Computers, CVEMap, CVE)", "GROUP BY multiple columns", "priority categorization"],
+      "notes": "Tests multi-dimensional grouping and categorization"
+    }
+  ],
+  "metadata": {
+    "created": "2025-10-31",
+    "purpose": "Manual testing of query workflow with single LLM",
+    "database": "IT Asset Management and Vulnerability Tracking",
+    "complexity_range": "medium to high",
+    "total_queries": 15
+  }
+}

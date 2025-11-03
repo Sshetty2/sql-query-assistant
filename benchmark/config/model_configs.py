@@ -91,7 +91,7 @@ MODELS = {
 # Common environment variables that remain constant across all models
 COMMON_CONFIG = {
     "USE_TEST_DB": "false",  # Use SQL Server for benchmarking
-    "RETRY_COUNT": "2",
+    "ERROR_CORRECTION_COUNT": "2",
     "REFINE_COUNT": "1",
     "TOP_MOST_RELEVANT_TABLES": "6",
     "INFER_FOREIGN_KEYS": "false",

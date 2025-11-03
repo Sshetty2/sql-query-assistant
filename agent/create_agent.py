@@ -3,6 +3,7 @@
 import os
 from typing import Literal
 from langgraph.graph import StateGraph, END, START
+from langchain_core.messages import AIMessage
 from dotenv import load_dotenv
 
 from agent.analyze_schema import analyze_schema
@@ -136,9 +137,98 @@ def route_after_filter_schema(
         return "format_schema_markdown"
 
 
+def route_from_plan_audit(
+    state: State,
+) -> Literal["check_clarification"]:
+    """
+    Route from plan_audit - always continue to check_clarification.
+
+    NOTE: Audit feedback loop is currently DISABLED. The audit still validates
+    and logs issues, but doesn't block execution. This allows:
+    1. Planner.py auto-fix logic to handle corrections
+    2. Real SQL execution to reveal actual errors (via error_feedback)
+    3. Refinement to handle empty results (via refinement_feedback)
+
+    Audit feedback can be re-enabled later if needed by uncommenting the
+    conditional routing logic below.
+    """
+    # DISABLED: Audit feedback loop
+    # if state.get("needs_termination"):
+    #     logger.warning("Plan audit triggered termination, routing to cleanup")
+    #     return "cleanup"
+    #
+    # if state.get("audit_feedback"):
+    #     logger.info("Plan audit generated feedback, routing back to pre_planner for correction")
+    #     return "pre_planner"
+
+    # Always continue to clarification check (audit doesn't block)
+    if state.get("audit_feedback"):
+        logger.info(
+            "Plan audit found issues but continuing to execution (audit feedback disabled)"
+        )
+    else:
+        logger.debug("Plan audit passed, routing to check_clarification")
+
+    return "check_clarification"
+
+
+def route_from_handle_error(
+    state: State,
+) -> Literal["planner", "cleanup"]:
+    """
+    Route from handle_error based on revised strategy.
+
+    - If needs_termination=True: route to cleanup (iteration limit reached)
+    - If revised_strategy is set: route to planner (bypassing pre-planner)
+    """
+    if state.get("needs_termination"):
+        logger.warning("Error handling triggered termination, routing to cleanup")
+        return "cleanup"
+
+    if state.get("revised_strategy"):
+        logger.info(
+            "Error handler generated revised strategy, routing directly to planner (bypassing pre-planner)"
+        )
+        return "planner"
+
+    # Should not reach here, but default to cleanup
+    logger.error("Unexpected state in route_from_handle_error, defaulting to cleanup")
+    return "cleanup"
+
+
+def route_from_refine_query(
+    state: State,
+) -> Literal["planner", "cleanup"]:
+    """
+    Route from refine_query based on revised strategy.
+
+    - If needs_termination=True: route to cleanup (iteration limit reached)
+    - If revised_strategy is set: route to planner (bypassing pre-planner)
+    """
+    if state.get("needs_termination"):
+        logger.warning("Query refinement triggered termination, routing to cleanup")
+        return "cleanup"
+
+    if state.get("revised_strategy"):
+        logger.info(
+            "Refinement generated revised strategy, routing directly to planner (bypassing pre-planner)"
+        )
+        return "planner"
+
+    # Should not reach here, but default to cleanup
+    logger.error("Unexpected state in route_from_refine_query, defaulting to cleanup")
+    return "cleanup"
+
+
 def route_from_execute_query(
     state: State,
-) -> Literal["transform_plan", "generate_modification_options", "handle_error", "refine_query", "cleanup"]:
+) -> Literal[
+    "transform_plan",
+    "generate_modification_options",
+    "handle_error",
+    "refine_query",
+    "cleanup",
+]:
     """
     Route from execute_query based on patch_requested flag and query result.
 
@@ -157,7 +247,7 @@ def route_from_execute_query(
     refined_count = state["refined_count"]
     result = state["result"]
 
-    env_retry_count = int(os.getenv("RETRY_COUNT")) if os.getenv("RETRY_COUNT") else 3
+    env_retry_count = int(os.getenv("ERROR_CORRECTION_COUNT")) if os.getenv("ERROR_CORRECTION_COUNT") else 3
     env_refine_count = (
         int(os.getenv("REFINE_COUNT")) if os.getenv("REFINE_COUNT") else 2
     )
@@ -202,7 +292,7 @@ def should_continue(state: State) -> Literal["handle_error", "refine_query", "cl
     refined_count = state["refined_count"]
     result = state["result"]
 
-    env_retry_count = int(os.getenv("RETRY_COUNT")) if os.getenv("RETRY_COUNT") else 3
+    env_retry_count = int(os.getenv("ERROR_CORRECTION_COUNT")) if os.getenv("ERROR_CORRECTION_COUNT") else 3
     env_refine_count = (
         int(os.getenv("REFINE_COUNT")) if os.getenv("REFINE_COUNT") else 2
     )
@@ -251,7 +341,9 @@ def create_sql_agent():
     workflow.add_node("filter_schema", filter_schema)
     workflow.add_node("infer_foreign_keys", infer_foreign_keys_node)
     workflow.add_node("format_schema_markdown", convert_schema_to_markdown)
-    workflow.add_node("pre_planner", create_preplan_strategy)  # Two-stage planning: strategy generation
+    workflow.add_node(
+        "pre_planner", create_preplan_strategy
+    )  # Two-stage planning: strategy generation
     # DISABLED: Conversational router commented out for now
     # workflow.add_node("conversational_router", conversational_router)
     workflow.add_node("planner", plan_query)
@@ -266,7 +358,9 @@ def create_sql_agent():
     workflow.add_node("refine_query", refine_query)
     # Plan patching nodes
     workflow.add_node("transform_plan", transform_plan_node)
-    workflow.add_node("generate_modification_options", generate_modification_options_node)
+    workflow.add_node(
+        "generate_modification_options", generate_modification_options_node
+    )
 
     # Conditional routing from START
     workflow.add_conditional_edges(START, route_from_start)
@@ -280,37 +374,73 @@ def create_sql_agent():
     workflow.add_edge("format_schema_markdown", "pre_planner")
     workflow.add_edge("pre_planner", "planner")
     workflow.add_edge("planner", "plan_audit")  # Audit plan before clarification
-    workflow.add_edge(
-        "plan_audit", "check_clarification"
-    )  # Continue to clarification after audit
+    # Plan audit (feedback loop DISABLED - always continues to check_clarification)
+    workflow.add_edge("plan_audit", "check_clarification")
     workflow.add_conditional_edges("check_clarification", route_after_clarification)
     workflow.add_edge("generate_query", "execute_query")
 
     # DISABLED: Conversational flow path (continuations)
     # workflow.add_conditional_edges("conversational_router", route_from_router)
 
-    # Error handling and refinement
+    # Error handling and refinement with feedback loops
     workflow.add_conditional_edges("execute_query", route_from_execute_query)
-    workflow.add_edge("handle_error", "generate_query")
-    workflow.add_edge("refine_query", "generate_query")
+    # Conditional routing from handle_error (feedback loop or terminate)
+    workflow.add_conditional_edges("handle_error", route_from_handle_error)
+    # Conditional routing from refine_query (feedback loop or terminate)
+    workflow.add_conditional_edges("refine_query", route_from_refine_query)
 
     # Plan patching flow
-    workflow.add_edge("transform_plan", "generate_query")  # Patched plan → regenerate SQL
+    workflow.add_edge(
+        "transform_plan", "generate_query"
+    )  # Patched plan → regenerate SQL
     workflow.add_edge("generate_modification_options", "cleanup")  # Success → cleanup
 
     # Cleanup
     workflow.add_edge("cleanup", END)
 
+    # Compile with high recursion limit to support feedback loops
+    # Default is 25, but we need higher for:
+    # - Pre-planner → Planner → Audit → ... (up to 2 iterations)
+    # - Error correction loops (up to 3 iterations)
+    # - Refinement loops (up to 3 iterations)
+    # Set to 100 to be safe (each iteration adds ~10-15 steps)
     return workflow.compile(), db_connection
 
 
 def cleanup_connection(state: State, connection):
-    """Cleanup node to ensure connection is closed"""
+    """Cleanup node to ensure connection is closed and handle termination.
+
+    Handles two scenarios:
+    1. Normal completion - query executed successfully
+    2. Iteration exhaustion - feedback loops hit iteration limits
+    """
 
     try:
         connection.close()
         logger.debug("Database connection closed successfully")
     except Exception as e:
         logger.error(f"Error closing database connection: {str(e)}", exc_info=True)
+
+    # Check if we're terminating due to iteration exhaustion
+    if state.get("needs_termination"):
+        termination_reason = state.get(
+            "termination_reason", "Unknown termination reason"
+        )
+        logger.warning(
+            "Workflow terminated due to iteration exhaustion",
+            extra={"termination_reason": termination_reason},
+        )
+        # Return state with termination info for UI display
+        return {
+            **state,
+            "schema": [],
+            "last_step": "cleanup",
+            "messages": [
+                AIMessage(content=f"Workflow terminated: {termination_reason}")
+            ],
+        }
+
+    # Normal cleanup - query succeeded
+    logger.debug("Workflow completed successfully")
     # NOTE: schema is not persisted in state anymore - always fetch fresh
     return {**state, "schema": [], "last_step": "cleanup"}

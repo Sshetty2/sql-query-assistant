@@ -15,7 +15,7 @@ def is_using_ollama():
     return os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
 
 
-def get_chat_llm(model_name: str = None, temperature: float = 0.3, timeout: int = None):
+def get_chat_llm(model_name: str = None, temperature: float = 0.0, timeout: int = None):
     """
     Returns ChatOpenAI or ChatOllama based on USE_LOCAL_LLM environment variable.
 
@@ -26,7 +26,7 @@ def get_chat_llm(model_name: str = None, temperature: float = 0.3, timeout: int 
         model_name: Model to use (e.g., "gpt-4o-mini" or "qwen3:8b").
                    If None, defaults to AI_MODEL from environment.
         temperature: Temperature for generation (0.0 = deterministic, 1.0 = creative).
-                    Default is 0.3.
+                    Default is 0.0 for maximum determinism.
         timeout: Request timeout in seconds. If None, no timeout is set.
 
     Returns:
@@ -85,7 +85,7 @@ def get_chat_llm(model_name: str = None, temperature: float = 0.3, timeout: int 
 
 
 def get_structured_llm(
-    schema, model_name: str = None, temperature: float = 0.3, timeout: int = 120
+    schema, model_name: str = None, temperature: float = 0.0, timeout: int = 120
 ):
     """
     Returns an LLM configured for structured output with the correct method for the provider.
@@ -100,7 +100,7 @@ def get_structured_llm(
         model_name: Model to use (e.g., "gpt-4o-mini" or "qwen3:8b").
                    If None, defaults to AI_MODEL from environment.
         temperature: Temperature for generation (0.0 = deterministic, 1.0 = creative).
-                    Default is 0.3.
+                    Default is 0.0 for maximum determinism.
         timeout: Request timeout in seconds. If None, no timeout is set.
 
     Returns:

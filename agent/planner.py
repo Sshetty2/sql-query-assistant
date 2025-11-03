@@ -11,7 +11,7 @@ from langchain_core.exceptions import OutputParserException
 from models.planner_output import PlannerOutput
 from models.planner_output_minimal import PlannerOutputMinimal
 from models.planner_output_standard import PlannerOutputStandard
-from utils.llm_factory import get_structured_llm, is_using_ollama
+from utils.llm_factory import is_using_ollama
 from utils.logger import get_logger, log_execution_time
 
 from agent.state import State
@@ -58,19 +58,21 @@ def auto_fix_join_edges(planner_output_dict: dict) -> dict:
             extra={
                 "missing_tables": list(missing_tables),
                 "selected_tables": list(selected_tables),
-                "join_tables": list(join_tables)
-            }
+                "join_tables": list(join_tables),
+            },
         )
 
         for table in missing_tables:
             # Add table to selections with lower confidence since it was auto-added
-            selections.append({
-                "table": table,
-                "confidence": 0.7,  # Lower confidence for auto-added tables
-                "columns": [],  # No specific columns needed
-                "include_only_for_join": True,  # Table added only for joining
-                "filters": []
-            })
+            selections.append(
+                {
+                    "table": table,
+                    "confidence": 0.7,  # Lower confidence for auto-added tables
+                    "columns": [],  # No specific columns needed
+                    "include_only_for_join": True,  # Table added only for joining
+                    "filters": [],
+                }
+            )
 
         planner_output_dict["selections"] = selections
 
@@ -99,54 +101,62 @@ def repair_planner_output(planner_output_dict: dict) -> dict:
         Repaired planner output dictionary
     """
     # Add intent_summary if missing
-    if 'intent_summary' not in planner_output_dict:
-        planner_output_dict['intent_summary'] = "Query plan generated"
+    if "intent_summary" not in planner_output_dict:
+        planner_output_dict["intent_summary"] = "Query plan generated"
         logger.info("Repair: Added missing intent_summary field")
 
     # Add decision if missing
-    if 'decision' not in planner_output_dict:
-        planner_output_dict['decision'] = 'proceed'
+    if "decision" not in planner_output_dict:
+        planner_output_dict["decision"] = "proceed"
         logger.info("Repair: Added missing decision field")
 
     # Add selections if missing
-    if 'selections' not in planner_output_dict:
+    if "selections" not in planner_output_dict:
         # This is a critical error - try to infer from other fields
-        planner_output_dict['selections'] = []
-        logger.warning("Repair: Added missing selections field (will likely fail downstream)")
+        planner_output_dict["selections"] = []
+        logger.warning(
+            "Repair: Added missing selections field (will likely fail downstream)"
+        )
 
     # Fix selections array
-    selections = planner_output_dict.get('selections', [])
+    selections = planner_output_dict.get("selections", [])
     for i, sel in enumerate(selections):
         # Add confidence if missing
-        if 'confidence' not in sel:
-            sel['confidence'] = 0.7
+        if "confidence" not in sel:
+            sel["confidence"] = 0.7
 
         # Fix columns format - convert strings to dicts
-        if 'columns' in sel:
+        if "columns" in sel:
             fixed_columns = []
-            for col in sel['columns']:
+            for col in sel["columns"]:
                 if isinstance(col, str):
                     # Convert string to dict
-                    fixed_columns.append({
-                        'column': col,
-                        'role': 'projection'
-                    })
-                    logger.info(f"Repair: Converted string column '{col}' to dict in selection {i}")
+                    fixed_columns.append({"column": col, "role": "projection"})
+                    logger.info(
+                        f"Repair: Converted string column '{col}' to dict in selection {i}"
+                    )
                 else:
                     fixed_columns.append(col)
-            sel['columns'] = fixed_columns
+            sel["columns"] = fixed_columns
 
         # Remove forbidden fields that exist in older schema versions
-        forbidden_fields = ['conditions', 'date_filters']
+        forbidden_fields = ["conditions", "date_filters"]
         for field in forbidden_fields:
             if field in sel:
                 del sel[field]
-                logger.info(f"Repair: Removed forbidden field '{field}' from selection {i}")
+                logger.info(
+                    f"Repair: Removed forbidden field '{field}' from selection {i}"
+                )
 
-    planner_output_dict['selections'] = selections
+    planner_output_dict["selections"] = selections
 
     # Remove forbidden top-level fields
-    top_level_forbidden = ['filters', 'aggregations', 'join_only_tables', 'date_filters']
+    top_level_forbidden = [
+        "filters",
+        "aggregations",
+        "join_only_tables",
+        "date_filters",
+    ]
     for field in top_level_forbidden:
         if field in planner_output_dict:
             del planner_output_dict[field]
@@ -756,351 +766,370 @@ def create_planner_prompt(mode: str = None, **format_params):
 
         # ADVANCED SQL FEATURES
 
-## When to Use Advanced Features
-Use these ONLY when the user query requires them. Most queries don't need advanced features.
-
-### Aggregations (GROUP BY)
-When user asks for totals, counts, averages, min/max (e.g., "total sales by company")
-- Set `group_by` with:
-  - `group_by_columns`: Columns to group by (dimensions like company name, category)
-  - `aggregates`: List of aggregate functions (COUNT, SUM, AVG, MIN, MAX)
-  - `having_filters`: Filters on aggregated results (e.g., "companies with more than 100 sales")
-- Example: "Show total sales by company" → GROUP BY company, SUM(sales)
-
-### Window Functions
-When user asks for rankings, running totals, or row numbers (e.g., "rank users by sales")
-- Set `window_functions` with function, partition_by, order_by, and alias
-- Example: "Rank employees by salary within each department" → ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC)
-
-### Subqueries (in filters)
-When filtering based on results from another query (e.g., "users from top companies")
-- Set `subquery_filters` for WHERE col IN (SELECT...) patterns
-- Keep subqueries simple - single table with filters
-- Example: "Users from companies with >50 employees" → WHERE CompanyID IN (SELECT ID FROM Companies WHERE EmployeeCount > 50)
-
-### CTEs (WITH clauses)
-For complex queries that benefit from intermediate results
-- Use sparingly - only when query logic is clearer with a CTE
-- Set `ctes` with name, selections, joins, filters, and optional group_by
-
-**Important:** Leave these fields empty (null or []) when not needed.
-
----
-
-# FILTER OPERATORS
-
-## Available Operators
-When creating FilterPredicate objects in the `filters` array:
-
-| Operator | Example | Notes |
-|----------|---------|-------|
-| `=` | `{{"op": "=", "value": "Cisco"}}` | Equality |
-| `!=` | `{{"op": "!=", "value": "Active"}}` | Inequality |
-| `>` | `{{"op": ">", "value": 100}}` | Greater than |
-| `between` | `{{"op": "between", "value": [0, 100]}}` | MUST be array [low, high] |
-| `in` | `{{"op": "in", "value": ["Cisco", "Microsoft"]}}` | MUST be array |
-| `not_in` | `{{"op": "not_in", "value": ["Inactive"]}}` | MUST be array |
-| `like` | `{{"op": "like", "value": "%cisco%"}}` | Pattern matching (case-insensitive) |
-| `starts_with` | `{{"op": "starts_with", "value": "CVE-"}}` | String starts with |
-| `ends_with` | `{{"op": "ends_with", "value": ".com"}}` | String ends with |
-| `is_null` | `{{"op": "is_null", "value": null}}` | Check for NULL |
-| `is_not_null` | `{{"op": "is_not_null", "value": null}}` | Check for NOT NULL |
-
----
-
-# RULES AND REQUIREMENTS
-
-## Hard Rules (MUST follow)
-
-### 1. Exact Names Only
-Use table/column names exactly as they appear in the schema. Never invent names.
-
-### 2. Always Specify Joins
-If you select 2+ tables in `selections`, you MUST populate `join_edges` with explicit column-to-column join conditions.
-- Use foreign keys from the schema to identify the correct columns
-- Example: `from_table.CompanyID = to_table.ID`
-
-### 3. Include Lookup Tables for Foreign Keys
-When selecting columns that are foreign keys (fields ending in ID like CompanyID, UserID, etc.):
-- You MUST also include the referenced table in `selections` to retrieve human-readable names/descriptions
-- Add the corresponding join edge
-- Include the name column from the related table with `role="projection"`
-
-### 4. Completeness of Joins
-Every table referenced in `join_edges` must also appear in `selections`.
-
-### 5. Join-Only Tables
-If a table is needed only to connect others (not for data display):
-- Set `include_only_for_join = true`
-- Leave its `columns` list empty
-
-### 6. Keep it Minimal
-Use the smallest number of tables required (prefer ≤ 6 tables).
-
-### 7. Localize Filters
-- Put a filter in the table's `filters` array where the column lives
-- Use `global_filters` only if the constraint genuinely spans multiple tables
-
-### 8. Column Roles and Filter Predicates
-**CRITICAL:** When a column should be filtered AND displayed, you must do BOTH:
-
-**Column Role Field:**
-- `role="projection"` → Column appears in SELECT clause (displayed to user)
-- `role="filter"` → Column is used for filtering but NOT displayed
-
-**Filter Predicate:**
-- You MUST create a FilterPredicate in the `filters` array when filtering is needed
-- Marking a column as `role="filter"` is NOT enough - you must also create the filter!
-
-**Common Pattern - "Tagged with X" queries:**
-
-User asks: "List all applications tagged with security risk"
-
-**✓ CORRECT APPROACH #1 (Display the tag):**
-```json
-{{
-  "selections": [
-    {{
-      "table": "tb_SoftwareTagsAndColors",
-      "columns": [
-        {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "role": "projection"}}
-      ],
-      "filters": [
-        {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "op": "=", "value": "security risk"}}
-      ]
-    }}
-  ]
-}}
-```
-
-**✓ ALSO ACCEPTABLE (Don't display the tag):**
-```json
-{{
-  "selections": [
-    {{
-      "table": "tb_SoftwareTagsAndColors",
-      "columns": [
-        {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "role": "filter"}}
-      ],
-      "filters": [
-        {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "op": "=", "value": "security risk"}}
-      ]
-    }}
-  ]
-}}
-```
-
-**✗ WRONG (Missing filter predicate):**
-```json
-{{
-  "selections": [
-    {{
-      "table": "tb_SoftwareTagsAndColors",
-      "columns": [
-        {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "role": "filter"}}
-      ],
-      "filters": []  // ← ERROR: No filter created!
-    }}
-  ]
-}}
-```
-
-**Summary:** If user says "tagged with X", "labeled as Y", "status = Active", etc., you MUST create a FilterPredicate. Don't just mark the column role - actually create the filter!
-
-### 9. ORDER BY and LIMIT for "Last/Top/First N" Queries
-
-**When the user asks for "last N", "top N", "first N", "most recent N", "oldest N", etc., you MUST use `order_by` and `limit` fields:**
-
-**Examples:**
-- "Last 10 logins" → `order_by: [{{"table": "tb_Logins", "column": "LoginDate", "direction": "DESC"}}], limit: 10`
-- "Top 5 customers by revenue" → `order_by: [{{"table": "tb_Customers", "column": "Revenue", "direction": "DESC"}}], limit: 5`
-- "First 3 entries" → `order_by: [{{"table": "...", "column": "CreatedOn", "direction": "ASC"}}], limit: 3`
-- "Most recent 20 tickets" → `order_by: [{{"table": "tb_Tickets", "column": "CreatedDate", "direction": "DESC"}}], limit: 20`
-
-**Key Points:**
-- "Last" / "Most recent" / "Latest" → Use `DESC` (descending) on timestamp column
-- "First" / "Oldest" / "Earliest" → Use `ASC` (ascending) on timestamp column
-- "Top" / "Bottom" → Use `DESC` or `ASC` on the relevant metric column (Revenue, Count, etc.)
-- Always set `limit` to the number specified by the user
-- Do NOT put this in `ambiguities` - specify the ORDER BY and LIMIT directly!
-
-### 10. Date Filters for Relative Queries
-
-**When the user asks for relative date ranges ("last 30 days", "past week", "this month"):**
-
-**Date Format:**
-- Use ISO 8601 format: `YYYY-MM-DD` for dates (e.g., `2025-10-31`)
-- Use `YYYY-MM-DD HH:MM:SS` for datetimes (e.g., `2025-10-31 14:30:00`)
-
-**Date Calculation:**
-- Calculate dates relative to the current date shown at the top of these instructions
-- Example: If current date is 2025-10-31 and user asks "last 30 days":
-  - Create filter: `{{"op": ">=", "value": "2025-10-01"}}`
-  - This is 30 days before 2025-10-31
-
-**Common Patterns:**
-- "Last 7 days" → `{{"op": ">=", "value": "[7 days ago]"}}`
-- "Last 30 days" → `{{"op": ">=", "value": "[30 days ago]"}}`
-- "Past week" → `{{"op": ">=", "value": "[7 days ago]"}}`
-- "This month" → `{{"op": ">=", "value": "[first day of current month]"}}`
-- "Before date X" → `{{"op": "<", "value": "YYYY-MM-DD"}}`
-- "After date X" → `{{"op": ">", "value": "YYYY-MM-DD"}}`
-- "Between dates" → `{{"op": "between", "value": ["YYYY-MM-DD", "YYYY-MM-DD"]}}`
-
-**Important:**
-- Always calculate the actual date value - don't use expressions like "DATEADD"
-- Use string values in ISO format
-- The join synthesizer will convert these to proper SQL date literals
-
-### 11. Time Filter Handling
-**IMPORTANT:** Do NOT create filter predicates for the "Time filter" parameter (e.g., "Last 30 Days", "Last 7 Days").
-- These will be handled by a downstream agent
-- Only include filters that are explicitly mentioned in the user's natural language query (e.g., "active users", "vendor = Cisco")
-- When a "Time filter" parameter is provided, include relevant timestamp columns (CreatedOn, UpdatedOn, etc.) in the selections with `role="projection"` or `role="filter"`
-- Let the downstream agent handle the actual date range calculation
-
-### 12. Confidence Bounds
-All confidence values must be between 0.0 and 1.0.
-
-### 13. Decision Field
-Choose the appropriate decision value:
-
-**proceed** - Use when you can create a viable query plan
-- The query makes sense for the schema
-- You've identified relevant tables and columns
-- May still have minor ambiguities (document in `ambiguities`)
-- **DEFAULT CHOICE** - Use this unless the query is truly impossible
-
-**clarify** - Use when the query is answerable but has significant ambiguities
-- Critical details are missing but you can make reasonable assumptions
-- The intent is clear but parameters need refinement
-- Populate `ambiguities` with specific questions
-- Note: The system will still proceed with your plan but show clarification options to the user
-
-**terminate** - EXTREMELY RARE - Use with extreme caution
-
-> **"With great power comes great responsibility."**
-
-Using `decision="terminate"` will **immediately end the entire workflow** and return an error to the user. Please only decide to terminate if there is **no way that a potentially valid query can be executed** against the available schema.
-
-**CRITICAL Rules:**
-- If you identified ANY relevant tables, columns, or joins → use "proceed" instead!
-- If you created a plan structure with selections/joins → you MUST use "proceed"!
-- Do NOT terminate just because the query is complex, uncertain, or requires assumptions!
-- Do NOT terminate because of "risky joins", "ambiguous schema", or "potential for incorrect results"!
-- When in doubt, use "proceed" with a lower confidence score and document concerns in `ambiguities`
-
-Only use "terminate" when ALL of these are true:
-1. The request has ZERO overlap with the available schema
-2. NO tables exist that could possibly answer any part of the query
-3. The query is completely nonsensical for this database domain
-4. You cannot create even a partial plan
-
-Examples of VALID "terminate" usage (query truly impossible):
-- "Order me a pizza" in a security/IT database → No food/restaurant tables exist
-- "Show me cat photos" in a financial database → No image/media tables exist
-- "What's the weather today?" in a user management database → No weather/location data
-
-Examples of INVALID "terminate" usage (use "proceed" instead):
-- ❌ "Show applications with security risk tag" when tag tables exist → Use "proceed"
-- ❌ "List vulnerable computers" when CVE/computer tables exist → Use "proceed"
-- ❌ Query is complex or requires multiple joins → Use "proceed"
-- ❌ Column names are uncertain but tables are relevant → Use "proceed" with ambiguities
-- ❌ You're not 100% confident in the plan → Use "proceed" with lower confidence score
-- ❌ Foreign key relationships are ambiguous → Use "proceed" (or "clarify" if severely ambiguous)
-- ❌ Query seems "too risky" due to schema concerns → Use "proceed" and let the query execute
-- ❌ Lack of filtering might produce broad results → Use "proceed" (broad results are better than no results)
-- ❌ You have concerns about query correctness → Use "proceed" with lower confidence and document in ambiguities
-
-**Rule of thumb:** If you wrote ANY `selections`, `join_edges`, or `filters` in your plan, you MUST use `decision="proceed"`, NOT "terminate".
-
-**⚠️ IMPORTANT VALIDATION RULE:**
-If you create a plan with tables, joins, or filters and use `decision="terminate"`, the validation system will **reject your response entirely** and you'll have to try again. Save time by using "proceed" when you have a plan!
-
-**When to use "clarify" vs "proceed":**
-- Use "clarify" when you genuinely cannot determine which table/column the user wants (e.g., "Status" exists in 5 tables)
-- Use "proceed" for everything else, even if you have concerns - document concerns in `ambiguities` field
-
-### 14. GROUP BY Completeness Rule
-**CRITICAL SQL RULE:** When using aggregations (COUNT, SUM, AVG, etc.):
-- ALL columns with `role="projection"` MUST be included in `group_by_columns`
-- Exception: Columns from tables with `include_only_for_join=true` are excluded
-- This is a SQL requirement - non-aggregated columns in SELECT must be in GROUP BY
-- Failure to follow this will cause SQL errors
-
-**Examples:**
-
-✓ **Correct:**
-- Selections: tb_Company.ID (projection), tb_Company.Name (projection)
-- Group by: [tb_Company.ID, tb_Company.Name]
-- Aggregates: COUNT(tb_Sales.ID)
-- Result: Both ID and Name are in GROUP BY ✓
-
-✗ **Incorrect:**
-- Selections: tb_Company.ID (projection), tb_Company.Name (projection)
-- Group by: [tb_Company.ID] ONLY
-- Aggregates: COUNT(tb_Sales.ID)
-- Result: Name is missing from GROUP BY - SQL ERROR!
-
-**Action Required:**
-When you add aggregates to `group_by`, review ALL projection columns and ensure each one appears in `group_by_columns`.
-
-### 15. HAVING Clause Table References
-When using HAVING filters in aggregated queries:
-- HAVING filters must reference the correct table where the column exists
-- If filtering on a joined table's column, use that table name (not the main table)
-- Check the schema to verify which table contains the column you're filtering on
-
-**Example:**
-- ✗ WRONG: Main table is tb_SaasComputerCVEMap, filtering on Impact (which is in tb_CVE_PatchImpact)
-  - `having_filters: [{{"table": "tb_SaasComputerCVEMap", "column": "Impact"}}]` ← Error!
-- ✓ CORRECT: Reference the table that actually has the Impact column
-  - `having_filters: [{{"table": "tb_CVE_PatchImpact", "column": "Impact"}}]` ← Correct
-
----
-
-## Reasoning Hints
-
-### Create Explicit Joins
-For every pair of related tables in `selections`, add a `join_edges` entry specifying the exact columns to join (from_column and to_column).
-- Look for foreign keys in the schema's `foreign_keys` arrays
-
-### Prefer Foreign Keys
-Use the `foreign_keys` arrays and `...ID` column naming patterns to identify relationships.
-- **IMPORTANT:** Foreign keys often have different names than the primary keys they reference
-- Example: If Table A has foreign key "CompanyID" and Table B has primary key "ID"
-- Create join edge: `{{from_table: "TableA", from_column: "CompanyID", to_table: "TableB", to_column: "ID"}}`
-- **Common pattern:** `tb_ApplicationTagMap.TagID` joins to `tb_SoftwareTagsAndColors.ID` (NOT TagID!)
-- Check the schema's `foreign_keys` array to find the correct column mappings
-
-### Auto-Join for Human-Readable Names
-When a table has a foreign key (e.g., CompanyID, UserID, ProductID):
-- Automatically include the related table
-- Join to it to retrieve the name/description column
-- Example: If selecting from tb_Users which has CompanyID, include tb_Company in selections and add a join edge to retrieve the company Name
-
-### Choose Carefully
-When multiple candidate tables exist, choose the one with stronger evidence (metadata, foreign keys) and higher confidence.
-
-### Ask When Stuck
-If the user mentions a column you can't find:
-- Switch to "clarify"
-- Ask for the exact field or acceptable alternative
-
----
-
-## Final Checklist
-
-Before responding, validate:
-- ✓ Chosen appropriate `decision` value (proceed/clarify/terminate)
-- ✓ If decision='terminate', provided clear `termination_reason`
-- ✓ If 2+ tables in `selections`, `join_edges` must be populated with explicit joins
-- ✓ All tables in `join_edges` exist in `selections`
-- ✓ Each join edge specifies both from_column and to_column (not just table names)
-- ✓ Bridge/lookup tables without projections have `include_only_for_join = true`
-- ✓ No columns appear from tables that aren't in `selections`
-- ✓ No invented table or column names
-- ✓ Output is valid PlannerOutput JSON and nothing else
+        ## When to Use Advanced Features
+        Use these ONLY when the user query requires them. Most queries don't need advanced features.
+
+        ### Aggregations (GROUP BY)
+        When user asks for totals, counts, averages, min/max (e.g., "total sales by company")
+        - Set `group_by` with:
+        - `group_by_columns`: Columns to group by (dimensions like company name, category)
+        - `aggregates`: List of aggregate functions (COUNT, SUM, AVG, MIN, MAX)
+        - `having_filters`: Filters on aggregated results (e.g., "companies with more than 100 sales")
+        - Example: "Show total sales by company" → GROUP BY company, SUM(sales)
+
+        ### Window Functions
+        When user asks for rankings, running totals, or row numbers (e.g., "rank users by sales")
+        - Set `window_functions` with function, partition_by, order_by, and alias
+        - Example: "Rank employees by salary within each department" → ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC)
+
+        ### Subqueries (in filters)
+        When filtering based on results from another query (e.g., "users from top companies")
+        - Set `subquery_filters` for WHERE col IN (SELECT...) patterns
+        - Keep subqueries simple - single table with filters
+        - Example: "Users from companies with >50 employees" → WHERE CompanyID IN (SELECT ID FROM Companies WHERE EmployeeCount > 50)
+
+        ### CTEs (WITH clauses)
+        For complex queries that benefit from intermediate results
+        - Use sparingly - only when query logic is clearer with a CTE
+        - Set `ctes` with name, selections, joins, filters, and optional group_by
+
+        **Important:** Leave these fields empty (null or []) when not needed.
+
+        ---
+
+        # FILTER OPERATORS
+
+        ## Available Operators
+        When creating FilterPredicate objects in the `filters` array:
+
+        | Operator | Example | Notes |
+        |----------|---------|-------|
+        | `=` | `{{"op": "=", "value": "Cisco"}}` | Equality |
+        | `!=` | `{{"op": "!=", "value": "Active"}}` | Inequality |
+        | `>` | `{{"op": ">", "value": 100}}` | Greater than |
+        | `between` | `{{"op": "between", "value": [0, 100]}}` | MUST be array [low, high] |
+        | `in` | `{{"op": "in", "value": ["Cisco", "Microsoft"]}}` | MUST be array |
+        | `not_in` | `{{"op": "not_in", "value": ["Inactive"]}}` | MUST be array |
+        | `like` | `{{"op": "like", "value": "%cisco%"}}` | Pattern matching (case-insensitive) |
+        | `starts_with` | `{{"op": "starts_with", "value": "CVE-"}}` | String starts with |
+        | `ends_with` | `{{"op": "ends_with", "value": ".com"}}` | String ends with |
+        | `is_null` | `{{"op": "is_null", "value": null}}` | Check for NULL |
+        | `is_not_null` | `{{"op": "is_not_null", "value": null}}` | Check for NOT NULL |
+
+        ---
+
+        # RULES AND REQUIREMENTS
+
+        ## Hard Rules (MUST follow)
+
+        ### 1. Exact Names Only
+        Use table/column names exactly as they appear in the schema. Never invent names.
+
+        ### 2. Always Specify Joins
+        If you select 2+ tables in `selections`, you MUST populate `join_edges` with explicit column-to-column join conditions.
+        - Use foreign keys from the schema to identify the correct columns
+        - Example: `from_table.CompanyID = to_table.ID`
+
+        ### 3. Include Lookup Tables for Foreign Keys
+        When selecting columns that are foreign keys (fields ending in ID like CompanyID, UserID, etc.):
+        - You MUST also include the referenced table in `selections` to retrieve human-readable names/descriptions
+        - Add the corresponding join edge
+        - Include the name column from the related table with `role="projection"`
+
+        ### 4. Completeness of Joins
+        Every table referenced in `join_edges` must also appear in `selections`.
+
+        ### 5. Join-Only Tables
+        If a table is needed only to connect others (not for data display):
+        - Set `include_only_for_join = true`
+        - Leave its `columns` list empty
+
+        ### 6. Keep it Minimal
+        Use the smallest number of tables required (prefer ≤ 6 tables).
+
+        ### 7. Localize Filters
+        - Put a filter in the table's `filters` array where the column lives
+        - Use `global_filters` only if the constraint genuinely spans multiple tables
+
+        ### 8. Column Roles and Filter Predicates
+        **CRITICAL:** When a column should be filtered AND displayed, you must do BOTH:
+
+        **Column Role Field:**
+        - `role="projection"` → Column appears in SELECT clause (displayed to user)
+        - `role="filter"` → Column is used for filtering but NOT displayed
+
+        **Filter Predicate:**
+        - You MUST create a FilterPredicate in the `filters` array when filtering is needed
+        - Marking a column as `role="filter"` is NOT enough - you must also create the filter!
+
+        **Common Pattern - "Tagged with X" queries:**
+
+        User asks: "List all applications tagged with security risk"
+
+        **✓ CORRECT APPROACH #1 (Display the tag):**
+        ```json
+        {{
+        "selections": [
+            {{
+            "table": "tb_SoftwareTagsAndColors",
+            "columns": [
+                {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "role": "projection"}}
+            ],
+            "filters": [
+                {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "op": "=", "value": "security risk"}}
+            ]
+            }}
+        ]
+        }}
+        ```
+
+        **✓ ALSO ACCEPTABLE (Don't display the tag):**
+        ```json
+        {{
+        "selections": [
+            {{
+            "table": "tb_SoftwareTagsAndColors",
+            "columns": [
+                {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "role": "filter"}}
+            ],
+            "filters": [
+                {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "op": "=", "value": "security risk"}}
+            ]
+            }}
+        ]
+        }}
+        ```
+
+        **✗ WRONG (Missing filter predicate):**
+        ```json
+        {{
+        "selections": [
+            {{
+            "table": "tb_SoftwareTagsAndColors",
+            "columns": [
+                {{"table": "tb_SoftwareTagsAndColors", "column": "TagName", "role": "filter"}}
+            ],
+            "filters": []  // ← ERROR: No filter created!
+            }}
+        ]
+        }}
+        ```
+
+        **Summary:** If user says "tagged with X", "labeled as Y", "status = Active", etc., you MUST create a FilterPredicate. Don't just mark the column role - actually create the filter!
+
+        ### 9. ORDER BY and LIMIT for "Last/Top/First N" Queries
+
+        **When the user asks for "last N", "top N", "first N", "most recent N", "oldest N", etc., you MUST use `order_by` and `limit` fields:**
+
+        **Examples:**
+        - "Last 10 logins" → `order_by: [{{"table": "tb_Logins", "column": "LoginDate", "direction": "DESC"}}], limit: 10`
+        - "Top 5 customers by revenue" → `order_by: [{{"table": "tb_Customers", "column": "Revenue", "direction": "DESC"}}], limit: 5`
+        - "First 3 entries" → `order_by: [{{"table": "...", "column": "CreatedOn", "direction": "ASC"}}], limit: 3`
+        - "Most recent 20 tickets" → `order_by: [{{"table": "tb_Tickets", "column": "CreatedDate", "direction": "DESC"}}], limit: 20`
+
+        **Key Points:**
+        - "Last" / "Most recent" / "Latest" → Use `DESC` (descending) on timestamp column
+        - "First" / "Oldest" / "Earliest" → Use `ASC` (ascending) on timestamp column
+        - "Top" / "Bottom" → Use `DESC` or `ASC` on the relevant metric column (Revenue, Count, etc.)
+        - Always set `limit` to the number specified by the user
+        - Do NOT put this in `ambiguities` - specify the ORDER BY and LIMIT directly!
+
+        ### 10. Date Filters for Relative Queries
+
+        **When the user asks for relative date ranges ("last 30 days", "past week", "this month"):**
+
+        **Date Format:**
+        - Use ISO 8601 format: `YYYY-MM-DD` for dates (e.g., `2025-10-31`)
+        - Use `YYYY-MM-DD HH:MM:SS` for datetimes (e.g., `2025-10-31 14:30:00`)
+
+        **Date Calculation:**
+        - Calculate dates relative to the current date shown at the top of these instructions
+        - Example: If current date is 2025-10-31 and user asks "last 30 days":
+        - Create filter: `{{"op": ">=", "value": "2025-10-01"}}`
+        - This is 30 days before 2025-10-31
+
+        **Common Patterns:**
+        - "Last 7 days" → `{{"op": ">=", "value": "[7 days ago]"}}`
+        - "Last 30 days" → `{{"op": ">=", "value": "[30 days ago]"}}`
+        - "Past week" → `{{"op": ">=", "value": "[7 days ago]"}}`
+        - "This month" → `{{"op": ">=", "value": "[first day of current month]"}}`
+        - "Before date X" → `{{"op": "<", "value": "YYYY-MM-DD"}}`
+        - "After date X" → `{{"op": ">", "value": "YYYY-MM-DD"}}`
+        - "Between dates" → `{{"op": "between", "value": ["YYYY-MM-DD", "YYYY-MM-DD"]}}`
+
+        **Important:**
+        - Always calculate the actual date value - don't use expressions like "DATEADD"
+        - Use string values in ISO format
+        - The join synthesizer will convert these to proper SQL date literals
+
+        ### 11. Time Filter Handling
+        **IMPORTANT:** Do NOT create filter predicates for the "Time filter" parameter (e.g., "Last 30 Days", "Last 7 Days").
+        - These will be handled by a downstream agent
+        - Only include filters that are explicitly mentioned in the user's natural language query (e.g., "active users", "vendor = Cisco")
+        - When a "Time filter" parameter is provided, include relevant timestamp columns (CreatedOn, UpdatedOn, etc.) in the selections with `role="projection"` or `role="filter"`
+        - Let the downstream agent handle the actual date range calculation
+
+        ### 12. Confidence Bounds
+        All confidence values must be between 0.0 and 1.0.
+
+        ### 13. Decision Field
+        Choose the appropriate decision value:
+
+        **proceed** - Use when you can create a viable query plan
+        - The query makes sense for the schema
+        - You've identified relevant tables and columns
+        - May still have minor ambiguities (document in `ambiguities`)
+        - **DEFAULT CHOICE** - Use this unless the query is truly impossible
+
+        **clarify** - Use when the query is answerable but has significant ambiguities
+        - Critical details are missing but you can make reasonable assumptions
+        - The intent is clear but parameters need refinement
+        - Populate `ambiguities` with specific questions
+        - Note: The system will still proceed with your plan but show clarification options to the user
+
+        **terminate** - EXTREMELY RARE - Use with extreme caution
+
+        > **"With great power comes great responsibility."**
+
+        Using `decision="terminate"` will **immediately end the entire workflow** and return an error to the user. Please only decide to terminate if there is **no way that a potentially valid query can be executed** against the available schema.
+
+        **CRITICAL Rules:**
+        - If you identified ANY relevant tables, columns, or joins → use "proceed" instead!
+        - If you created a plan structure with selections/joins → you MUST use "proceed"!
+        - Do NOT terminate just because the query is complex, uncertain, or requires assumptions!
+        - Do NOT terminate because of "risky joins", "ambiguous schema", or "potential for incorrect results"!
+        - When in doubt, use "proceed" with a lower confidence score and document concerns in `ambiguities`
+
+        Only use "terminate" when ALL of these are true:
+        1. The request has ZERO overlap with the available schema
+        2. NO tables exist that could possibly answer any part of the query
+        3. The query is completely nonsensical for this database domain
+        4. You cannot create even a partial plan
+
+        Examples of VALID "terminate" usage (query truly impossible):
+        - "Order me a pizza" in a security/IT database → No food/restaurant tables exist
+        - "Show me cat photos" in a financial database → No image/media tables exist
+        - "What's the weather today?" in a user management database → No weather/location data
+
+        Examples of INVALID "terminate" usage (use "proceed" instead):
+        - ❌ "Show applications with security risk tag" when tag tables exist → Use "proceed"
+        - ❌ "List vulnerable computers" when CVE/computer tables exist → Use "proceed"
+        - ❌ Query is complex or requires multiple joins → Use "proceed"
+        - ❌ Column names are uncertain but tables are relevant → Use "proceed" with ambiguities
+        - ❌ You're not 100% confident in the plan → Use "proceed" with lower confidence score
+        - ❌ Foreign key relationships are ambiguous → Use "proceed" (or "clarify" if severely ambiguous)
+        - ❌ Query seems "too risky" due to schema concerns → Use "proceed" and let the query execute
+        - ❌ Lack of filtering might produce broad results → Use "proceed" (broad results are better than no results)
+        - ❌ You have concerns about query correctness → Use "proceed" with lower confidence and document in ambiguities
+
+        **Rule of thumb:** If you wrote ANY `selections`, `join_edges`, or `filters` in your plan, you MUST use `decision="proceed"`, NOT "terminate".
+
+        **⚠️ IMPORTANT VALIDATION RULE:**
+        If you create a plan with tables, joins, or filters and use `decision="terminate"`, the validation system will **reject your response entirely** and you'll have to try again. Save time by using "proceed" when you have a plan!
+
+        **When to use "clarify" vs "proceed":**
+        - Use "clarify" when you genuinely cannot determine which table/column the user wants (e.g., "Status" exists in 5 tables)
+        - Use "proceed" for everything else, even if you have concerns - document concerns in `ambiguities` field
+
+        ### 14. GROUP BY Completeness Rule
+        **CRITICAL SQL RULE:** When using aggregations (COUNT, SUM, AVG, etc.):
+        - ALL columns with `role="projection"` MUST be included in `group_by_columns`
+        - Exception: Columns from tables with `include_only_for_join=true` are excluded
+        - This is a SQL requirement - non-aggregated columns in SELECT must be in GROUP BY
+        - Failure to follow this will cause SQL errors
+
+        **Examples:**
+
+        ✓ **Correct:**
+        - Selections: tb_Company.ID (projection), tb_Company.Name (projection)
+        - Group by: [tb_Company.ID, tb_Company.Name]
+        - Aggregates: COUNT(tb_Sales.ID)
+        - Result: Both ID and Name are in GROUP BY ✓
+
+        ✗ **Incorrect:**
+        - Selections: tb_Company.ID (projection), tb_Company.Name (projection)
+        - Group by: [tb_Company.ID] ONLY
+        - Aggregates: COUNT(tb_Sales.ID)
+        - Result: Name is missing from GROUP BY - SQL ERROR!
+
+        **Action Required:**
+        When you add aggregates to `group_by`, review ALL projection columns and ensure each one appears in `group_by_columns`.
+
+        ### 15. HAVING Clause Table References
+        When using HAVING filters in aggregated queries:
+        - HAVING filters must reference the correct table where the column exists
+        - If filtering on a joined table's column, use that table name (not the main table)
+        - Check the schema to verify which table contains the column you're filtering on
+
+        **Example:**
+        - ✗ WRONG: Main table is tb_SaasComputerCVEMap, filtering on Impact (which is in tb_CVE_PatchImpact)
+        - `having_filters: [{{"table": "tb_SaasComputerCVEMap", "column": "Impact"}}]` ← Error!
+        - ✓ CORRECT: Reference the table that actually has the Impact column
+        - `having_filters: [{{"table": "tb_CVE_PatchImpact", "column": "Impact"}}]` ← Correct
+
+        ---
+
+        ## Reasoning Hints
+
+        ### Create Explicit Joins
+        For every pair of related tables in `selections`, add a `join_edges` entry specifying the exact columns to join (from_column and to_column).
+        - Look for foreign keys in the schema's `foreign_keys` arrays
+
+        ### Prefer Foreign Keys
+        Use the `foreign_keys` arrays and `...ID` column naming patterns to identify relationships.
+        - **IMPORTANT:** Foreign keys often have different names than the primary keys they reference
+        - Example: If Table A has foreign key "CompanyID" and Table B has primary key "ID"
+        - Create join edge: `{{from_table: "TableA", from_column: "CompanyID", to_table: "TableB", to_column: "ID"}}`
+        - **Common pattern:** `tb_ApplicationTagMap.TagID` joins to `tb_SoftwareTagsAndColors.ID` (NOT TagID!)
+        - Check the schema's `foreign_keys` array to find the correct column mappings
+
+        ### Auto-Join for Human-Readable Names
+        When a table has a foreign key (e.g., CompanyID, UserID, ProductID):
+        - Automatically include the related table
+        - Join to it to retrieve the name/description column
+        - Example: If selecting from tb_Users which has CompanyID, include tb_Company in selections and add a join edge to retrieve the company Name
+
+        ### Choose Carefully
+        When multiple candidate tables exist, choose the one with stronger evidence (metadata, foreign keys) and higher confidence.
+
+        ### Ask When Stuck
+        If the user mentions a column you can't find:
+        - Switch to "clarify"
+        - Ask for the exact field or acceptable alternative
+
+        ### Verify Column-Table Ownership
+
+        When receiving a strategy or adding columns to selections:
+        1. Check the schema to find which table contains each column
+        2. Don't assume columns are in the "main" table - check detail tables
+        3. Common pattern: Detail tables end with "Details", "Map", "Info", "History"
+
+        **Example:**
+        - ❌ WRONG: {{"table": "tb_SaasComputers", "column": "NumberOfCores"}} ← Column doesn't exist in this table!
+        - ✅ CORRECT: {{"table": "tb_SaasComputerProcessorDetails", "column": "NumberOfCores"}} ← Column is in this table
+
+        **If you receive a strategy that references wrong tables:**
+        - Correct the table references before generating JSON
+        - Add necessary joins to the correct detail tables
+        - Example: If strategy says "tb_SaasComputers.NumberOfCores", change to "tb_SaasComputerProcessorDetails.NumberOfCores"
+          and add join: tb_SaasComputers.ID = tb_SaasComputerProcessorDetails.ComputerID
+
+        ---
+
+        ## Final Checklist
+
+        Before responding, validate:
+        - ✓ Chosen appropriate `decision` value (proceed/clarify/terminate)
+        - ✓ If decision='terminate', provided clear `termination_reason`
+        - ✓ If 2+ tables in `selections`, `join_edges` must be populated with explicit joins
+        - ✓ All tables in `join_edges` exist in `selections`
+        - ✓ Each join edge specifies both from_column and to_column (not just table names)
+        - ✓ Bridge/lookup tables without projections have `include_only_for_join = true`
+        - ✓ No columns appear from tables that aren't in `selections`
+        - ✓ No invented table or column names
+        - ✓ **FOR EACH COLUMN: Verified it exists in the SPECIFIC table referenced (not just exists somewhere)**
+        - ✓ **Detail tables included when needed (e.g., tb_SaasComputerProcessorDetails for processor columns)**
+        - ✓ Output is valid PlannerOutput JSON and nothing else
         """  # noqa: E501
         ).strip()
     )
@@ -1333,9 +1362,28 @@ def plan_query(state: State):
         # Get current date for date-aware queries
         current_date = datetime.now().strftime("%Y-%m-%d")
 
-        # Check if we're using two-stage planning (pre-plan strategy exists)
+        # Get strategy: prioritize revised_strategy (from error/refinement) over pre_plan_strategy (from pre-planner)
+        # This enables hybrid architecture: pre-planner for new queries, direct strategy revision for corrections
+        revised_strategy = state.get("revised_strategy")
         pre_plan_strategy = state.get("pre_plan_strategy")
-        using_two_stage = pre_plan_strategy is not None
+
+        # Use revised strategy if available, otherwise use pre-plan strategy
+        strategy_to_use = revised_strategy or pre_plan_strategy
+        using_two_stage = strategy_to_use is not None
+
+        # Track which strategy source we're using
+        if revised_strategy:
+            strategy_source = "revised"
+            logger.info(
+                "Using revised strategy from error/refinement correction (bypassing pre-planner)",
+                extra={"strategy_length": len(revised_strategy)},
+            )
+        elif pre_plan_strategy:
+            strategy_source = "pre_plan"
+            logger.info(
+                "Using pre-plan strategy from pre-planner",
+                extra={"strategy_length": len(pre_plan_strategy)},
+            )
 
         # Build format parameters
         format_params = {
@@ -1381,11 +1429,9 @@ def plan_query(state: State):
                 )
 
         if using_two_stage:
-            # Two-stage planning: Use pre-plan strategy instead of schema
-            format_params["pre_plan_strategy"] = pre_plan_strategy
-            logger.info(
-                "Using two-stage planning approach",
-                extra={"pre_plan_length": len(pre_plan_strategy)}
+            # Two-stage planning: Use strategy instead of schema
+            format_params["pre_plan_strategy"] = (
+                strategy_to_use  # Can be from pre-planner OR error/refinement
             )
             # Create the prompt with strategy (returns tuple of system and user messages)
             system_content, user_content = create_planner_prompt_with_strategy(
@@ -1417,7 +1463,8 @@ def plan_query(state: State):
         # Get planner model class and base LLM (not structured yet)
         planner_model_class = get_planner_model_class()
         from utils.llm_factory import get_chat_llm
-        base_llm = get_chat_llm(model_name=os.getenv("AI_MODEL"), temperature=0.3)
+
+        base_llm = get_chat_llm(model_name=os.getenv("AI_MODEL"))
 
         # Create proper message structure for chat models
         messages = [
@@ -1436,16 +1483,18 @@ def plan_query(state: State):
                 current_messages = messages.copy()
                 if validation_feedback and retry_attempt > 0:
                     feedback_message = HumanMessage(
-                        content=f"""
-VALIDATION ERROR - Please fix the following issue in your response:
+                        content=dedent(
+                            f"""
+                            VALIDATION ERROR - Please fix the following issue in your response:
 
-{validation_feedback}
+                            {validation_feedback}
 
-IMPORTANT: Ensure that ALL tables referenced in join_edges are also included in the selections array.
-If you need to join to a table, you MUST add it to selections first.
+                            IMPORTANT: Ensure that ALL tables referenced in join_edges are also included in the selections array.
+                            If you need to join to a table, you MUST add it to selections first.
 
-Please regenerate your response with this issue corrected.
-"""
+                            Please regenerate your response with this issue corrected.
+                            """
+                        ).strip()
                     )
                     current_messages.append(feedback_message)
 
@@ -1466,8 +1515,7 @@ Please regenerate your response with this issue corrected.
                     # For Ollama: use json_schema (required for local models)
                     if is_using_ollama():
                         structured_llm = base_llm.with_structured_output(
-                            planner_model_class,
-                            method="json_schema"
+                            planner_model_class, method="json_schema"
                         )
                     else:
                         # OpenAI - don't specify method, uses function_calling by default
@@ -1490,15 +1538,17 @@ Please regenerate your response with this issue corrected.
 
                     except OutputParserException as parse_error:
                         # ANY validation error - try to repair
-                        error_details = extract_validation_error_details(str(parse_error))
+                        error_details = extract_validation_error_details(
+                            str(parse_error)
+                        )
 
                         logger.info(
                             "Detected validation error, attempting repair",
                             extra={
                                 "error_type": error_details["error_type"],
                                 "missing_tables": error_details["missing_tables"],
-                                "problematic_field": error_details["problematic_field"]
-                            }
+                                "problematic_field": error_details["problematic_field"],
+                            },
                         )
 
                         # Extract raw JSON from exception (don't make a new LLM call!)
@@ -1515,10 +1565,11 @@ Please regenerate your response with this issue corrected.
                             except json.JSONDecodeError:
                                 # Try to extract from markdown code blocks
                                 import re
+
                                 json_match = re.search(
-                                    r'```json\s*(\{.*?\})\s*```',
+                                    r"```json\s*(\{.*?\})\s*```",
                                     raw_llm_output,
-                                    re.DOTALL
+                                    re.DOTALL,
                                 )
                                 if json_match:
                                     raw_json = json.loads(json_match.group(1))
@@ -1527,15 +1578,19 @@ Please regenerate your response with this issue corrected.
                                     raise parse_error
 
                             # Apply ALL repair functions
-                            fixed_json = repair_planner_output(raw_json)  # General repairs
-                            fixed_json = auto_fix_join_edges(fixed_json)  # Join-specific fix
+                            fixed_json = repair_planner_output(
+                                raw_json
+                            )  # General repairs
+                            fixed_json = auto_fix_join_edges(
+                                fixed_json
+                            )  # Join-specific fix
 
                             # Validate with Pydantic
                             plan = planner_model_class(**fixed_json)
 
                             logger.info(
                                 "Successfully applied repairs and validated planner output",
-                                extra={"retry_attempt": retry_attempt + 1}
+                                extra={"retry_attempt": retry_attempt + 1},
                             )
                             break
 
@@ -1543,7 +1598,7 @@ Please regenerate your response with this issue corrected.
                             # Repair failed, re-raise original validation error to retry
                             logger.warning(
                                 "Repair attempt failed, will retry with feedback",
-                                extra={"repair_error": str(repair_error)}
+                                extra={"repair_error": str(repair_error)},
                             )
                             raise parse_error
 
@@ -1587,14 +1642,16 @@ Please regenerate your response with this issue corrected.
                     "join_edges_missing_selections",
                 ]:
                     missing_tables_str = ", ".join(error_details["missing_tables"])
-                    validation_feedback = f"""
-The 'join_edges' field references tables that are NOT in the 'selections' array: {missing_tables_str}
+                    validation_feedback = dedent(
+                        f"""
+                        The 'join_edges' field references tables that are NOT in the 'selections' array: {missing_tables_str}
 
-REQUIRED FIX:
-- Add these tables to the 'selections' array: {missing_tables_str}
-- OR remove the join_edges that reference these tables
-- Every table in a join_edge MUST also appear in selections
-"""
+                        REQUIRED FIX:
+                        - Add these tables to the 'selections' array: {missing_tables_str}
+                        - OR remove the join_edges that reference these tables
+                        - Every table in a join_edge MUST also appear in selections
+                        """
+                    ).strip()
                 else:
                     validation_feedback = f"Validation error: {error_msg}"
 
@@ -1683,7 +1740,8 @@ REQUIRED FIX:
             plan.decision == "clarify" if hasattr(plan, "decision") else False
         )
 
-        return {
+        # Prepare return state
+        return_state = {
             **state,
             "messages": [AIMessage(content="Query plan created successfully")],
             "planner_output": plan_dict,  # Store as dict, not Pydantic model
@@ -1691,6 +1749,14 @@ REQUIRED FIX:
             "needs_clarification": needs_clarification,
             "last_step": "planner",
         }
+
+        # Clear revised_strategy after consumption (if it was used)
+        # This ensures it's only used once and doesn't interfere with future iterations
+        if revised_strategy:
+            return_state["revised_strategy"] = None
+            logger.info("Cleared revised_strategy after consumption")
+
+        return return_state
 
     except Exception as e:
         logger.error(

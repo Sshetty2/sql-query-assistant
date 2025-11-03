@@ -86,6 +86,40 @@ def _create_minimal_preplan_prompt(**format_params):
         - **Ordering**: How should results be sorted?
         - **Limiting**: How many rows to return?
 
+        ## ⚠️ CRITICAL: Table Ownership Verification
+
+        **You MUST verify which table each column belongs to!**
+
+        ### Step-by-Step Process:
+
+        1. **User mentions a concept** (e.g., "processor cores", "company name", "memory")
+        2. **Search schema for matching columns** (e.g., "NumberOfCores", "Name", "TotalPhysicalMemory")
+        3. **VERIFY which table contains each column** - Don't assume!
+           ❌ WRONG: "I found NumberOfCores, it must be in tb_SaasComputers"
+           ✅ CORRECT: "Let me check... NumberOfCores is in tb_SaasComputerProcessorDetails"
+        4. **Use the correct table.column reference**
+
+        ### Real Example:
+
+        **User asks:** "Show computers with more than 8 cores"
+
+        **Your thought process:**
+        1. Need to find column about processor cores
+        2. Search schema for "core", "processor", "cpu"
+        3. Found: NumberOfCores in table tb_SaasComputerProcessorDetails ← NOT tb_SaasComputers!
+        4. Decision: Use tb_SaasComputerProcessorDetails.NumberOfCores
+        5. Need to join: tb_SaasComputers.ID = tb_SaasComputerProcessorDetails.ComputerID
+
+        ### Common Mistakes:
+
+        ❌ **Assuming columns are in the "main" table:**
+        - tb_SaasComputers is about computers, so processor info must be there? NO!
+        - Processor details are in tb_SaasComputerProcessorDetails (separate detail table)
+
+        ❌ **Not checking detail/junction tables:**
+        - Many databases split data into main tables and detail tables
+        - Always check tables with suffixes like "Details", "Map", "Info"
+
         ## ⚠️ CRITICAL: Column Name Accuracy
 
         **The database schema is your ONLY source of truth for column names.**
@@ -104,6 +138,7 @@ def _create_minimal_preplan_prompt(**format_params):
            - Example: `tb_SaasPendingPatch.CompanyID` joins to `tb_Company.ID` (NOT CompanyID!)
         3. **Case sensitivity** - Use the exact case from schema
         4. **Table prefixes** - Always specify table name: `tb_Company.Name` not just `Name`
+        5. **Verify table ownership** - For EACH column, confirm it's in the table you're referencing
 
         ## Other Guidelines
 
@@ -221,6 +256,41 @@ def _create_standard_preplan_prompt(**format_params):
         9. **Ambiguities**
            - List any assumptions or unclear points
 
+        ## ⚠️ CRITICAL: Table Ownership Verification
+
+        **You MUST verify which table each column belongs to!**
+
+        ### Step-by-Step Process:
+
+        1. **User mentions a concept** (e.g., "processor cores", "company name", "memory")
+        2. **Search schema for matching columns** (e.g., "NumberOfCores", "Name", "TotalPhysicalMemory")
+        3. **VERIFY which table contains each column** - Don't assume!
+           ❌ WRONG: "I found NumberOfCores, it must be in tb_SaasComputers"
+           ✅ CORRECT: "Let me check... NumberOfCores is in tb_SaasComputerProcessorDetails"
+        4. **Use the correct table.column reference**
+
+        ### Real Example:
+
+        **User asks:** "Show computers with more than 8 cores"
+
+        **Your thought process:**
+        1. Need to find column about processor cores
+        2. Search schema for "core", "processor", "cpu"
+        3. Found: NumberOfCores in table tb_SaasComputerProcessorDetails ← NOT tb_SaasComputers!
+        4. Decision: Use tb_SaasComputerProcessorDetails.NumberOfCores
+        5. Reason: Need to join to tb_SaasComputers via ComputerID
+        6. Need to join: tb_SaasComputers.ID = tb_SaasComputerProcessorDetails.ComputerID
+
+        ### Common Mistakes:
+
+        ❌ **Assuming columns are in the "main" table:**
+        - tb_SaasComputers is about computers, so processor info must be there? NO!
+        - Processor details are in tb_SaasComputerProcessorDetails (separate detail table)
+
+        ❌ **Not checking detail/junction tables:**
+        - Many databases split data into main tables and detail tables
+        - Always check tables with suffixes like "Details", "Map", "Info"
+
         ## ⚠️ CRITICAL: Column Name Accuracy
 
         **The database schema is your ONLY source of truth for column names.**
@@ -239,6 +309,7 @@ def _create_standard_preplan_prompt(**format_params):
            - Example: `tb_SaasPendingPatch.CompanyID` joins to `tb_Company.ID` (NOT CompanyID!)
         3. **Case sensitivity** - Use the exact case from schema
         4. **Table prefixes** - Always specify: `tb_Company.Name` not just `Name`
+        5. **Verify table ownership** - For EACH column, confirm it's in the table you're referencing
 
         ### Foreign Key Relationships
         - Check the foreign_keys arrays in schema
@@ -351,6 +422,41 @@ def _create_full_preplan_prompt(**format_params):
 
         Create a detailed strategic plan that covers all aspects of query execution.
 
+        ## ⚠️ CRITICAL: Table Ownership Verification
+
+        **You MUST verify which table each column belongs to!**
+
+        ### Step-by-Step Process:
+
+        1. **User mentions a concept** (e.g., "processor cores", "company name", "memory")
+        2. **Search schema for matching columns** (e.g., "NumberOfCores", "Name", "TotalPhysicalMemory")
+        3. **VERIFY which table contains each column** - Don't assume!
+           ❌ WRONG: "I found NumberOfCores, it must be in tb_SaasComputers"
+           ✅ CORRECT: "Let me check... NumberOfCores is in tb_SaasComputerProcessorDetails"
+        4. **Use the correct table.column reference**
+
+        ### Real Example:
+
+        **User asks:** "Show computers with more than 8 cores"
+
+        **Your thought process:**
+        1. Need to find column about processor cores
+        2. Search schema for "core", "processor", "cpu"
+        3. Found: NumberOfCores in table tb_SaasComputerProcessorDetails ← NOT tb_SaasComputers!
+        4. Decision: Use tb_SaasComputerProcessorDetails.NumberOfCores
+        5. Reason: Need to join to tb_SaasComputers via ComputerID
+        6. Need to join: tb_SaasComputers.ID = tb_SaasComputerProcessorDetails.ComputerID
+
+        ### Common Mistakes:
+
+        ❌ **Assuming columns are in the "main" table:**
+        - tb_SaasComputers is about computers, so processor info must be there? NO!
+        - Processor details are in tb_SaasComputerProcessorDetails (separate detail table)
+
+        ❌ **Not checking detail/junction tables:**
+        - Many databases split data into main tables and detail tables
+        - Always check tables with suffixes like "Details", "Map", "Info"
+
         ## ⚠️ CRITICAL: Column Name Accuracy
 
         **The database schema is your ONLY source of truth for column names.**
@@ -369,6 +475,7 @@ def _create_full_preplan_prompt(**format_params):
            - Example: `tb_SaasPendingPatch.CompanyID` joins to `tb_Company.ID` (NOT CompanyID!)
         3. **Case sensitivity** - Use the exact case from schema
         4. **Table prefixes** - Always specify: `tb_Company.Name` not just `Name`
+        5. **Verify table ownership** - For EACH column, confirm it's in the table you're referencing
 
         ### 1. Decision Analysis
 
@@ -629,6 +736,11 @@ def create_preplan_strategy(state: State):
     1. Pre-planner (this function): Analyzes schema and generates text strategy
     2. Planner (agent/planner.py): Translates strategy into structured JSON
 
+    Supports feedback-based correction:
+    - If audit_feedback is present, regenerates strategy based on audit issues
+    - If error_feedback is present, regenerates strategy based on SQL errors
+    - If refinement_feedback is present, regenerates strategy to get results
+
     Args:
         state: Current workflow state
 
@@ -638,9 +750,31 @@ def create_preplan_strategy(state: State):
     user_query = state["user_question"]
     complexity = get_planner_complexity()
 
+    # Check for feedback from audit, error, or refinement nodes
+    audit_feedback = state.get("audit_feedback")
+    error_feedback = state.get("error_feedback")
+    refinement_feedback = state.get("refinement_feedback")
+    previous_strategy = state.get("pre_plan_strategy", "")
+    preplan_history = state.get("preplan_history", [])
+
+    # Determine if this is a feedback-based regeneration
+    has_feedback = bool(audit_feedback or error_feedback or refinement_feedback)
+    feedback_type = None
+    if audit_feedback:
+        feedback_type = "audit"
+    elif error_feedback:
+        feedback_type = "error"
+    elif refinement_feedback:
+        feedback_type = "refinement"
+
     logger.info(
         "Starting pre-planning (strategy generation)",
-        extra={"user_query": user_query, "complexity": complexity},
+        extra={
+            "user_query": user_query,
+            "complexity": complexity,
+            "has_feedback": has_feedback,
+            "feedback_type": feedback_type
+        },
     )
 
     try:
@@ -705,11 +839,12 @@ def create_preplan_strategy(state: State):
         current_date = datetime.now().strftime("%Y-%m-%d")
 
         # Build format parameters
+        # Note: When feedback is present, omit schema since it's included in the feedback
         format_params = {
             "domain_guidance": domain_text,
             "user_query": user_query,
             "parameters": parameters_text,
-            "schema": schema_markdown or json.dumps(schema_to_use, indent=2),
+            "schema": "" if has_feedback else (schema_markdown or json.dumps(schema_to_use, indent=2)),
             "current_date": current_date,
         }
 
@@ -721,14 +856,73 @@ def create_preplan_strategy(state: State):
         else:  # full
             system_content, user_content = _create_full_preplan_prompt(**format_params)
 
+        # If feedback is present, modify user_content to include feedback
+        if has_feedback:
+            feedback_section = "\n\n---\n\n# FEEDBACK FROM PREVIOUS ATTEMPT\n\n"
+
+            if previous_strategy:
+                feedback_section += f"**Your Previous Strategy:**\n```\n{previous_strategy}\n```\n\n"
+
+            if audit_feedback:
+                feedback_section += f"**Plan Audit Issues:**\n{audit_feedback}\n\n"
+                feedback_section += dedent("""
+                    **Your Task:**
+                    Apply ONLY the corrections specified in the feedback above to your previous strategy.
+                    Keep everything else the same - only fix the specific issues mentioned.
+                    The feedback includes the schema context - use it to verify exact table/column names.
+                """).strip()
+            elif error_feedback:
+                feedback_section += f"**SQL Execution Error:**\n{error_feedback}\n\n"
+                feedback_section += dedent("""
+                    **Your Task:**
+                    Apply ONLY the corrections specified in the feedback above to your previous strategy.
+                    - If feedback says "change X to Y", make ONLY that change
+                    - Keep all other tables, columns, joins, and filters the same
+                    - Do not add or remove tables unless feedback explicitly says to
+                    - The feedback is based on the database schema - follow it exactly
+                """).strip()
+            elif refinement_feedback:
+                feedback_section += f"**No Results Returned:**\n{refinement_feedback}\n\n"
+                feedback_section += dedent("""
+                    **Your Task:**
+                    Broaden the strategy based on the feedback above to get results.
+                    The feedback suggests what filters or conditions might be too restrictive.
+                    Keep the core approach the same, just adjust as suggested.
+                """).strip()
+
+            user_content += feedback_section
+
         # Create messages - SystemMessage for instructions, HumanMessage with user query
         messages = [
             SystemMessage(content=system_content),
             HumanMessage(content=user_content)
         ]
 
-        # Get LLM and generate strategy with high temperature for creativity
-        llm = get_chat_llm(model_name=os.getenv("AI_MODEL"), temperature=1.0)
+        # Debug: Save the actual prompt being sent to LLM
+        from utils.debug_utils import save_debug_file as save_debug_prompt
+
+        if has_feedback:
+            iteration_num = len(preplan_history) + 1
+            prompt_debug_filename = f"preplan_prompt_{feedback_type}_iteration_{iteration_num}.json"
+        else:
+            prompt_debug_filename = "preplan_prompt_initial.json"
+
+        save_debug_prompt(
+            prompt_debug_filename,
+            {
+                "system_message": system_content,
+                "user_message": user_content,
+                "has_feedback": has_feedback,
+                "feedback_type": feedback_type,
+                "system_message_length": len(system_content),
+                "user_message_length": len(user_content),
+            },
+            step_name="pre_planner",
+            include_timestamp=True,
+        )
+
+        # Get LLM and generate strategy (uses default temperature=0 for determinism)
+        llm = get_chat_llm(model_name=os.getenv("AI_MODEL"))
 
         logger.info("Invoking LLM for pre-planning strategy generation")
 
@@ -745,21 +939,45 @@ def create_preplan_strategy(state: State):
         # Debug: Save the strategy
         from utils.debug_utils import save_debug_file
 
+        # Determine filename based on feedback presence and iteration
+        if has_feedback:
+            # Feedback-based regeneration - include feedback type and iteration
+            # Use preplan_history length + 1 for next iteration number
+            iteration_num = len(preplan_history) + 1
+            debug_filename = f"preplan_strategy_{feedback_type}_iteration_{iteration_num}.json"
+        else:
+            # Initial strategy generation
+            debug_filename = "preplan_strategy_initial.json"
+
         save_debug_file(
-            "preplan_strategy.json",
+            debug_filename,
             {
                 "strategy": strategy,
                 "complexity": complexity,
                 "user_query": user_query,
                 "strategy_length": len(strategy),
+                "has_feedback": has_feedback,
+                "feedback_type": feedback_type,
+                "iteration": len(preplan_history) + 1 if has_feedback else 1,
             },
             step_name="pre_planner",
             include_timestamp=True,
         )
 
+        # Track strategy history (append current strategy if it exists)
+        updated_history = preplan_history.copy()
+        if previous_strategy:
+            updated_history.append(previous_strategy)
+
         return {
             **state,
             "pre_plan_strategy": strategy,
+            "preplan_history": updated_history,
+            "preplan_feedback_type": feedback_type,  # Track which type of feedback was processed
+            # Clear feedback fields after processing
+            "audit_feedback": None,
+            "error_feedback": None,
+            "refinement_feedback": None,
             "messages": [AIMessage(content="Pre-planning strategy created")],
             "last_step": "pre_planner",
         }

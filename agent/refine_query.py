@@ -2,51 +2,22 @@
 
 import os
 import json
-from datetime import datetime
 from typing import Dict, Any
 from textwrap import dedent
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from agent.state import State
 from langchain_core.messages import AIMessage
-from langchain_core.exceptions import OutputParserException
 from models.planner_output import PlannerOutput
-from utils.llm_factory import get_structured_llm
+from utils.llm_factory import get_chat_llm
 from utils.logger import get_logger, log_execution_time
 
 load_dotenv()
 logger = get_logger()
 
-# Maximum number of retries for output parsing errors
-MAX_REFINEMENT_RETRIES = 2
-
-
-def extract_validation_error_details(error_message: str) -> str:
-    """
-    Extract readable validation error details from Pydantic validation error.
-
-    Args:
-        error_message: The error message from OutputParserException
-
-    Returns:
-        Human-readable error description
-    """
-    import re
-
-    # Extract validation error type and details
-    if "join_edges reference tables not" in error_message:
-        # Extract missing tables using regex
-        match = re.search(r"\['([^']+)'(?:,\s*'([^']+)')*\]", error_message)
-        if match:
-            missing_tables = [g for g in match.groups() if g]
-            return f"Tables referenced in join_edges but not in selections: {', '.join(missing_tables)}"
-
-    # Generic fallback
-    return f"Validation error: {error_message[:200]}"
-
 
 class QueryRefinement(BaseModel):
-    """Pydantic model for refining a query plan."""
+    """Pydantic model for refining a query plan (legacy - used for feedback generation)."""
 
     reasoning: str = Field(
         description="Explanation of how and why the plan was refined"
@@ -56,27 +27,40 @@ class QueryRefinement(BaseModel):
     )
 
 
-def refine_query(state: State) -> Dict[str, Any]:
+def generate_refined_strategy(
+    original_query: str,
+    original_strategy: str,
+    user_question: str,
+    refined_plans: list[dict],
+    schema: list[dict],
+    schema_markdown: str = None
+) -> str:
     """
-    Refine the query plan because the query returned no results.
-    Broaden the plan to try to get results.
+    Generate a refined strategy directly from empty query results.
+
+    Bypasses pre-planner and generates a refined strategy that should return results.
+    The refined strategy will be sent directly to planner for JSON conversion.
+
+    Args:
+        original_query: The SQL query that returned no results
+        original_strategy: The previous strategy text that returned no results
+        user_question: The original user question
+        refined_plans: List of previous refinement attempts
+        schema: The database schema (filtered/truncated) as list of dicts
+        schema_markdown: The database schema formatted as markdown (easier to search)
+
+    Returns:
+        Refined strategy text (will be sent to planner)
     """
-    original_query = state["query"]
-    original_plan = state["planner_output"]
-    user_question = state["user_question"]
-    refined_count = state.get("refined_count", 0)
+    # Use markdown schema if available (easier to search), otherwise JSON
+    if schema_markdown:
+        schema_text = schema_markdown
+        schema_format = "markdown"
+    else:
+        schema_text = json.dumps(schema, indent=2)
+        schema_format = "json"
 
-    logger.info(
-        "Starting plan refinement for no results",
-        extra={"refined_count": refined_count, "original_query": original_query[:200]},
-    )
-
-    # Use filtered schema if available, otherwise use full schema
-    schema_info = state.get("filtered_schema") or state["schema"]
-
-    refined_plans = state.get("refined_plans", [])
-
-    # Format previous attempts for display
+    # Format previous attempts
     if refined_plans:
         previous_attempts_formatted = "\n".join(
             [
@@ -87,289 +71,236 @@ def refine_query(state: State) -> Dict[str, Any]:
     else:
         previous_attempts_formatted = "No previous refinement attempts"
 
-    # Format the original plan for display
-    # Ensure plan is a dict (in case it's a Pydantic model)
+    prompt = dedent(f"""
+        # Generate Refined Strategy from Empty Results
+
+        ## System Overview
+
+        We're building a SQL query assistant that converts natural language to SQL queries.
+        The system uses a **two-stage planning approach**:
+
+        1. **Pre-Planner** (stage 1) - Creates a text-based strategic plan for NEW queries
+        2. **Planner** (stage 2) - Converts strategy to structured JSON
+        3. **SQL Generator** - Deterministically converts JSON to SQL
+
+        **Your Role:** You're the **query refinement strategist**. A query was executed successfully
+        but **returned zero results**. Generate a REFINED STRATEGY that should return results.
+        Your output will go DIRECTLY to the planner (skip pre-planner).
+
+        **Important:** Generate a COMPLETE refined strategy in the same format as the original strategy below.
+        This is NOT feedback - this IS the refined strategy that will be converted to JSON.
+
+        ---
+
+        ## User's Original Question
+        ```
+        {user_question}
+        ```
+
+        ## Previous Strategy (Returned No Results)
+        ```
+        {original_strategy}
+        ```
+
+        ## Generated SQL Query (from previous strategy)
+        ```sql
+        {original_query}
+        ```
+
+        **Result:** Query executed successfully but returned 0 rows
+
+        ## Database Schema (Reference for Refinements)
+        ```{schema_format}
+        {schema_text}
+        ```
+
+        ## Previous Refinement Attempts
+        {previous_attempts_formatted}
+
+        ---
+
+        ## Your Task
+
+        Generate a REFINED STRATEGY that should return results. Use the EXACT format of the original strategy above.
+
+        **Critical Requirements:**
+
+        0. **VERIFY table ownership for EVERY column** (TOP PRIORITY):
+           a) Before using ANY column, find it in the schema above
+           b) Note which SPECIFIC table contains that column
+           c) Use the EXACT table.column reference from schema
+           d) Common mistake: Assuming columns are in the "main" table
+           e) Reality: Check detail tables (tables with suffixes like "Details", "Map", "Info")
+
+           **Example Process:**
+           - Query failed with no results for "items with specific attribute"
+           - Step 1: Search schema above for columns related to "attribute"
+           - Step 2: Find which table actually contains the relevant column (check ALL tables)
+           - Step 3: If found in tb_DetailTable (NOT tb_MainTable!), use tb_DetailTable.AttributeColumn
+           - Step 4: If tb_DetailTable is not in the filtered schema above, DO NOT use it. Find an alternative.
+           - Step 5: Add necessary join: tb_MainTable.ID = tb_DetailTable.ForeignKeyID
+
+           **CRITICAL:** Only use tables that appear in the schema above!
+
+        1. **Preserve user intent**: Don't change WHAT the user asked for, only adjust HOW to find it
+
+        2. **Broaden the approach**: Common adjustments that help find results:
+           - Use LIKE patterns instead of exact matches
+           - Broaden date/time filters
+           - Remove overly restrictive conditions
+           - Simplify complex joins
+           - Check for NULL handling
+           - Try related tables if current ones have no data
+
+        3. **Verify columns exist**: Before using ANY column:
+           a) Find the table in the schema above
+           b) Check the table's actual columns
+           c) Confirm the column EXISTS in that list
+
+        4. **Verify joins**: Ensure joins use correct foreign key relationships from schema
+
+        5. **ZERO tolerance for hallucinations**: NEVER use a column that doesn't appear in the schema
+
+        6. **Keep same format**: Use the same markdown structure, headings, and sections as the original strategy
+
+        **Common No-Results Fixes:**
+        - Too restrictive filters → Broaden filter conditions or use LIKE patterns
+        - Wrong column names → Use correct column names from schema
+        - Wrong table selection → Try related tables that might have the data
+        - NULL value handling → Add IS NOT NULL or COALESCE
+        - Too many joins → Simplify join structure
+        - Wrong join columns → Use correct FK relationships from schema
+        - Time filters too narrow → Broaden time range
+
+        **Output Format:**
+        Generate a complete refined strategy in markdown format with these sections:
+        - **Tables**: List of tables needed
+        - **Columns**: List of columns to select/filter
+        - **Joins**: How tables connect (use FK relationships from schema)
+        - **Filters**: Conditions to apply (consider broadening these)
+        - **Aggregations**: Any grouping/aggregation needed
+        - **Ordering**: How to sort results
+        - **Limiting**: Result limit
+
+        **IMPORTANT:**
+        - Output ONLY the refined strategy text (no preamble, no "here's the strategy")
+        - Use the EXACT same format as the original strategy above
+        - Verify ALL columns exist in the schema before including them
+        - Focus on broadening filters or trying related tables to find results
+    """).strip()
+
+    try:
+        llm = get_chat_llm(model_name=os.getenv("AI_MODEL_REFINE"))
+
+        with log_execution_time(logger, "llm_refined_strategy_generation"):
+            result = llm.invoke(prompt)
+
+        # Extract text content from LangChain message
+        refined_strategy = result.content if hasattr(result, 'content') else str(result)
+
+        return refined_strategy.strip()
+
+    except Exception as e:
+        logger.error(f"Error generating refined strategy: {str(e)}", exc_info=True)
+        # Fallback: Return original strategy with refinement note
+        return f"""{original_strategy}
+
+---
+
+**REFINEMENT NOTE:**
+Failed to generate refined strategy due to: {str(e)[:100]}
+Query returned 0 rows. Consider broadening filters or checking table/column selections."""
+
+
+def refine_query(state: State) -> Dict[str, Any]:
+    """
+    Generate refined strategy directly because query returned no results.
+    Routes to planner with refined strategy (bypasses pre-planner).
+    """
+    original_query = state["query"]
+    original_plan = state["planner_output"]
+    user_question = state["user_question"]
+    refined_count = state.get("refined_count", 0)
+    refinement_iteration = state.get("refinement_iteration", 0)
+
+    # Get max refinement attempts from environment
+    max_refinements = (
+        int(os.getenv("REFINE_COUNT")) if os.getenv("REFINE_COUNT") else 3
+    )
+
+    # Get the strategy that led to no results (could be from pre-planner or previous revision)
+    previous_strategy = state.get("revised_strategy") or state.get("pre_plan_strategy", "")
+
+    # Format the original plan for history tracking
     if hasattr(original_plan, "model_dump"):
         original_plan_dict = original_plan.model_dump()
     else:
         original_plan_dict = original_plan
 
-    original_plan_json = json.dumps(original_plan_dict, indent=2)
-
-    # Create the prompt
-    prompt = dedent(
-        f"""
-        # Query Refinement Assistant
-
-        We're building a SQL query assistant that converts natural language to SQL queries.
-        A query plan was created and executed successfully, but **returned zero results**.
-
-        ## Your Role in the Pipeline
-
-        You're in the refinement step. The pipeline works like this:
-
-        1. **Query Planning** (completed) - Created a structured plan
-        2. **SQL Generation** (completed) - Converted plan to SQL deterministically
-        3. **Execution** (completed) - SQL ran successfully but returned 0 rows
-        4. **Query Refinement** (your step) - Adjust the plan to get results
-
-        ## What We Need From You
-
-        Analyze why the query returned no results and create a **refined plan** that will return data.
-        The plan might be too restrictive - broaden filters, check joins, or verify table/column names.
-
-        ## Original User Question
-
-        {user_question}
-
-        ## Original Query Plan
-
-        ```json
-        {original_plan_json}
-        ```
-
-        ## Generated Query (from above plan)
-
-        ```sql
-        {original_query}
-        ```
-
-        **Result:** No rows returned
-
-        ## Previous Refinement Attempts
-
-        {previous_attempts_formatted}
-
-        ## Database Schema
-
-        ```json
-        {schema_info}
-        ```
-
-        ---
-
-        ## Refinement Strategy
-
-        The query returned no results. Consider these approaches to broaden the plan:
-
-        - **Verify column and table names** - Double-check the schema to ensure correct names are used
-        - **Broaden filter predicates** - Relax strict filter conditions that may be too restrictive
-        - **Use LIKE patterns in filters** - Replace exact value matches with pattern matching where appropriate
-        - **Check for NULL handling** - Ensure filters account for NULL values if needed
-        - **Add OR conditions in filters** - Use OR logic where multiple criteria could apply
-        - **Remove restrictive time filters** - If present, time filters might be too restrictive
-        - **Simplify joins** - Complex joins might be filtering out all results
-        - **Check join_edges** - Ensure join columns are correct and exist in both tables
-
-        **IMPORTANT: Preserve ORDER BY and LIMIT**
-        - If the original plan had `order_by` or `limit` fields, **preserve them in your refined plan**
-        - These specify sorting and result count (e.g., "top 5 customers", "last 10 logins")
-        - Only remove them if they're causing the no-results issue
-
-        ---
-
-        ## Instructions
-
-        Analyze why the query returned no results and provide a **refined plan** (not a query - the query will be regenerated).
-
-        **CRITICAL: Decision Field Requirements**
-
-        > **"With great power comes great responsibility."**
-
-        **YOU MUST USE `decision="proceed"` OR `decision="clarify"` IN YOUR REFINED PLAN!**
-
-        - **NEVER EVER use `decision="terminate"`** - This will cause the entire workflow to fail
-        - If you identified tables and columns to query → you MUST use `decision="proceed"`
-        - If you created a refined plan structure → you MUST use `decision="proceed"`
-        - If you're uncertain but have a plan → use `decision="clarify"` with ambiguities
-        - Refinement is about **broadening the plan**, not giving up on the query
-        - Using `decision="terminate"` will trigger a validation error and waste the refinement attempt
-
-        **Rule of thumb:** If you wrote ANY refined `selections`, `join_edges`, or `filters`, you MUST use `decision="proceed"` or `decision="clarify"`.
-
-        ---
-
-        Provide:
-        - Reasoning explaining why no results were returned and how the plan was refined
-        - A complete refined plan with the refinements applied
-        """  # noqa: E501
+    logger.warning(
+        f"Query returned no results (iteration {refinement_iteration + 1}/{max_refinements})",
+        extra={"refined_count": refined_count, "refinement_iteration": refinement_iteration}
     )
 
-    # Get structured LLM (handles method="json_schema" for Ollama automatically)
-    structured_llm = get_structured_llm(
-        QueryRefinement, model_name=os.getenv("AI_MODEL_REFINE"), temperature=0.6
-    )
-
-    # Retry loop for handling output parsing errors
-    response = None
-    last_parsing_error = None
-    validation_feedback = None
-
-    for refinement_retry in range(MAX_REFINEMENT_RETRIES):
-        try:
-            # Add validation feedback if this is a retry
-            current_prompt = prompt
-            if validation_feedback and refinement_retry > 0:
-                current_prompt = f"""{prompt}
-
-IMPORTANT VALIDATION ERROR FROM PREVIOUS ATTEMPT:
-{validation_feedback}
-
-Please ensure your refined_plan field:
-1. Includes ALL tables referenced in join_edges in the selections array
-2. Uses correct column names from the schema
-3. Follows all validation rules
-4. Uses decision="proceed" or decision="clarify" (NEVER "terminate")
-
-Generate a corrected refined plan now.
-"""
-
-            logger.info(
-                "Invoking LLM for query refinement",
-                extra={"refinement_retry": refinement_retry + 1, "has_feedback": validation_feedback is not None}
-            )
-
-            with log_execution_time(logger, "llm_refine_plan_invocation"):
-                response = structured_llm.invoke(current_prompt)
-
-            # Success - break out of retry loop
-            if response is not None:
-                if refinement_retry > 0:
-                    logger.info(
-                        "Successfully parsed refinement after retry",
-                        extra={"refinement_retry": refinement_retry + 1}
-                    )
-                break
-
-        except OutputParserException as e:
-            last_parsing_error = e
-            error_msg = str(e)
-
-            # Extract validation error details
-            validation_summary = extract_validation_error_details(error_msg)
-
-            logger.warning(
-                "Refinement parsing failed",
-                extra={
-                    "refinement_retry": refinement_retry + 1,
-                    "max_retries": MAX_REFINEMENT_RETRIES,
-                    "validation_error": validation_summary,
-                    "refined_count": refined_count,
-                },
-            )
-
-            # Save failed output to debug file
-            from utils.debug_utils import save_debug_file
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            save_debug_file(
-                f"failed_refinement_attempt_{refinement_retry + 1}_{timestamp}.json",
-                {
-                    "attempt": refinement_retry + 1,
-                    "error_message": error_msg,
-                    "validation_summary": validation_summary,
-                    "original_query": original_query,
-                    "refined_count": refined_count,
-                },
-                step_name="refinement_errors",
-                include_timestamp=False  # Already in filename
-            )
-
-            # Create validation feedback for next retry
-            validation_feedback = f"""
-{validation_summary}
-
-CRITICAL: Every table in join_edges MUST also appear in selections.
-If you need to reference a table in a join, you MUST add it to the selections array first.
-"""
-
-            # If this was the last retry, we'll handle it after the loop
-            if refinement_retry == MAX_REFINEMENT_RETRIES - 1:
-                logger.error(
-                    "Failed to parse refinement after all retries",
-                    exc_info=True,
-                    extra={
-                        "total_attempts": MAX_REFINEMENT_RETRIES,
-                        "refined_count": refined_count,
-                        "last_error": error_msg,
-                    }
-                )
-
-        except Exception as e:
-            # Handle other unexpected errors
-            logger.error(
-                "Unexpected error during query refinement",
-                exc_info=True,
-                extra={"refined_count": refined_count, "error": str(e)},
-            )
-            # Add placeholder entries to arrays so UI can display the error
-            return {
-                **state,
-                "messages": [AIMessage(content=f"Unexpected error during refinement: {str(e)}")],
-                "last_step": "refine_query",
-                "refined_count": state["refined_count"] + 1,
-                "refined_queries": state["refined_queries"] + [original_query],
-                "refined_plans": state["refined_plans"] + [original_plan_dict],
-                "refined_reasoning": state["refined_reasoning"] + [f"⚠️ UNEXPECTED ERROR: {str(e)}"],
-                "error_history": state.get("error_history", [])
-                + [f"Refinement unexpected error: {str(e)}"],
-            }
-
-    # Check if we failed after all retries
-    if response is None:
-        error_msg = "Failed to refine query plan after multiple validation attempts."
-        if last_parsing_error:
-            validation_summary = extract_validation_error_details(str(last_parsing_error))
-            error_msg += f" Last error: {validation_summary}"
-
-        logger.error(error_msg, extra={"refined_count": refined_count})
-
-        # Add placeholder entries to arrays so UI can display the parse error
-        # This keeps arrays in sync with refined_count
+    # Check if we've exhausted iteration limit
+    if refinement_iteration >= max_refinements:
+        logger.error(
+            f"Refinement iteration limit reached ({max_refinements} iterations), terminating",
+            extra={"refinement_iteration": refinement_iteration}
+        )
         return {
             **state,
-            "messages": [AIMessage(content=error_msg)],
-            "last_step": "refine_query",
-            "refined_count": state["refined_count"] + 1,
-            "refined_queries": state["refined_queries"] + [original_query],
+            "messages": [AIMessage(content=f"No results after {refinement_iteration} refinement attempts")],
+            "planner_output": original_plan_dict,
+            "needs_termination": True,
+            "termination_reason": f"Query returned no results after {max_refinements} refinement attempts",
             "refined_plans": state["refined_plans"] + [original_plan_dict],
-            "refined_reasoning": state["refined_reasoning"] + [f"⚠️ PARSING FAILED: {validation_summary}"],
-            "error_history": state.get("error_history", [])
-            + [f"Refinement parsing failed: {validation_summary}"],
+            "refined_reasoning": state.get("refined_reasoning", []) + ["⚠️ NO RESULTS: Iteration limit reached"],
+            "last_step": "refine_query",
         }
 
-    # Convert the refined plan to dict for state storage
-    refined_plan_dict = response.refined_plan.model_dump()
+    # Use truncated schema if available (preferred for LLM context), otherwise filtered
+    schema = state.get("truncated_schema") or state.get("filtered_schema") or state["schema"]
+    refined_plans = state.get("refined_plans", [])
 
-    logger.info(
-        "Plan refinement completed",
-        extra={
-            "refined_plan_intent": response.refined_plan.intent_summary,
-            "refined_plan": refined_plan_dict,
-            "reasoning": response.reasoning,
-        },
+    # Generate refined strategy directly (bypasses pre-planner)
+    # Use markdown schema if available (easier for LLM to search)
+    schema_markdown = state.get("schema_markdown", None)
+
+    refined_strategy = generate_refined_strategy(
+        original_query=original_query,
+        original_strategy=previous_strategy,
+        user_question=user_question,
+        refined_plans=refined_plans,
+        schema=schema,
+        schema_markdown=schema_markdown
     )
 
-    # Debug: Append this refinement to the array (allows tracking multiple attempts)
-    from utils.debug_utils import append_to_debug_array
-    append_to_debug_array(
-        "query_refinements.json",
+    logger.info(
+        "Generated refined strategy (bypassing pre-planner)",
+        extra={"strategy_length": len(refined_strategy), "refinement_iteration": refinement_iteration + 1}
+    )
+
+    # Debug: Save refined strategy
+    from utils.debug_utils import save_debug_file
+    save_debug_file(
+        f"refined_strategy_iteration_{refinement_iteration + 1}.json",
         {
-            "attempt": state["refined_count"] + 1,
+            "iteration": refinement_iteration + 1,
+            "refined_strategy": refined_strategy,
             "original_query": original_query,
-            "original_plan": original_plan_dict,
-            "refinement_reasoning": response.reasoning,
-            "refined_plan": refined_plan_dict,
+            "previous_strategy": previous_strategy,
         },
-        step_name="refine_query",
-        array_key="refinements"
+        step_name="refine_query"
     )
 
     # Debug: Track SQL queries during refinement
+    from utils.debug_utils import append_to_debug_array
     append_to_debug_array(
         "generated_sql_queries.json",
         {
             "step": "refinement",
-            "attempt": state["refined_count"] + 1,
+            "attempt": refinement_iteration + 1,
             "sql": original_query,
             "reason": "no results returned",
             "status": "no_results"
@@ -378,14 +309,19 @@ If you need to reference a table in a join, you MUST add it to the selections ar
         array_key="queries"
     )
 
-    # Note: Query refinement goes straight to generate_query, no clarification check
     return {
         **state,
-        "messages": [AIMessage(content="Query plan refined for broader results")],
-        "planner_output": refined_plan_dict,  # Update the current plan
-        "last_step": "refine_query",
-        "refined_queries": state["refined_queries"] + [original_query],
+        "messages": [
+            AIMessage(
+                content=f"Query returned no results, routing to planner with refined strategy "
+                f"(attempt {refinement_iteration + 1}/{max_refinements})"
+            )
+        ],
+        "planner_output": original_plan_dict,  # Keep current plan for history
+        "revised_strategy": refined_strategy,  # Refined strategy for planner
+        "refinement_iteration": refinement_iteration + 1,  # Increment counter
         "refined_plans": state["refined_plans"] + [original_plan_dict],
-        "refined_reasoning": state["refined_reasoning"] + [response.reasoning],
-        "refined_count": state["refined_count"] + 1,
+        "refined_queries": state.get("refined_queries", []) + [original_query],  # Track query that returned no results
+        "refined_reasoning": state.get("refined_reasoning", []) + [f"No results: {original_query[:100]}..."],
+        "last_step": "refine_query",
     }
