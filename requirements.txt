@@ -6,6 +6,7 @@ langchain-text-splitters==1.0.0
 
 # LLM Provider integrations
 langchain-openai==1.0.0
+langchain-anthropic==1.0.1
 langchain-ollama==1.0.0
 openai==2.5.0
 ollama==0.6.0

@@ -1,4 +1,4 @@
-"""Combine schema with table metadata and foreign keys."""
+"""Domain-specific schema callback for modifying schema based on domain requirements."""
 
 import os
 import json
@@ -49,14 +49,82 @@ def remove_empty_properties(data):
         return data
 
 
+def remove_misleading_columns(json_schema):
+    """Remove columns that are misleading due to data quality issues.
+
+    This function removes columns that appear to be boolean flags (0/1) but actually
+    contain NULL values, which breaks filter logic and leads to incorrect queries.
+
+    Args:
+        json_schema: The database schema with tables and columns
+
+    Returns:
+        Schema with misleading columns removed
+
+    Example:
+        IsDeleted column appears to be a boolean (0 or 1) but contains NULL values.
+        Filters like "WHERE IsDeleted = 0" fail because NULL != 0, returning no results.
+    """
+    columns_to_remove = [
+        "IsDeleted",
+        "StatusID",
+        "OrgID",
+    ]  # Add more column names here as needed
+
+    removed_count = 0
+    for table in json_schema:
+        table_name = table.get("table_name")
+        columns = table.get("columns", [])
+
+        # Track original count
+        original_count = len(columns)
+
+        # Filter out misleading columns
+        filtered_columns = [
+            col for col in columns if col.get("column_name") not in columns_to_remove
+        ]
+
+        # Update table columns
+        table["columns"] = filtered_columns
+
+        # Log if columns were removed
+        removed_this_table = original_count - len(filtered_columns)
+        if removed_this_table > 0:
+            removed_count += removed_this_table
+            logger.debug(
+                f"Removed {removed_this_table} misleading column(s) from {table_name}",
+                extra={
+                    "table": table_name,
+                    "removed_columns": [
+                        col
+                        for col in columns_to_remove
+                        if col in [c.get("column_name") for c in columns]
+                    ],
+                },
+            )
+
+    if removed_count > 0:
+        logger.info(
+            f"Removed {removed_count} misleading column(s) total across all tables",
+            extra={"columns_removed": columns_to_remove},
+        )
+
+    return json_schema
+
+
 def combine_schema(json_schema, include_foreign_keys=True):
     """Combine schema with domain-specific table metadata and foreign keys.
+
+    This function:
+    1. Removes misleading columns (like IsDeleted with NULL values)
+    2. Enriches schema with domain-specific table metadata
+    3. Adds domain-specific foreign key relationships
 
     This function looks for domain-specific JSON files in the domain-specific-guidance directory:
     - domain-specific-table-metadata.json
     - domain-specific-foreign-keys.json
 
-    If these files don't exist, the original schema is returned unchanged.
+    If these files don't exist, the original schema is returned with only column filtering applied.
 
     Args:
         json_schema: The database schema to enrich with metadata
@@ -65,13 +133,17 @@ def combine_schema(json_schema, include_foreign_keys=True):
                              but not ground truth FKs. (default: True)
 
     Returns:
-        Combined schema with metadata and optionally foreign keys (if domain-specific files exist)
+        Modified schema with misleading columns removed, metadata added,
+        and optionally foreign keys (if domain-specific files exist)
     """
     if use_test_db:
-        logger.info("Using test database, skipping domain-specific metadata")
+        logger.info("Using test database, skipping domain-specific modifications")
         return json_schema
 
-    # Look for domain-specific files
+    # Step 1: Remove misleading columns (always do this)
+    json_schema = remove_misleading_columns(json_schema)
+
+    # Step 2: Load domain-specific metadata and foreign keys
     table_metadata = load_domain_specific_json("domain-specific-table-metadata.json")
 
     # Only load foreign keys if requested
@@ -81,9 +153,11 @@ def combine_schema(json_schema, include_foreign_keys=True):
 
     if not table_metadata and not foreign_keys:
         logger.info(
-            "No domain-specific metadata or foreign keys found, returning original schema"
+            "No domain-specific metadata or foreign keys found, returning schema with column filtering only"
         )
         return json_schema
+
+    # Step 3: Combine metadata and foreign keys
 
     metadata_map = {entry["table_name"]: entry for entry in (table_metadata or [])}
     foreign_keys_map = {}

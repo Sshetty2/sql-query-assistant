@@ -10,9 +10,104 @@ load_dotenv()
 logger = get_logger()
 
 
+# Model registry mapping aliases to (provider, actual_model_name)
+# Allows mixing models from different providers when REMOTE_LLM_PROVIDER=auto
+MODEL_REGISTRY = {
+    # Anthropic models
+    "claude-sonnet-4-5": ("anthropic", "claude-sonnet-4-5-20250929"),
+    "claude-haiku-4-5": ("anthropic", "claude-haiku-4-5-20251001"),
+    "claude-opus-4-1": ("anthropic", "claude-opus-4-1-20250805"),
+    # OpenAI models
+    "gpt-5": ("openai", "gpt-5"),
+    "gpt-5-mini": ("openai", "gpt-5-mini"),
+    "gpt-5-nano": ("openai", "gpt-5-nano"),
+    "gpt-4o": ("openai", "gpt-4o"),
+    "gpt-4o-mini": ("openai", "gpt-4o-mini"),
+    "o3": ("openai", "o3"),
+    "o3-mini": ("openai", "o3-mini"),
+    "o1-mini": ("openai", "o1-mini"),
+}
+
+
 def is_using_ollama():
     """Check if the system is configured to use Ollama."""
     return os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
+
+
+def get_provider_for_model(model_name: str) -> tuple[str, str]:
+    """
+    Determine provider and actual model name from model alias or name.
+
+    Used when REMOTE_LLM_PROVIDER=auto to automatically route models
+    to the correct provider based on the model name.
+
+    Args:
+        model_name: Model alias (e.g., "claude-sonnet-4-5") or full name
+
+    Returns:
+        (provider, actual_model_name) tuple
+        - provider: "openai" or "anthropic"
+        - actual_model_name: The full model identifier for the API
+
+    Examples:
+        >>> get_provider_for_model("claude-sonnet-4-5")
+        ("anthropic", "claude-3-5-sonnet-20241022")
+
+        >>> get_provider_for_model("gpt-4o-mini")
+        ("openai", "gpt-4o-mini")
+
+        >>> get_provider_for_model("claude-3-5-sonnet-20241022")
+        ("anthropic", "claude-3-5-sonnet-20241022")
+    """
+    # Check if model is in registry (alias mapping)
+    if model_name in MODEL_REGISTRY:
+        provider, actual_model_name = MODEL_REGISTRY[model_name]
+        logger.debug(
+            f"Model alias '{model_name}' resolved to {provider}/{actual_model_name}"
+        )
+        return (provider, actual_model_name)
+
+    # If not in registry, infer provider from model name prefix
+    if model_name.startswith("claude"):
+        logger.debug(f"Inferred Anthropic provider for model '{model_name}'")
+        return ("anthropic", model_name)
+    elif (
+        model_name.startswith("gpt")
+        or model_name.startswith("o1")
+        or model_name.startswith("o3")
+    ):
+        logger.debug(f"Inferred OpenAI provider for model '{model_name}'")
+        return ("openai", model_name)
+
+    # Default to openai if unable to determine
+    logger.warning(
+        f"Unknown model '{model_name}', defaulting to OpenAI provider. "
+        f"Add to MODEL_REGISTRY for explicit mapping."
+    )
+    return ("openai", model_name)
+
+
+def get_remote_provider():
+    """
+    Get the remote LLM provider (when USE_LOCAL_LLM=false).
+
+    Returns:
+        "openai", "anthropic", or "auto" (defaults to "openai" if not set)
+
+    Environment Variables:
+        REMOTE_LLM_PROVIDER: "openai", "anthropic", or "auto" (default: "openai")
+        - "openai": Use OpenAI for all models
+        - "anthropic": Use Anthropic for all models
+        - "auto": Automatically determine provider based on model name
+    """
+    provider = os.getenv("REMOTE_LLM_PROVIDER", "openai").lower()
+    if provider not in ["openai", "anthropic", "auto"]:
+        logger.warning(
+            f"Invalid REMOTE_LLM_PROVIDER='{provider}', defaulting to 'openai'. "
+            f"Valid options: openai, anthropic, auto"
+        )
+        return "openai"
+    return provider
 
 
 def get_model_for_stage(stage: str) -> str:
@@ -108,35 +203,51 @@ def get_model_for_stage(stage: str) -> str:
 
 def get_chat_llm(model_name: str = None, temperature: float = 0.3, timeout: int = None):
     """
-    Returns ChatOpenAI or ChatOllama based on USE_LOCAL_LLM environment variable.
+    Returns ChatOpenAI, ChatAnthropic, or ChatOllama based on configuration.
 
-    This factory function allows seamless switching between OpenAI and Ollama
-    LLM providers without changing any calling code.
+    This factory function allows seamless switching between LLM providers
+    without changing any calling code.
 
     Args:
-        model_name: Model to use (e.g., "gpt-4o-mini" or "qwen3:8b").
+        model_name: Model to use (e.g., "gpt-4o-mini", "claude-3-5-sonnet-20241022", or "qwen3:8b").
                    If None, defaults to AI_MODEL from environment.
         temperature: Temperature for generation (0.0 = deterministic, 1.0 = creative).
                     Default is 0.3 for balanced determinism and variation.
         timeout: Request timeout in seconds. If None, no timeout is set.
 
     Returns:
-        LLM instance (ChatOpenAI or ChatOllama) with identical API.
+        LLM instance (ChatOpenAI, ChatAnthropic, or ChatOllama) with identical API.
 
     Environment Variables:
-        USE_LOCAL_LLM: Set to "true" to use Ollama, "false" for OpenAI (default: false)
+        USE_LOCAL_LLM: Set to "true" to use Ollama, "false" for remote (default: false)
+        REMOTE_LLM_PROVIDER: "openai", "anthropic", or "auto" (default: "openai", only used when USE_LOCAL_LLM=false)
+            - "openai": Use OpenAI for all models
+            - "anthropic": Use Anthropic for all models
+            - "auto": Auto-detect provider from model name/alias
         OLLAMA_BASE_URL: Ollama server URL (default: http://localhost:11434)
         OPENAI_API_KEY: Required when using OpenAI
+        ANTHROPIC_API_KEY: Required when using Anthropic
         AI_MODEL: Default model name if model_name not provided
 
     Example:
-        >>> llm = get_chat_llm(model_name="gpt-4o-mini", temperature=0.3, timeout=60)
+        >>> # OpenAI
+        >>> llm = get_chat_llm(model_name="gpt-4o-mini", temperature=0.3)
         >>> response = llm.invoke("What is 2+2?")
-        >>> print(response.content)
 
-        >>> # With structured output
-        >>> structured_llm = get_structured_llm(MyPydanticModel, temperature=0.3, timeout=60)
-        >>> result = structured_llm.invoke(prompt)
+        >>> # Anthropic
+        >>> llm = get_chat_llm(model_name="claude-3-5-sonnet-20241022", temperature=0.3)
+        >>> response = llm.invoke("What is 2+2?")
+
+        >>> # Ollama
+        >>> llm = get_chat_llm(model_name="qwen3:8b", temperature=0.3)
+        >>> response = llm.invoke("What is 2+2?")
+
+        >>> # Auto mode with model aliases (REMOTE_LLM_PROVIDER=auto)
+        >>> llm = get_chat_llm(model_name="claude-sonnet-4-5", temperature=0.3)
+        >>> # Automatically uses Anthropic with claude-3-5-sonnet-20241022
+
+        >>> llm = get_chat_llm(model_name="gpt-4o-mini", temperature=0.3)
+        >>> # Automatically uses OpenAI with gpt-4o-mini
     """
     use_local = is_using_ollama()
 
@@ -161,18 +272,43 @@ def get_chat_llm(model_name: str = None, temperature: float = 0.3, timeout: int 
 
         return ChatOllama(**kwargs)
     else:
-        # Use OpenAI (cloud API)
-        from langchain_openai import ChatOpenAI
+        # Use remote provider (OpenAI or Anthropic)
+        provider = get_remote_provider()
 
-        kwargs = {
-            "model": model_name,
-            "temperature": temperature,
-        }
+        # Auto mode: determine provider from model name
+        if provider == "auto":
+            detected_provider, actual_model_name = get_provider_for_model(model_name)
+            provider = detected_provider
+            model_name = actual_model_name
+            logger.info(f"Auto-detected provider '{provider}' for model '{model_name}'")
 
-        if timeout is not None:
-            kwargs["request_timeout"] = timeout
+        if provider == "anthropic":
+            # Use Anthropic Claude
+            from langchain_anthropic import ChatAnthropic
 
-        return ChatOpenAI(**kwargs)
+            kwargs = {
+                "model": model_name,
+                "temperature": temperature,
+                "max_tokens": 8192,  # Anthropic requires max_tokens
+            }
+
+            if timeout is not None:
+                kwargs["timeout"] = timeout
+
+            return ChatAnthropic(**kwargs)
+        else:
+            # Use OpenAI (default)
+            from langchain_openai import ChatOpenAI
+
+            kwargs = {
+                "model": model_name,
+                "temperature": temperature,
+            }
+
+            if timeout is not None:
+                kwargs["request_timeout"] = timeout
+
+            return ChatOpenAI(**kwargs)
 
 
 def get_structured_llm(
@@ -184,11 +320,11 @@ def get_structured_llm(
     This is a convenience wrapper around get_chat_llm() that automatically configures
     structured output with the appropriate method based on the LLM provider:
     - Ollama requires method="json_schema"
-    - OpenAI works without it
+    - OpenAI and Anthropic work without it
 
     Args:
         schema: Pydantic model class for structured output
-        model_name: Model to use (e.g., "gpt-4o-mini" or "qwen3:8b").
+        model_name: Model to use (e.g., "gpt-4o-mini", "claude-3-5-sonnet-20241022", or "qwen3:8b").
                    If None, defaults to AI_MODEL from environment.
         temperature: Temperature for generation (0.0 = deterministic, 1.0 = creative).
                     Default is 0.3 for balanced determinism and variation.
@@ -203,13 +339,20 @@ def get_structured_llm(
         ...     result: int
         ...     reasoning: str
 
-        >>> structured_llm = get_structured_llm(Answer, temperature=0.3, timeout=60)
+        >>> # OpenAI
+        >>> structured_llm = get_structured_llm(Answer, model_name="gpt-4o-mini")
+        >>> response = structured_llm.invoke("What is 2+2?")
+        >>> print(response.result)  # 4
+
+        >>> # Anthropic
+        >>> structured_llm = get_structured_llm(Answer, model_name="claude-3-5-sonnet-20241022")
         >>> response = structured_llm.invoke("What is 2+2?")
         >>> print(response.result)  # 4
     """
     llm = get_chat_llm(model_name=model_name, temperature=temperature, timeout=timeout)
 
     # Ollama requires method="json_schema" for structured output
+    # OpenAI and Anthropic work with default method
     if is_using_ollama():
         return llm.with_structured_output(schema, method="json_schema")
     else:

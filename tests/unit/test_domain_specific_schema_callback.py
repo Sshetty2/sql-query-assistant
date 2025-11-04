@@ -1,8 +1,9 @@
 import json
 import pytest
-from domain_specific_guidance.combine_json_schema import (
+from domain_specific_guidance.domain_specific_schema_callback import (
     combine_schema,
     remove_empty_properties,
+    remove_misleading_columns,
     load_domain_specific_json,
 )
 from unittest.mock import patch
@@ -87,10 +88,10 @@ def test_combine_schema_full(
     assert "metadata" in result[0]
     assert "foreign_keys" in result[0]
     assert result[0]["metadata"]["description"] == "User table"
-    assert result[0]["metadata"]["key_columns"] == ["id", "name"]
-    # Ensure extraneous fields are removed
+    # Ensure only allowed metadata fields are kept (description, primary_key)
+    # key_columns should be removed as it's not in metadata_fields_to_keep
+    assert "key_columns" not in result[0]["metadata"]
     assert "row_count_estimate" not in result[0]["metadata"]
-    assert "primary_key" not in result[0]["metadata"]
     assert "primary_key_description" not in result[0]["metadata"]
 
 
@@ -108,3 +109,67 @@ def test_load_domain_specific_json_invalid_json(tmp_path):
     with patch("os.path.dirname", return_value=str(tmp_path)):
         result = load_domain_specific_json("invalid.json")
         assert result is None
+
+
+def test_remove_misleading_columns():
+    """Test that IsDeleted columns are removed from all tables."""
+    schema = [
+        {
+            "table_name": "users",
+            "columns": [
+                {"column_name": "id", "data_type": "integer"},
+                {"column_name": "name", "data_type": "string"},
+                {"column_name": "IsDeleted", "data_type": "bit"},
+            ],
+        },
+        {
+            "table_name": "products",
+            "columns": [
+                {"column_name": "id", "data_type": "integer"},
+                {"column_name": "IsDeleted", "data_type": "bit"},
+            ],
+        },
+        {
+            "table_name": "orders",
+            "columns": [
+                {"column_name": "id", "data_type": "integer"},
+                {"column_name": "status", "data_type": "string"},
+            ],
+        },
+    ]
+
+    result = remove_misleading_columns(schema)
+
+    # Check that IsDeleted was removed from users table
+    assert len(result[0]["columns"]) == 2
+    assert all(col["column_name"] != "IsDeleted" for col in result[0]["columns"])
+
+    # Check that IsDeleted was removed from products table (only 1 column left)
+    assert len(result[1]["columns"]) == 1
+    assert result[1]["columns"][0]["column_name"] == "id"
+
+    # Check that orders table is unchanged (no IsDeleted column)
+    assert len(result[2]["columns"]) == 2
+
+
+def test_combine_schema_removes_misleading_columns(sample_schema):
+    """Test that combine_schema applies column filtering even without metadata files."""
+    schema_with_isdeleted = [
+        {
+            "table_name": "users",
+            "columns": [
+                {"column_name": "id", "data_type": "integer"},
+                {"column_name": "IsDeleted", "data_type": "bit"},
+            ],
+        }
+    ]
+
+    # Mock USE_TEST_DB=false and no metadata files
+    with patch("os.getenv", return_value="false"), patch(
+        "os.path.exists", return_value=False
+    ):
+        result = combine_schema(schema_with_isdeleted)
+
+    # IsDeleted should be removed even without metadata files
+    assert len(result[0]["columns"]) == 1
+    assert result[0]["columns"][0]["column_name"] == "id"

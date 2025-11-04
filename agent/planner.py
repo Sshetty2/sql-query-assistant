@@ -417,6 +417,32 @@ def _create_minimal_planner_prompt_with_strategy(**format_params):
         - Format filters correctly (arrays for 'between'/'in', scalars for others)
         - Maintain the strategic decisions (don't second-guess the pre-planner)
 
+        ## ⚠️ CRITICAL: Understanding Column Roles in Strategy
+
+        The strategy uses two column sections:
+
+        **1. "Columns for Display" → Add to selections with role="projection"**
+        - These columns will appear in SELECT and GROUP BY
+        - Example: tb_Department.DepartmentName, tb_Department.DepartmentID
+        - In JSON: Add these to table's `columns` array with `role="projection"`
+
+        **2. "Columns for Aggregation ONLY" → Add ONLY to aggregates**
+        - These columns are used in COUNT/SUM/AVG but NOT shown individually
+        - Example: tb_Employee.EmployeeID - "COUNT this to get employee count"
+        - ❌ DO NOT add these to table's `columns` array
+        - ✅ ONLY add to `group_by.aggregates` array
+        - Example JSON:
+          ```
+          "aggregates": [{
+            "function": "COUNT",
+            "table": "tb_Employee",
+            "column": "EmployeeID",
+            "alias": "EmployeeCount"
+          }]
+          ```
+
+        **If you see "Columns for Aggregation ONLY" → these should NEVER have role="projection"!**
+
         ## JSON Structure
 
         - `decision`: "proceed", "clarify", or "terminate"
@@ -433,18 +459,18 @@ def _create_minimal_planner_prompt_with_strategy(**format_params):
         ## Filter Operators
 
         `=`, `!=`, `>`, `>=`, `<`, `<=`, `between` (array [low, high]), `in` (array), `not_in` (array), `like`, `starts_with`, `ends_with`, `is_null`, `is_not_null`
+        """  # noqa: E501
+    ).strip()
 
-        # STRATEGY
+    user_content = dedent(
+        """
+        Convert the following strategy into PlannerOutputMinimal JSON:
 
         {pre_plan_strategy}
-
-        # USER QUERY
-
-        "{user_query}" # noqa: E501
         """
     ).strip()
 
-    return (system_instructions.format(**format_params), "")
+    return (system_instructions, user_content.format(**format_params))
 
 
 def _create_standard_planner_prompt_with_strategy(**format_params):
@@ -477,6 +503,33 @@ def _create_standard_planner_prompt_with_strategy(**format_params):
         - Format filters correctly (arrays for 'between'/'in', scalars for others)
         - When aggregating, ensure all projection columns are in group_by_columns
 
+        ## ⚠️ CRITICAL: Understanding Column Roles in Strategy
+
+        The strategy uses two column sections:
+
+        **1. "Columns for Display" → Add to selections with role="projection"**
+        - These columns will appear in SELECT and GROUP BY
+        - Example: tb_Department.DepartmentName, tb_Department.DepartmentID
+        - In JSON: Add these to table's `columns` array with `role="projection"`
+
+        **2. "Columns for Aggregation ONLY" → Add ONLY to aggregates**
+        - These columns are used in COUNT/SUM/AVG but NOT shown individually
+        - Example: tb_Employee.EmployeeID - "COUNT this to get employee count"
+        - ❌ DO NOT add these to table's `columns` array
+        - ✅ ONLY add to `group_by.aggregates` array
+        - Example JSON:
+          ```
+          "aggregates": [{
+            "function": "COUNT",
+            "table": "tb_Employee",
+            "column": "EmployeeID",
+            "alias": "EmployeeCount",
+            "reason": "Count the number of employees per department"
+          }]
+          ```
+
+        **If you see "Columns for Aggregation ONLY" → these should NEVER have role="projection"!**
+
         ## JSON Structure
 
         **Core:**
@@ -499,18 +552,18 @@ def _create_standard_planner_prompt_with_strategy(**format_params):
         ## Filter Operators
 
         `=`, `!=`, `>`, `>=`, `<`, `<=`, `between` (array [low, high]), `in` (array), `not_in` (array), `like`, `starts_with`, `ends_with`, `is_null`, `is_not_null`
-
-        # STRATEGY
-
-        {pre_plan_strategy}
-
-        # USER QUERY
-
-        "{user_query}"
         """  # noqa: E501
     ).strip()
 
-    return (system_instructions.format(**format_params), "")
+    user_content = dedent(
+        """
+        Convert the following strategy into PlannerOutputStandard JSON:
+
+        {pre_plan_strategy}
+        """
+    ).strip()
+
+    return (system_instructions, user_content.format(**format_params))
 
 
 def _create_full_planner_prompt_with_strategy(**format_params):
@@ -545,6 +598,33 @@ def _create_full_planner_prompt_with_strategy(**format_params):
         - When aggregating, ensure all projection columns are in group_by_columns
         - Structure advanced features (window functions, CTEs, subqueries) when present
 
+        ## ⚠️ CRITICAL: Understanding Column Roles in Strategy
+
+        The strategy uses two column sections:
+
+        **1. "Columns for Display" → Add to selections with role="projection"**
+        - These columns will appear in SELECT and GROUP BY
+        - Example: tb_Department.DepartmentName, tb_Department.DepartmentID
+        - In JSON: Add these to table's `columns` array with `role="projection"`
+
+        **2. "Columns for Aggregation ONLY" → Add ONLY to aggregates**
+        - These columns are used in COUNT/SUM/AVG but NOT shown individually
+        - Example: tb_Employee.EmployeeID - "COUNT this to get employee count"
+        - ❌ DO NOT add these to table's `columns` array
+        - ✅ ONLY add to `group_by.aggregates` array
+        - Example JSON:
+          ```
+          "aggregates": [{
+            "function": "COUNT",
+            "table": "tb_Employee",
+            "column": "EmployeeID",
+            "alias": "EmployeeCount",
+            "reason": "Count the number of employees per department"
+          }]
+          ```
+
+        **If you see "Columns for Aggregation ONLY" → these should NEVER have role="projection"!**
+
         ## JSON Structure
 
         **Core:**
@@ -572,18 +652,18 @@ def _create_full_planner_prompt_with_strategy(**format_params):
         ## Filter Operators
 
         `=`, `!=`, `>`, `>=`, `<`, `<=`, `between` (array [low, high]), `in` (array), `not_in` (array), `like`, `starts_with`, `ends_with`, `is_null`, `is_not_null`
-
-        # STRATEGY
-
-        {pre_plan_strategy}
-
-        # USER QUERY
-
-        "{user_query}"
         """  # noqa: E501
     ).strip()
 
-    return (system_instructions.format(**format_params), "")
+    user_content = dedent(
+        """
+        Convert the following strategy into PlannerOutput JSON:
+
+        {pre_plan_strategy}
+        """
+    ).strip()
+
+    return (system_instructions, user_content.format(**format_params))
 
 
 def create_planner_prompt_with_strategy(mode: str = None, **format_params):

@@ -3,7 +3,7 @@
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
 
-from domain_specific_guidance.combine_json_schema import combine_schema
+from domain_specific_guidance.domain_specific_schema_callback import combine_schema
 from database.introspection import introspect_schema, validate_schema_structure
 from agent.state import State
 from utils.logger import get_logger, log_execution_time

@@ -17,8 +17,10 @@ from datetime import datetime
 from textwrap import dedent
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
-
-from utils.llm_factory import get_chat_llm, get_model_for_stage
+from utils.llm_factory import (
+    get_chat_llm,
+    get_model_for_stage,
+)
 from utils.logger import get_logger, log_execution_time
 from agent.state import State
 
@@ -179,18 +181,33 @@ def _create_minimal_preplan_prompt(**format_params):
         ## Tables Involved
         * [list tables needed]
 
-        ## Columns Needed
-        * [list table.column with role: projection/filter]
+        ## Columns for Display (will appear in SELECT and GROUP BY)
+        * [list table.column that should be displayed to user]
+        * Example: tb_Department.DepartmentName, tb_Department.DepartmentID
+
+        ## Columns for Aggregation ONLY (used in COUNT/SUM/AVG, NOT displayed)
+        * [list table.column that should be aggregated but NOT shown individually]
+        * Example: tb_Employee.EmployeeID - COUNT this to get employee count per department
+        * ⚠️ These columns should NEVER be listed in "Columns for Display"
 
         ## Joins Required
-        * [list join relationships]
+        * [list join relationships between tables]
+        * Example: tb_Department.DepartmentID = tb_Employee.DepartmentID
 
         ## Filters Needed
         * [list table.column operator value]
 
         ## Aggregations/Sorting/Limiting
-        * [describe if needed]
+        * [describe grouping, ordering, and row limits]
         ```
+
+        **⚠️ CRITICAL: Distinguish Between Display and Aggregation Columns!**
+        - **Display columns** go in SELECT and GROUP BY: user sees these values
+        - **Aggregation columns** are ONLY used in COUNT/SUM/AVG: user sees the aggregated result
+        - Example for "Count employees per department":
+          - Display: tb_Department.DepartmentName, tb_Department.DepartmentID (shown in results)
+          - Aggregation: tb_Employee.EmployeeID (counted, not shown individually)
+          - Result: Each department name with its employee count
 
         # DOMAIN GUIDANCE
 
@@ -216,7 +233,10 @@ def _create_minimal_preplan_prompt(**format_params):
         """
     ).strip()
 
-    return (system_instructions.format(**format_params), user_message.format(**format_params))
+    return (
+        system_instructions.format(**format_params),
+        user_message.format(**format_params),
+    )
 
 
 def _create_standard_preplan_prompt(**format_params):
@@ -421,9 +441,16 @@ def _create_standard_preplan_prompt(**format_params):
           - Reason: [why this table]
           - Include only for join: [yes/no]
 
-        ### Columns Needed
-        * [table].[column] - role: [projection/filter]
-          - Reason: [why this column]
+        ### Columns for Display (will appear in SELECT and GROUP BY)
+        * [table].[column]
+          - Reason: [why this column should be displayed to user]
+        * Example: tb_Department.DepartmentName, tb_Department.DepartmentID
+
+        ### Columns for Aggregation ONLY (used in COUNT/SUM/AVG, NOT displayed)
+        * [table].[column]
+          - Reason: [why this column should be aggregated]
+        * Example: tb_Employee.EmployeeID - COUNT this to get employee count per department
+        * ⚠️ These columns should NEVER be listed in "Columns for Display"
 
         ### Joins Required
         * [from_table].[from_column] = [to_table].[to_column] ([join_type])
@@ -434,8 +461,16 @@ def _create_standard_preplan_prompt(**format_params):
           - Reason: [why this filter]
 
         ### Aggregations/Sorting/Limiting
-        * [describe if needed]
+        * [describe grouping, ordering, and row limits]
         ```
+
+        **⚠️ CRITICAL: Distinguish Between Display and Aggregation Columns!**
+        - **Display columns** go in SELECT and GROUP BY: user sees these values
+        - **Aggregation columns** are ONLY used in COUNT/SUM/AVG: user sees the aggregated result
+        - Example for "Count employees per department":
+          - Display: tb_Department.DepartmentName, tb_Department.DepartmentID (shown in results)
+          - Aggregation: tb_Employee.EmployeeID (counted, not shown individually)
+          - Result: Each department name with its employee count
 
         # DOMAIN GUIDANCE
 
@@ -461,7 +496,10 @@ def _create_standard_preplan_prompt(**format_params):
         """
     ).strip()
 
-    return (system_instructions.format(**format_params), user_message.format(**format_params))
+    return (
+        system_instructions.format(**format_params),
+        user_message.format(**format_params),
+    )
 
 
 def _create_full_preplan_prompt(**format_params):
@@ -766,10 +804,18 @@ def _create_full_preplan_prompt(**format_params):
            - Join-only: [yes/no]
            - Data projection: [yes/no]
 
-        ### COLUMN SELECTION STRATEGY
-        [table].[column] - role: [projection/filter]
-        - Reason: [explanation]
+        ### COLUMNS FOR DISPLAY (will appear in SELECT and GROUP BY)
+        [table].[column]
+        - Reason: [why this column should be displayed to user]
         - Data type: [type]
+        * Example: tb_Department.DepartmentName, tb_Department.DepartmentID
+
+        ### COLUMNS FOR AGGREGATION ONLY (used in COUNT/SUM/AVG, NOT displayed)
+        [table].[column]
+        - Reason: [why this column should be aggregated]
+        - Aggregation function: [COUNT/SUM/AVG/etc]
+        * Example: tb_Employee.EmployeeID - COUNT this to get employee count per department
+        * ⚠️ These columns should NEVER be listed in "Columns for Display"
 
         ### JOIN STRATEGY
         [from_table].[from_column] = [to_table].[to_column] ([join_type])
@@ -796,6 +842,14 @@ def _create_full_preplan_prompt(**format_params):
         - [list any assumptions or unclear points]
         ```
 
+        **⚠️ CRITICAL: Distinguish Between Display and Aggregation Columns!**
+        - **Display columns** go in SELECT and GROUP BY: user sees these values
+        - **Aggregation columns** are ONLY used in COUNT/SUM/AVG: user sees the aggregated result
+        - Example for "Count employees per department":
+          - Display: tb_Department.DepartmentName, tb_Department.DepartmentID (shown in results)
+          - Aggregation: tb_Employee.EmployeeID (counted, not shown individually)
+          - Result: Each department name with its employee count
+
         # DOMAIN GUIDANCE
 
         {domain_guidance}
@@ -820,7 +874,10 @@ def _create_full_preplan_prompt(**format_params):
         """
     ).strip()
 
-    return (system_instructions.format(**format_params), user_message.format(**format_params))
+    return (
+        system_instructions.format(**format_params),
+        user_message.format(**format_params),
+    )
 
 
 def create_preplan_strategy(state: State):
@@ -867,7 +924,7 @@ def create_preplan_strategy(state: State):
             "user_query": user_query,
             "complexity": complexity,
             "has_feedback": has_feedback,
-            "feedback_type": feedback_type
+            "feedback_type": feedback_type,
         },
     )
 
@@ -938,15 +995,23 @@ def create_preplan_strategy(state: State):
             "domain_guidance": domain_text,
             "user_query": user_query,
             "parameters": parameters_text,
-            "schema": "" if has_feedback else (schema_markdown or json.dumps(schema_to_use, indent=2)),
+            "schema": (
+                ""
+                if has_feedback
+                else (schema_markdown or json.dumps(schema_to_use, indent=2))
+            ),
             "current_date": current_date,
         }
 
         # Select prompt based on complexity - returns (system_message, user_message) tuple
         if complexity == "minimal":
-            system_content, user_content = _create_minimal_preplan_prompt(**format_params)
+            system_content, user_content = _create_minimal_preplan_prompt(
+                **format_params
+            )
         elif complexity == "standard":
-            system_content, user_content = _create_standard_preplan_prompt(**format_params)
+            system_content, user_content = _create_standard_preplan_prompt(
+                **format_params
+            )
         else:  # full
             system_content, user_content = _create_full_preplan_prompt(**format_params)
 
@@ -955,41 +1020,51 @@ def create_preplan_strategy(state: State):
             feedback_section = "\n\n---\n\n# FEEDBACK FROM PREVIOUS ATTEMPT\n\n"
 
             if previous_strategy:
-                feedback_section += f"**Your Previous Strategy:**\n```\n{previous_strategy}\n```\n\n"
+                feedback_section += (
+                    f"**Your Previous Strategy:**\n```\n{previous_strategy}\n```\n\n"
+                )
 
             if audit_feedback:
                 feedback_section += f"**Plan Audit Issues:**\n{audit_feedback}\n\n"
-                feedback_section += dedent("""
+                feedback_section += dedent(
+                    """
                     **Your Task:**
                     Apply ONLY the corrections specified in the feedback above to your previous strategy.
                     Keep everything else the same - only fix the specific issues mentioned.
                     The feedback includes the schema context - use it to verify exact table/column names.
-                """).strip()
+                """
+                ).strip()
             elif error_feedback:
                 feedback_section += f"**SQL Execution Error:**\n{error_feedback}\n\n"
-                feedback_section += dedent("""
+                feedback_section += dedent(
+                    """
                     **Your Task:**
                     Apply ONLY the corrections specified in the feedback above to your previous strategy.
                     - If feedback says "change X to Y", make ONLY that change
                     - Keep all other tables, columns, joins, and filters the same
                     - Do not add or remove tables unless feedback explicitly says to
                     - The feedback is based on the database schema - follow it exactly
-                """).strip()
+                """
+                ).strip()
             elif refinement_feedback:
-                feedback_section += f"**No Results Returned:**\n{refinement_feedback}\n\n"
-                feedback_section += dedent("""
+                feedback_section += (
+                    f"**No Results Returned:**\n{refinement_feedback}\n\n"
+                )
+                feedback_section += dedent(
+                    """
                     **Your Task:**
                     Broaden the strategy based on the feedback above to get results.
                     The feedback suggests what filters or conditions might be too restrictive.
                     Keep the core approach the same, just adjust as suggested.
-                """).strip()
+                """
+                ).strip()
 
             user_content += feedback_section
 
         # Create messages - SystemMessage for instructions, HumanMessage with user query
         messages = [
             SystemMessage(content=system_content),
-            HumanMessage(content=user_content)
+            HumanMessage(content=user_content),
         ]
 
         # Debug: Save the actual prompt being sent to LLM
@@ -997,7 +1072,9 @@ def create_preplan_strategy(state: State):
 
         if has_feedback:
             iteration_num = len(preplan_history) + 1
-            prompt_debug_filename = f"preplan_prompt_{feedback_type}_iteration_{iteration_num}.json"
+            prompt_debug_filename = (
+                f"preplan_prompt_{feedback_type}_iteration_{iteration_num}.json"
+            )
         else:
             prompt_debug_filename = "preplan_prompt_initial.json"
 
@@ -1039,7 +1116,9 @@ def create_preplan_strategy(state: State):
             # Feedback-based regeneration - include feedback type and iteration
             # Use preplan_history length + 1 for next iteration number
             iteration_num = len(preplan_history) + 1
-            debug_filename = f"preplan_strategy_{feedback_type}_iteration_{iteration_num}.json"
+            debug_filename = (
+                f"preplan_strategy_{feedback_type}_iteration_{iteration_num}.json"
+            )
         else:
             # Initial strategy generation
             debug_filename = "preplan_strategy_initial.json"

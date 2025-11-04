@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **SQL Query Assistant** that converts natural language queries into SQL and executes them against a SQL Server database. It uses **LangGraph** for workflow orchestration, **LangChain** with **OpenAI/Ollama** for query planning, **SQLGlot** for deterministic SQL generation, and provides both a **Streamlit UI** and **FastAPI** backend.
+This is a **SQL Query Assistant** that converts natural language queries into SQL and executes them against a SQL Server database. It uses **LangGraph** for workflow orchestration, **LangChain** with **OpenAI/Anthropic/Ollama** for query planning, **SQLGlot** for deterministic SQL generation, and provides both a **Streamlit UI** and **FastAPI** backend.
 
 ### Key Features
 
@@ -38,16 +38,38 @@ This is a **SQL Query Assistant** that converts natural language queries into SQ
 Required environment variables (see `.env` file):
 
 ### LLM Provider Configuration
-- `USE_LOCAL_LLM` - Set to `true` to use local Ollama, `false` for OpenAI (default: `false`)
-- `OPENAI_API_KEY` - OpenAI API key (required when `USE_LOCAL_LLM=false`)
+- `USE_LOCAL_LLM` - Set to `true` to use local Ollama, `false` for remote providers (default: `false`)
+- `REMOTE_LLM_PROVIDER` - Remote provider selection (default: `openai`, only used when `USE_LOCAL_LLM=false`)
+  - `openai` - Use OpenAI for all models
+  - `anthropic` - Use Anthropic for all models
+  - `auto` - Auto-detect provider from model name (allows mixing providers per stage)
+- `OPENAI_API_KEY` - OpenAI API key (required when using OpenAI models)
+- `ANTHROPIC_API_KEY` - Anthropic API key (required when using Anthropic models)
 - `OLLAMA_BASE_URL` - Ollama server URL (default: `http://localhost:11434`, only used when `USE_LOCAL_LLM=true`)
 
 ### Model Selection
 - `AI_MODEL` - Primary model for query planning
   - When using OpenAI: `gpt-4o-mini`, `gpt-4o`, etc.
+  - When using Anthropic: `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, etc.
   - When using Ollama: `qwen3:8b`, `llama3`, `mistral`, etc.
-- `AI_MODEL_REFINE` - Model for query refinement (same format as AI_MODEL)
-- `PLANNER_COMPLEXITY` - Planner tier: `minimal` (8GB models), `standard` (13B-30B), `full` (GPT-4+)
+- Stage-Specific Model Configuration (optional):
+  - `REMOTE_MODEL_STRATEGY` - Pre-planner strategy generation (remote)
+  - `REMOTE_MODEL_PLANNING` - Planner JSON generation (remote)
+  - `REMOTE_MODEL_FILTERING` - Schema filtering (remote)
+  - `REMOTE_MODEL_ERROR_CORRECTION` - SQL error correction (remote)
+  - `REMOTE_MODEL_REFINEMENT` - Query refinement (remote)
+  - `LOCAL_MODEL_STRATEGY` - Pre-planner strategy generation (local)
+  - `LOCAL_MODEL_PLANNING` - Planner JSON generation (local)
+  - `LOCAL_MODEL_FILTERING` - Schema filtering (local)
+  - `LOCAL_MODEL_ERROR_CORRECTION` - SQL error correction (local)
+  - `LOCAL_MODEL_REFINEMENT` - Query refinement (local)
+- Model Aliases (when `REMOTE_LLM_PROVIDER=auto`):
+  - **Anthropic**: `claude-sonnet-4-5`, `claude-haiku-4-5`, `claude-opus-4-1`
+  - **OpenAI**: `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-4o`, `gpt-4o-mini`, `o3`, `o3-mini`, `o1-mini`
+  - Full model names also work (e.g., `claude-3-5-sonnet-20241022`, `gpt-4o`)
+  - Auto mode automatically routes each model to the correct provider
+  - Example: Mix Claude Sonnet for strategy with GPT-4o-mini for planning
+- `PLANNER_COMPLEXITY` - Planner tier: `minimal` (8GB models), `standard` (13B-30B), `full` (GPT-4+/Claude)
 
 ### Database Configuration
 - `DB_SERVER`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` - SQL Server connection details
@@ -138,7 +160,17 @@ Flake8 config in `.flake8`:
 - Faster responses (no network latency)
 
 **Switching between providers:**
-- OpenAI: Set `USE_LOCAL_LLM=false` and ensure `OPENAI_API_KEY` is set
+- OpenAI: Set `USE_LOCAL_LLM=false`, `REMOTE_LLM_PROVIDER=openai`, and ensure `OPENAI_API_KEY` is set
+- Anthropic: Set `USE_LOCAL_LLM=false`, `REMOTE_LLM_PROVIDER=anthropic`, and ensure `ANTHROPIC_API_KEY` is set
+- Auto (mixed providers): Set `USE_LOCAL_LLM=false`, `REMOTE_LLM_PROVIDER=auto`, and ensure both API keys are set
+  - Example configuration for mixing providers:
+    ```bash
+    REMOTE_LLM_PROVIDER=auto
+    REMOTE_MODEL_STRATEGY=claude-sonnet-4-5        # Use Claude for complex reasoning
+    REMOTE_MODEL_PLANNING=gpt-4o-mini              # Use GPT for structured output
+    REMOTE_MODEL_ERROR_CORRECTION=claude-haiku-4-5 # Use Claude Haiku for quick fixes
+    REMOTE_MODEL_REFINEMENT=gpt-4o-mini            # Use GPT for refinement
+    ```
 - Ollama: Set `USE_LOCAL_LLM=true` and ensure Ollama is running locally
 
 ### Docker
@@ -456,7 +488,7 @@ database/
 └── infer_foreign_keys.py        # FK inference logic (vector similarity)
 
 utils/
-├── llm_factory.py               # LLM provider abstraction (OpenAI/Ollama switcher)
+├── llm_factory.py               # LLM provider abstraction (OpenAI/Anthropic/Ollama switcher)
 ├── logger.py                    # Structured logging configuration
 └── logging_config.py            # Log formatting and handlers
 
@@ -487,10 +519,11 @@ tests/
 ### LLM Provider Factory
 
 The `utils/llm_factory.py` module provides a `get_chat_llm()` function that abstracts LLM provider selection:
-- Returns `ChatOpenAI` when `USE_LOCAL_LLM=false`
+- Returns `ChatOpenAI` when `USE_LOCAL_LLM=false` and `REMOTE_LLM_PROVIDER=openai`
+- Returns `ChatAnthropic` when `USE_LOCAL_LLM=false` and `REMOTE_LLM_PROVIDER=anthropic`
 - Returns `ChatOllama` when `USE_LOCAL_LLM=true`
-- Both providers have identical LangChain APIs (`.invoke()`, `.with_structured_output()`)
-- Allows seamless switching between cloud and local LLMs
+- All providers have identical LangChain APIs (`.invoke()`, `.with_structured_output()`)
+- Allows seamless switching between OpenAI, Anthropic, and local Ollama LLMs
 
 All LLM instantiation points use this factory:
 ```python
@@ -637,7 +670,7 @@ pytest tests/unit/test_openai_schema_validation.py -v
 🔹 **Plan Auditing**: Automatic validation and fixing of common planner mistakes (catches 80-90% of errors)
 🔹 **Conversational Flow**: Stateful query refinement through follow-up questions
 🔹 **SQL Server Safety**: Automatic identifier quoting prevents reserved keyword errors
-🔹 **LLM Provider Abstraction**: Seamless switching between OpenAI and Ollama
+🔹 **LLM Provider Abstraction**: Seamless switching between OpenAI, Anthropic, and Ollama
 
 ## Common Development Tasks
 
@@ -694,4 +727,4 @@ pytest tests/unit/test_openai_schema_validation.py -v
   2. SQLGlot AST-based SQL generation (no string concatenation)
   3. Automatic identifier quoting
 - Database credentials stored in `.env` (not committed to git)
-- OpenAI API key stored in `.env` (not committed to git)
+- API keys (OpenAI, Anthropic) stored in `.env` (not committed to git)
