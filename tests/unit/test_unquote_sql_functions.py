@@ -1,6 +1,5 @@
 """Unit tests for unquoting SQL functions in filter values."""
 
-import pytest
 from agent.generate_query import unquote_sql_functions, format_filter_condition
 
 
@@ -105,7 +104,7 @@ class TestFormatFilterConditionUnquoting:
             column="Schedule",
             op=">=",
             value="'DATEADD(DAY, -60, GETDATE())'",
-            db_context={"is_sqlite": False, "is_sql_server": True}
+            db_context={"is_sqlite": False, "is_sql_server": True},
         )
 
         # Should not double-quote the function
@@ -119,7 +118,7 @@ class TestFormatFilterConditionUnquoting:
             column="LoginDate",
             op=">",
             value="'GETDATE()'",
-            db_context={"is_sqlite": False, "is_sql_server": True}
+            db_context={"is_sqlite": False, "is_sql_server": True},
         )
 
         assert "GETDATE()" in condition
@@ -132,7 +131,7 @@ class TestFormatFilterConditionUnquoting:
             column="CreatedOn",
             op=">=",
             value="2025-10-31",
-            db_context={"is_sqlite": False, "is_sql_server": True}
+            db_context={"is_sqlite": False, "is_sql_server": True},
         )
 
         # Date should be properly cast
@@ -145,7 +144,7 @@ class TestFormatFilterConditionUnquoting:
             column="EventDate",
             op="between",
             value=["'DATEADD(DAY, -30, GETDATE())'", "'GETDATE()'"],
-            db_context={"is_sqlite": False, "is_sql_server": True}
+            db_context={"is_sqlite": False, "is_sql_server": True},
         )
 
         # Both functions should be unquoted
@@ -161,7 +160,7 @@ class TestFormatFilterConditionUnquoting:
             column="Status",
             op="in",
             value=["Active", "'GETDATE()'"],
-            db_context={"is_sqlite": False, "is_sql_server": True}
+            db_context={"is_sqlite": False, "is_sql_server": True},
         )
 
         # Normal string should be quoted, function should not
@@ -180,7 +179,9 @@ class TestFormatFilterConditionUnquoting:
 
         for table, column, op, value, context in test_cases:
             # Should not raise errors
-            result = format_filter_condition(table, column, op, value, db_context=context)
+            result = format_filter_condition(
+                table, column, op, value, db_context=context
+            )
             assert len(result) > 0  # Should produce valid SQL
 
 
@@ -198,7 +199,7 @@ class TestBenchmarkErrorScenarios:
             column="Schedule",
             op=">=",
             value="'DATEADD(DAY, -60, GETDATE())'",
-            db_context={"is_sqlite": False, "is_sql_server": True}
+            db_context={"is_sqlite": False, "is_sql_server": True},
         )
 
         # Should produce valid unquoted function
@@ -216,7 +217,7 @@ class TestBenchmarkErrorScenarios:
             column="Schedule",
             op=">=",
             value="'DATEADD(d,-60,GETDATE())'",
-            db_context={"is_sqlite": False, "is_sql_server": True}
+            db_context={"is_sqlite": False, "is_sql_server": True},
         )
 
         # Should produce valid unquoted function

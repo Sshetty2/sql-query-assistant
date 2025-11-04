@@ -33,7 +33,7 @@ class EnvManager:
         """Restore the original .env file from backup."""
         if os.path.exists(self.backup_file):
             shutil.copy2(self.backup_file, self.env_file)
-            print(f" Restored .env from backup")
+            print("Restored .env from backup")
         else:
             print("WARNING: No backup file found to restore")
 
@@ -47,7 +47,7 @@ class EnvManager:
         # Read current .env file
         env_lines = []
         if os.path.exists(self.env_file):
-            with open(self.env_file, 'r') as f:
+            with open(self.env_file, "r") as f:
                 env_lines = f.readlines()
 
         # Track which keys we've updated
@@ -56,11 +56,11 @@ class EnvManager:
         # Update existing keys
         for i, line in enumerate(env_lines):
             line = line.strip()
-            if not line or line.startswith('#'):
+            if not line or line.startswith("#"):
                 continue
 
-            if '=' in line:
-                key = line.split('=')[0].strip()
+            if "=" in line:
+                key = line.split("=")[0].strip()
                 if key in config:
                     env_lines[i] = f"{key}={config[key]}\n"
                     updated_keys.add(key)
@@ -71,7 +71,7 @@ class EnvManager:
                 env_lines.append(f"{key}={value}\n")
 
         # Write updated .env file
-        with open(self.env_file, 'w') as f:
+        with open(self.env_file, "w") as f:
             f.writelines(env_lines)
 
         print(f" Updated .env with {len(config)} configuration values")
@@ -80,11 +80,11 @@ class EnvManager:
         """Load current .env file into a dictionary."""
         env_dict = {}
         if os.path.exists(self.env_file):
-            with open(self.env_file, 'r') as f:
+            with open(self.env_file, "r") as f:
                 for line in f:
                     line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
+                    if line and not line.startswith("#") and "=" in line:
+                        key, value = line.split("=", 1)
                         env_dict[key.strip()] = value.strip()
         return env_dict
 
@@ -97,7 +97,7 @@ class EnvManager:
         """Remove the backup file."""
         if os.path.exists(self.backup_file):
             os.remove(self.backup_file)
-            print(f" Cleaned up backup file")
+            print("Cleaned up backup file")
 
 
 def switch_to_model_config(model_name: str, config: Dict[str, str]):

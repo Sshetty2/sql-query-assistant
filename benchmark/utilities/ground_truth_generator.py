@@ -6,6 +6,10 @@ It runs the workflow once to get the filtered schema, then allows Claude to
 craft optimal SQL based on that schema.
 """
 
+from agent.query_database import query_database
+from database.connection import get_pyodbc_connection
+from benchmark.config.benchmark_settings import DEBUG_DIR, QUERIES_DIR
+
 import os
 import sys
 import json
@@ -15,10 +19,6 @@ from pathlib import Path
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
-
-from agent.query_database import query_database
-from database.connection import get_pyodbc_connection
-from benchmark.config.benchmark_settings import DEBUG_DIR, QUERIES_DIR
 
 
 class GroundTruthGenerator:
@@ -38,7 +38,7 @@ class GroundTruthGenerator:
             Dictionary containing schema markdown and other debug info
         """
         print(f"\n{'='*80}")
-        print(f"Running workflow to generate filtered schema...")
+        print("Running workflow to generate filtered schema...")
         print(f"Query: {query}")
         print(f"{'='*80}\n")
 
@@ -50,21 +50,23 @@ class GroundTruthGenerator:
             schema_file = os.path.join(self.debug_dir, "debug_schema_markdown.md")
             schema_markdown = ""
             if os.path.exists(schema_file):
-                with open(schema_file, 'r', encoding='utf-8') as f:
+                with open(schema_file, "r", encoding="utf-8") as f:
                     schema_markdown = f.read()
 
             # Load the planner output
-            planner_file = os.path.join(self.debug_dir, "debug_generated_planner_output.json")
+            planner_file = os.path.join(
+                self.debug_dir, "debug_generated_planner_output.json"
+            )
             planner_output = None
             if os.path.exists(planner_file):
-                with open(planner_file, 'r', encoding='utf-8') as f:
+                with open(planner_file, "r", encoding="utf-8") as f:
                     planner_output = json.load(f)
 
             # Load the generated SQL
             sql_file = os.path.join(self.debug_dir, "debug_generated_sql.json")
             generated_sql = ""
             if os.path.exists(sql_file):
-                with open(sql_file, 'r', encoding='utf-8') as f:
+                with open(sql_file, "r", encoding="utf-8") as f:
                     sql_data = json.load(f)
                     generated_sql = sql_data.get("query", "")
 
@@ -73,15 +75,12 @@ class GroundTruthGenerator:
                 "schema_markdown": schema_markdown,
                 "planner_output": planner_output,
                 "generated_sql": generated_sql,
-                "result": result
+                "result": result,
             }
 
         except Exception as e:
             print(f"X Error running workflow: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
 
     def save_query_template(
         self,
@@ -92,7 +91,7 @@ class GroundTruthGenerator:
         schema_markdown: str,
         ground_truth_sql: str = "",
         expected_tables: list = None,
-        expected_joins: list = None
+        expected_joins: list = None,
     ):
         """
         Save a query template to the queries directory.
@@ -117,19 +116,23 @@ class GroundTruthGenerator:
             "description": description,
             "complexity": complexity,
             "expected_tables": expected_tables or [],
-            "expected_joins": expected_joins or []
+            "expected_joins": expected_joins or [],
         }
 
-        with open(os.path.join(query_dir, "query.json"), 'w', encoding='utf-8') as f:
+        with open(os.path.join(query_dir, "query.json"), "w", encoding="utf-8") as f:
             json.dump(query_data, f, indent=2, ensure_ascii=False)
 
         # Save schema markdown
-        with open(os.path.join(query_dir, "expected_schema.md"), 'w', encoding='utf-8') as f:
+        with open(
+            os.path.join(query_dir, "expected_schema.md"), "w", encoding="utf-8"
+        ) as f:
             f.write(schema_markdown)
 
         # Save ground truth SQL (if provided)
         if ground_truth_sql:
-            with open(os.path.join(query_dir, "ground_truth.sql"), 'w', encoding='utf-8') as f:
+            with open(
+                os.path.join(query_dir, "ground_truth.sql"), "w", encoding="utf-8"
+            ) as f:
                 f.write(ground_truth_sql)
 
         print(f" Saved query template to {query_dir}")
@@ -157,12 +160,16 @@ class GroundTruthGenerator:
             rows = cursor.fetchall()
 
             # Get column names
-            columns = [column[0] for column in cursor.description] if cursor.description else []
+            columns = (
+                [column[0] for column in cursor.description]
+                if cursor.description
+                else []
+            )
 
             cursor.close()
             conn.close()
 
-            print(f" SQL executed successfully!")
+            print("SQL executed successfully!")
             print(f" Returned {len(rows)} rows")
             print(f" Columns: {', '.join(columns)}")
 
@@ -170,15 +177,14 @@ class GroundTruthGenerator:
                 "success": True,
                 "row_count": len(rows),
                 "columns": columns,
-                "sample_rows": [dict(zip(columns, row)) for row in rows[:5]]  # First 5 rows
+                "sample_rows": [
+                    dict(zip(columns, row)) for row in rows[:5]
+                ],  # First 5 rows
             }
 
         except Exception as e:
             print(f"X Error executing SQL: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
 
 
 def interactive_ground_truth_generation():
@@ -187,9 +193,9 @@ def interactive_ground_truth_generation():
     """
     generator = GroundTruthGenerator()
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("Ground Truth SQL Generator")
-    print("="*80 + "\n")
+    print("=" * 80 + "\n")
 
     print("This tool helps generate ground truth SQL for benchmark queries.")
     print("It will:\n")
@@ -212,13 +218,17 @@ def interactive_ground_truth_generation():
         print(f"X Failed to generate schema: {result.get('error')}")
         return
 
-    print(f"\n Schema generated successfully!")
-    print(f"\nFiltered Schema Markdown:")
+    print("\n Schema generated successfully!")
+    print("\nFiltered Schema Markdown:")
     print("=" * 80)
-    print(result["schema_markdown"][:500] + "..." if len(result["schema_markdown"]) > 500 else result["schema_markdown"])
+    print(
+        result["schema_markdown"][:500] + "..."
+        if len(result["schema_markdown"]) > 500
+        else result["schema_markdown"]
+    )
     print("=" * 80)
 
-    print(f"\nWorkflow-Generated SQL:")
+    print("\nWorkflow-Generated SQL:")
     print("=" * 80)
     print(result["generated_sql"])
     print("=" * 80)
@@ -243,8 +253,8 @@ def interactive_ground_truth_generation():
         test_result = generator.test_ground_truth_sql(ground_truth_sql)
 
         if not test_result["success"]:
-            print(f"X SQL failed to execute. Save anyway? (y/n): ", end="")
-            if input().lower() != 'y':
+            print("X SQL failed to execute. Save anyway? (y/n): ", end="")
+            if input().lower() != "y":
                 return
 
     # Save the query template
@@ -254,10 +264,10 @@ def interactive_ground_truth_generation():
         description=description,
         complexity=complexity,
         schema_markdown=result["schema_markdown"],
-        ground_truth_sql=ground_truth_sql
+        ground_truth_sql=ground_truth_sql,
     )
 
-    print(f"\n Ground truth query saved successfully!")
+    print("\n Ground truth query saved successfully!")
 
 
 if __name__ == "__main__":
@@ -269,5 +279,7 @@ if __name__ == "__main__":
         print("=" * 80)
         print("\nUsage:")
         print("  python -m benchmark.utilities.ground_truth_generator interactive")
-        print("\nThis will start an interactive session to generate ground truth queries.")
+        print(
+            "\nThis will start an interactive session to generate ground truth queries."
+        )
         print()

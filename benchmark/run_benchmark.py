@@ -9,6 +9,20 @@ This script orchestrates the entire benchmarking process:
 5. Generates comparison reports
 """
 
+from agent.query_database import query_database
+from benchmark.config.model_configs import MODELS, EXECUTION_ORDER, get_model_config
+from benchmark.config.benchmark_settings import (
+    QUERIES_DIR,
+    RESULTS_TIMESTAMP_DIR,
+    DELAY_BETWEEN_RUNS,
+    MAX_RETRIES_PER_RUN,
+    BENCHMARK_DATE,
+)
+from benchmark.utilities.env_manager import EnvManager
+from benchmark.utilities.metrics_collector import MetricsCollector, copy_debug_files
+from benchmark.utilities.sql_comparator import SQLComparator
+from database.connection import get_pyodbc_connection
+
 import os
 import sys
 import json
@@ -20,17 +34,6 @@ from datetime import datetime
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-
-from agent.query_database import query_database
-from benchmark.config.model_configs import MODELS, EXECUTION_ORDER, get_model_config
-from benchmark.config.benchmark_settings import (
-    QUERIES_DIR, RESULTS_TIMESTAMP_DIR, DEBUG_DIR, DELAY_BETWEEN_RUNS,
-    MAX_RETRIES_PER_RUN, BENCHMARK_DATE
-)
-from benchmark.utilities.env_manager import EnvManager
-from benchmark.utilities.metrics_collector import MetricsCollector, copy_debug_files
-from benchmark.utilities.sql_comparator import SQLComparator
-from database.connection import get_pyodbc_connection
 
 
 class BenchmarkRunner:
@@ -46,26 +49,30 @@ class BenchmarkRunner:
             "models_tested": len(EXECUTION_ORDER),
             "queries_tested": len(self.queries),
             "total_runs": len(EXECUTION_ORDER) * len(self.queries),
-            "results": []
+            "results": [],
         }
 
     def _load_queries(self):
         """Load all query configurations."""
         queries = []
-        query_dirs = [d for d in os.listdir(QUERIES_DIR) if os.path.isdir(os.path.join(QUERIES_DIR, d))]
+        query_dirs = [
+            d
+            for d in os.listdir(QUERIES_DIR)
+            if os.path.isdir(os.path.join(QUERIES_DIR, d))
+        ]
 
         for query_dir in sorted(query_dirs):
             query_json_path = os.path.join(QUERIES_DIR, query_dir, "query.json")
             ground_truth_path = os.path.join(QUERIES_DIR, query_dir, "ground_truth.sql")
 
             if os.path.exists(query_json_path):
-                with open(query_json_path, 'r', encoding='utf-8') as f:
+                with open(query_json_path, "r", encoding="utf-8") as f:
                     query_data = json.load(f)
 
                 # Load ground truth SQL
                 ground_truth_sql = ""
                 if os.path.exists(ground_truth_path):
-                    with open(ground_truth_path, 'r', encoding='utf-8') as f:
+                    with open(ground_truth_path, "r", encoding="utf-8") as f:
                         ground_truth_sql = f.read()
 
                 query_data["ground_truth_sql"] = ground_truth_sql
@@ -101,8 +108,8 @@ class BenchmarkRunner:
                         result = e.value
 
                 # Extract the state from the result
-                if isinstance(result, dict) and 'state' in result:
-                    return result['state'], None
+                if isinstance(result, dict) and "state" in result:
+                    return result["state"], None
                 else:
                     return result, None
             except Exception as e:
@@ -112,7 +119,7 @@ class BenchmarkRunner:
                 if attempt == max_retries - 1:
                     return None, str(e)
 
-                time.sleep(2 ** attempt)  # Exponential backoff
+                time.sleep(2**attempt)  # Exponential backoff
 
         return None, "Max retries exceeded"
 
@@ -150,7 +157,7 @@ class BenchmarkRunner:
         metrics.start_timer()
 
         # Execute query
-        print(f"  -> Executing workflow...")
+        print("  -> Executing workflow...")
         result, error = self._execute_query_with_retry(natural_language_query)
 
         metrics.stop_timer()
@@ -166,7 +173,7 @@ class BenchmarkRunner:
         metrics.collect_from_debug_files()
 
         # Copy debug files
-        print(f"  -> Copying debug files...")
+        print("  -> Copying debug files...")
         copy_debug_files(result_dir)
 
         # Save metrics
@@ -176,7 +183,7 @@ class BenchmarkRunner:
         # Compare SQL if successful
         quality_score = 0
         if metrics.metrics["success"] and ground_truth_sql:
-            print(f"  -> Comparing SQL with ground truth...")
+            print("  -> Comparing SQL with ground truth...")
             generated_sql = metrics.metrics.get("sql_generated", "")
 
             if generated_sql:
@@ -189,7 +196,7 @@ class BenchmarkRunner:
                 quality_score = comparator.calculate_quality_score(
                     sql_executes=True,
                     result_row_count=metrics.metrics.get("result_row_count"),
-                    ground_truth_row_count=gt_row_count
+                    ground_truth_row_count=gt_row_count,
                 )
 
                 metrics.metrics["quality_score"] = quality_score
@@ -197,14 +204,19 @@ class BenchmarkRunner:
 
                 # Save comparison results
                 comparison_file = os.path.join(result_dir, "sql_comparison.json")
-                with open(comparison_file, 'w', encoding='utf-8') as f:
-                    json.dump({
-                        "ground_truth_sql": ground_truth_sql,
-                        "generated_sql": generated_sql,
-                        "comparison_results": comparison_results,
-                        "quality_score": quality_score,
-                        "differences_summary": comparator.get_differences_summary()
-                    }, f, indent=2, ensure_ascii=False)
+                with open(comparison_file, "w", encoding="utf-8") as f:
+                    json.dump(
+                        {
+                            "ground_truth_sql": ground_truth_sql,
+                            "generated_sql": generated_sql,
+                            "comparison_results": comparison_results,
+                            "quality_score": quality_score,
+                            "differences_summary": comparator.get_differences_summary(),
+                        },
+                        f,
+                        indent=2,
+                        ensure_ascii=False,
+                    )
 
                 # Re-save metrics with quality score
                 metrics.save_metrics(metrics_file)
@@ -229,7 +241,7 @@ class BenchmarkRunner:
         print(f"LLM BENCHMARK - {BENCHMARK_DATE}")
         print(f"{'='*80}\n")
 
-        print(f"Backing up current .env configuration...")
+        print("Backing up current .env configuration...")
         self.env_manager.backup_env()
 
         total_runs = len(EXECUTION_ORDER) * len(self.queries)
@@ -262,7 +274,9 @@ class BenchmarkRunner:
 
                         # Delay between runs
                         if completed_runs < total_runs:
-                            print(f"\n  Waiting Waiting {DELAY_BETWEEN_RUNS}s before next run...")
+                            print(
+                                f"\n  Waiting Waiting {DELAY_BETWEEN_RUNS}s before next run..."
+                            )
                             time.sleep(DELAY_BETWEEN_RUNS)
 
                     except Exception as e:
@@ -271,27 +285,29 @@ class BenchmarkRunner:
                         print(traceback.format_exc())
 
                         # Log failure
-                        self.benchmark_summary["results"].append({
-                            "model_name": model_name,
-                            "query_id": query_data["query_id"],
-                            "success": False,
-                            "error_message": str(e)
-                        })
+                        self.benchmark_summary["results"].append(
+                            {
+                                "model_name": model_name,
+                                "query_id": query_data["query_id"],
+                                "success": False,
+                                "error_message": str(e),
+                            }
+                        )
 
         finally:
             # Restore original .env
             print(f"\n{'='*80}")
-            print(f"Restoring original .env configuration...")
+            print("Restoring original .env configuration...")
             self.env_manager.restore_env()
 
         # Save benchmark summary
         summary_file = os.path.join(self.results_dir, "benchmark_summary.json")
-        with open(summary_file, 'w', encoding='utf-8') as f:
+        with open(summary_file, "w", encoding="utf-8") as f:
             json.dump(self.benchmark_summary, f, indent=2, ensure_ascii=False)
 
         # Print final summary
         print(f"\n{'='*80}")
-        print(f"BENCHMARK COMPLETE")
+        print("BENCHMARK COMPLETE")
         print(f"{'='*80}")
         print(f"Total Runs: {total_runs}")
         print(f"Completed: {completed_runs}")
@@ -305,12 +321,12 @@ class BenchmarkRunner:
 
 def main():
     """Main entry point."""
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("SQL Query Assistant - LLM Benchmark Runner")
-    print("="*80 + "\n")
+    print("=" * 80 + "\n")
 
     runner = BenchmarkRunner()
-    summary = runner.run_all_benchmarks()
+    runner.run_all_benchmarks()
 
     print("\n Benchmark complete!")
     print(f" Results directory: {runner.results_dir}")

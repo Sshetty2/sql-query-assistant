@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field
 from agent.state import State
 from langchain_core.messages import AIMessage
 from models.planner_output import PlannerOutput
-from utils.llm_factory import get_chat_llm
+from models.history import RefinementHistory
+from utils.llm_factory import get_chat_llm, get_model_for_stage
 from utils.logger import get_logger, log_execution_time
 
 load_dotenv()
@@ -33,7 +34,7 @@ def generate_refined_strategy(
     user_question: str,
     refined_plans: list[dict],
     schema: list[dict],
-    schema_markdown: str = None
+    schema_markdown: str = None,
 ) -> str:
     """
     Generate a refined strategy directly from empty query results.
@@ -71,7 +72,8 @@ def generate_refined_strategy(
     else:
         previous_attempts_formatted = "No previous refinement attempts"
 
-    prompt = dedent(f"""
+    prompt = dedent(
+        f"""
         # Generate Refined Strategy from Empty Results
 
         ## System Overview
@@ -187,16 +189,18 @@ def generate_refined_strategy(
         - Use the EXACT same format as the original strategy above
         - Verify ALL columns exist in the schema before including them
         - Focus on broadening filters or trying related tables to find results
-    """).strip()
+    """
+    ).strip()
 
     try:
-        llm = get_chat_llm(model_name=os.getenv("AI_MODEL_REFINE"))
+        refinement_model = get_model_for_stage("refinement")
+        llm = get_chat_llm(model_name=refinement_model)
 
         with log_execution_time(logger, "llm_refined_strategy_generation"):
             result = llm.invoke(prompt)
 
         # Extract text content from LangChain message
-        refined_strategy = result.content if hasattr(result, 'content') else str(result)
+        refined_strategy = result.content if hasattr(result, "content") else str(result)
 
         return refined_strategy.strip()
 
@@ -224,12 +228,12 @@ def refine_query(state: State) -> Dict[str, Any]:
     refinement_iteration = state.get("refinement_iteration", 0)
 
     # Get max refinement attempts from environment
-    max_refinements = (
-        int(os.getenv("REFINE_COUNT")) if os.getenv("REFINE_COUNT") else 3
-    )
+    max_refinements = int(os.getenv("REFINE_COUNT")) if os.getenv("REFINE_COUNT") else 3
 
     # Get the strategy that led to no results (could be from pre-planner or previous revision)
-    previous_strategy = state.get("revised_strategy") or state.get("pre_plan_strategy", "")
+    previous_strategy = state.get("revised_strategy") or state.get(
+        "pre_plan_strategy", ""
+    )
 
     # Format the original plan for history tracking
     if hasattr(original_plan, "model_dump"):
@@ -239,28 +243,38 @@ def refine_query(state: State) -> Dict[str, Any]:
 
     logger.warning(
         f"Query returned no results (iteration {refinement_iteration + 1}/{max_refinements})",
-        extra={"refined_count": refined_count, "refinement_iteration": refinement_iteration}
+        extra={
+            "refined_count": refined_count,
+            "refinement_iteration": refinement_iteration,
+        },
     )
 
     # Check if we've exhausted iteration limit
     if refinement_iteration >= max_refinements:
         logger.error(
             f"Refinement iteration limit reached ({max_refinements} iterations), terminating",
-            extra={"refinement_iteration": refinement_iteration}
+            extra={"refinement_iteration": refinement_iteration},
         )
         return {
             **state,
-            "messages": [AIMessage(content=f"No results after {refinement_iteration} refinement attempts")],
+            "messages": [
+                AIMessage(
+                    content=f"No results after {refinement_iteration} refinement attempts"
+                )
+            ],
             "planner_output": original_plan_dict,
             "needs_termination": True,
             "termination_reason": f"Query returned no results after {max_refinements} refinement attempts",
             "refined_plans": state["refined_plans"] + [original_plan_dict],
-            "refined_reasoning": state.get("refined_reasoning", []) + ["⚠️ NO RESULTS: Iteration limit reached"],
+            "refined_reasoning": state.get("refined_reasoning", [])
+            + ["⚠️ NO RESULTS: Iteration limit reached"],
             "last_step": "refine_query",
         }
 
     # Use truncated schema if available (preferred for LLM context), otherwise filtered
-    schema = state.get("truncated_schema") or state.get("filtered_schema") or state["schema"]
+    schema = (
+        state.get("truncated_schema") or state.get("filtered_schema") or state["schema"]
+    )
     refined_plans = state.get("refined_plans", [])
 
     # Generate refined strategy directly (bypasses pre-planner)
@@ -273,40 +287,37 @@ def refine_query(state: State) -> Dict[str, Any]:
         user_question=user_question,
         refined_plans=refined_plans,
         schema=schema,
-        schema_markdown=schema_markdown
+        schema_markdown=schema_markdown,
     )
 
     logger.info(
         "Generated refined strategy (bypassing pre-planner)",
-        extra={"strategy_length": len(refined_strategy), "refinement_iteration": refinement_iteration + 1}
+        extra={
+            "strategy_length": len(refined_strategy),
+            "refinement_iteration": refinement_iteration + 1,
+        },
     )
 
-    # Debug: Save refined strategy
-    from utils.debug_utils import save_debug_file
-    save_debug_file(
-        f"refined_strategy_iteration_{refinement_iteration + 1}.json",
+    # Create structured refinement history object
+    refinement_record = RefinementHistory(
+        strategy=refined_strategy,
+        plan=original_plan_dict,
+        query=original_query,
+        reasoning="Query returned 0 results. Generated refined strategy to broaden filters and improve result retrieval.",  # noqa: E501
+        iteration=refinement_iteration + 1,
+    )
+
+    # Debug: Append to single refinement history array
+    from utils.debug_utils import append_to_debug_array
+
+    append_to_debug_array(
+        "refinement_history.json",
         {
-            "iteration": refinement_iteration + 1,
-            "refined_strategy": refined_strategy,
-            "original_query": original_query,
+            **refinement_record.model_dump(),
             "previous_strategy": previous_strategy,
         },
-        step_name="refine_query"
-    )
-
-    # Debug: Track SQL queries during refinement
-    from utils.debug_utils import append_to_debug_array
-    append_to_debug_array(
-        "generated_sql_queries.json",
-        {
-            "step": "refinement",
-            "attempt": refinement_iteration + 1,
-            "sql": original_query,
-            "reason": "no results returned",
-            "status": "no_results"
-        },
         step_name="refine_query",
-        array_key="queries"
+        array_key="refinements",
     )
 
     return {
@@ -320,8 +331,13 @@ def refine_query(state: State) -> Dict[str, Any]:
         "planner_output": original_plan_dict,  # Keep current plan for history
         "revised_strategy": refined_strategy,  # Refined strategy for planner
         "refinement_iteration": refinement_iteration + 1,  # Increment counter
+        # NEW: Structured history tracking
+        "refinement_history": state.get("refinement_history", [])
+        + [refinement_record.model_dump()],
+        # LEGACY: Keep these for backward compatibility during migration
         "refined_plans": state["refined_plans"] + [original_plan_dict],
-        "refined_queries": state.get("refined_queries", []) + [original_query],  # Track query that returned no results
-        "refined_reasoning": state.get("refined_reasoning", []) + [f"No results: {original_query[:100]}..."],
+        "refined_queries": state.get("refined_queries", []) + [original_query],
+        "refined_reasoning": state.get("refined_reasoning", [])
+        + [refinement_record.reasoning],
         "last_step": "refine_query",
     }

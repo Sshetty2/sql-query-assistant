@@ -11,7 +11,7 @@ from langchain_core.exceptions import OutputParserException
 from models.planner_output import PlannerOutput
 from models.planner_output_minimal import PlannerOutputMinimal
 from models.planner_output_standard import PlannerOutputStandard
-from utils.llm_factory import is_using_ollama
+from utils.llm_factory import is_using_ollama, get_model_for_stage
 from utils.logger import get_logger, log_execution_time
 
 from agent.state import State
@@ -440,7 +440,7 @@ def _create_minimal_planner_prompt_with_strategy(**format_params):
 
         # USER QUERY
 
-        "{user_query}"
+        "{user_query}" # noqa: E501
         """
     ).strip()
 
@@ -507,7 +507,7 @@ def _create_standard_planner_prompt_with_strategy(**format_params):
         # USER QUERY
 
         "{user_query}"
-        """
+        """  # noqa: E501
     ).strip()
 
     return (system_instructions.format(**format_params), "")
@@ -580,7 +580,7 @@ def _create_full_planner_prompt_with_strategy(**format_params):
         # USER QUERY
 
         "{user_query}"
-        """
+        """  # noqa: E501
     ).strip()
 
     return (system_instructions.format(**format_params), "")
@@ -1373,13 +1373,11 @@ def plan_query(state: State):
 
         # Track which strategy source we're using
         if revised_strategy:
-            strategy_source = "revised"
             logger.info(
                 "Using revised strategy from error/refinement correction (bypassing pre-planner)",
                 extra={"strategy_length": len(revised_strategy)},
             )
         elif pre_plan_strategy:
-            strategy_source = "pre_plan"
             logger.info(
                 "Using pre-plan strategy from pre-planner",
                 extra={"strategy_length": len(pre_plan_strategy)},
@@ -1464,7 +1462,8 @@ def plan_query(state: State):
         planner_model_class = get_planner_model_class()
         from utils.llm_factory import get_chat_llm
 
-        base_llm = get_chat_llm(model_name=os.getenv("AI_MODEL"))
+        planning_model = get_model_for_stage("planning")
+        base_llm = get_chat_llm(model_name=planning_model)
 
         # Create proper message structure for chat models
         messages = [
@@ -1493,7 +1492,7 @@ def plan_query(state: State):
                             If you need to join to a table, you MUST add it to selections first.
 
                             Please regenerate your response with this issue corrected.
-                            """
+                            """  # noqa: E501
                         ).strip()
                     )
                     current_messages.append(feedback_message)
@@ -1650,7 +1649,7 @@ def plan_query(state: State):
                         - Add these tables to the 'selections' array: {missing_tables_str}
                         - OR remove the join_edges that reference these tables
                         - Every table in a join_edge MUST also appear in selections
-                        """
+                        """  # noqa: E501
                     ).strip()
                 else:
                     validation_feedback = f"Validation error: {error_msg}"

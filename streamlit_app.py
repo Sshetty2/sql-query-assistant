@@ -105,7 +105,9 @@ def format_results(result):
         return pd.DataFrame()
 
 
-def apply_column_patch(output: dict, table: str, column: str, operation: str, immediate_rerun: bool = True):
+def apply_column_patch(
+    output: dict, table: str, column: str, operation: str, immediate_rerun: bool = True
+):
     """
     Apply a column add/remove patch and optionally re-execute the query.
 
@@ -126,11 +128,7 @@ def apply_column_patch(output: dict, table: str, column: str, operation: str, im
             return
 
         # Build patch operation
-        patch_op = {
-            "operation": operation,
-            "table": table,
-            "column": column
-        }
+        patch_op = {"operation": operation, "table": table, "column": column}
 
         if immediate_rerun:
             # Store patch in session state and trigger rerun immediately
@@ -148,23 +146,31 @@ def apply_column_patch(output: dict, table: str, column: str, operation: str, im
             return
         else:
             # Store for batch processing (will be applied when batch is triggered)
-            if not hasattr(st.session_state, 'pending_batch_patches'):
+            if not hasattr(st.session_state, "pending_batch_patches"):
                 st.session_state.pending_batch_patches = []
 
-            st.session_state.pending_batch_patches.append({
-                "operation": patch_op,
-                "executed_plan": executed_plan,
-                "filtered_schema": filtered_schema,
-                "thread_id": thread_id,
-                "user_question": output.get("user_question", ""),
-            })
+            st.session_state.pending_batch_patches.append(
+                {
+                    "operation": patch_op,
+                    "executed_plan": executed_plan,
+                    "filtered_schema": filtered_schema,
+                    "thread_id": thread_id,
+                    "user_question": output.get("user_question", ""),
+                }
+            )
 
     except Exception as e:
         st.error(f"Error applying column patch: {str(e)}")
         logger.error(f"Error in apply_column_patch: {str(e)}", exc_info=True)
 
 
-def apply_sort_patch(output: dict, selected_sort: str, direction: str, sortable_columns: list, immediate_rerun: bool = True):  # noqa: E501
+def apply_sort_patch(
+    output: dict,
+    selected_sort: str,
+    direction: str,
+    sortable_columns: list,
+    immediate_rerun: bool = True,
+):  # noqa: E501
     """
     Apply an ORDER BY patch and optionally re-execute the query.
 
@@ -190,18 +196,17 @@ def apply_sort_patch(output: dict, selected_sort: str, direction: str, sortable_
             # Find the matching column
             for col in sortable_columns:
                 if col["display_name"] == selected_sort:
-                    order_by.append({
-                        "table": col["table"],
-                        "column": col["column"],
-                        "direction": direction
-                    })
+                    order_by.append(
+                        {
+                            "table": col["table"],
+                            "column": col["column"],
+                            "direction": direction,
+                        }
+                    )
                     break
 
         # Build patch operation
-        patch_op = {
-            "operation": "modify_order_by",
-            "order_by": order_by
-        }
+        patch_op = {"operation": "modify_order_by", "order_by": order_by}
 
         if immediate_rerun:
             # Store patch in session state and trigger rerun immediately
@@ -219,16 +224,18 @@ def apply_sort_patch(output: dict, selected_sort: str, direction: str, sortable_
             return
         else:
             # Store for batch processing
-            if not hasattr(st.session_state, 'pending_batch_patches'):
+            if not hasattr(st.session_state, "pending_batch_patches"):
                 st.session_state.pending_batch_patches = []
 
-            st.session_state.pending_batch_patches.append({
-                "operation": patch_op,
-                "executed_plan": executed_plan,
-                "filtered_schema": filtered_schema,
-                "thread_id": thread_id,
-                "user_question": output.get("user_question", ""),
-            })
+            st.session_state.pending_batch_patches.append(
+                {
+                    "operation": patch_op,
+                    "executed_plan": executed_plan,
+                    "filtered_schema": filtered_schema,
+                    "thread_id": thread_id,
+                    "user_question": output.get("user_question", ""),
+                }
+            )
 
     except Exception as e:
         st.error(f"Error applying sort patch: {str(e)}")
@@ -254,10 +261,7 @@ def apply_limit_patch(output: dict, new_limit: int, immediate_rerun: bool = True
             return
 
         # Build patch operation
-        patch_op = {
-            "operation": "modify_limit",
-            "limit": new_limit
-        }
+        patch_op = {"operation": "modify_limit", "limit": new_limit}
 
         if immediate_rerun:
             # Store patch in session state and trigger rerun immediately
@@ -275,16 +279,18 @@ def apply_limit_patch(output: dict, new_limit: int, immediate_rerun: bool = True
             return
         else:
             # Store for batch processing
-            if not hasattr(st.session_state, 'pending_batch_patches'):
+            if not hasattr(st.session_state, "pending_batch_patches"):
                 st.session_state.pending_batch_patches = []
 
-            st.session_state.pending_batch_patches.append({
-                "operation": patch_op,
-                "executed_plan": executed_plan,
-                "filtered_schema": filtered_schema,
-                "thread_id": thread_id,
-                "user_question": output.get("user_question", ""),
-            })
+            st.session_state.pending_batch_patches.append(
+                {
+                    "operation": patch_op,
+                    "executed_plan": executed_plan,
+                    "filtered_schema": filtered_schema,
+                    "thread_id": thread_id,
+                    "user_question": output.get("user_question", ""),
+                }
+            )
 
     except Exception as e:
         st.error(f"Error applying limit patch: {str(e)}")
@@ -300,7 +306,9 @@ def render_modification_controls(output: dict, modification_options: dict):
         modification_options: Dict with available modification options
     """
     with st.expander("🔧 Modify Query", icon="✏️", expanded=False):
-        st.write("Make multiple modifications and click **'Apply Changes'** to re-execute the query.")
+        st.write(
+            "Make multiple modifications and click **'Apply Changes'** to re-execute the query."
+        )
 
         # Create tabs for different modification types
         col_tab, sort_tab = st.tabs(["📊 Columns", "🔀 Sort & Limit"])
@@ -333,15 +341,19 @@ def render_modification_controls(output: dict, modification_options: dict):
                 columns = table_info.get("columns", [])
 
                 # Group columns into rows of 3
-                col_groups = [columns[i:i+3] for i in range(0, len(columns), 3)]
+                col_groups = [columns[i : i + 3] for i in range(0, len(columns), 3)]
 
                 for col_group in col_groups:
                     cols = st.columns(3)
 
                     for idx, col_info in enumerate(col_group):
                         with cols[idx]:
-                            col_name = col_info["name"]  # Database column name (for operations)
-                            display_name = col_info.get("display_name", col_name)  # Friendly name (for display)
+                            col_name = col_info[
+                                "name"
+                            ]  # Database column name (for operations)
+                            display_name = col_info.get(
+                                "display_name", col_name
+                            )  # Friendly name (for display)
                             is_selected = col_info["selected"]
                             role = col_info.get("role")
                             is_pk = col_info.get("is_primary_key", False)
@@ -368,11 +380,17 @@ def render_modification_controls(output: dict, modification_options: dict):
 
                                 # Track changes (but don't apply yet)
                                 if checked != (is_selected and role == "projection"):
-                                    column_changes.append({
-                                        "operation": "add_column" if checked else "remove_column",
-                                        "table": table_name,
-                                        "column": col_name
-                                    })
+                                    column_changes.append(
+                                        {
+                                            "operation": (
+                                                "add_column"
+                                                if checked
+                                                else "remove_column"
+                                            ),
+                                            "table": table_name,
+                                            "column": col_name,
+                                        }
+                                    )
                             else:
                                 # Show as disabled for filter-only columns
                                 st.checkbox(
@@ -380,7 +398,7 @@ def render_modification_controls(output: dict, modification_options: dict):
                                     value=False,
                                     key=checkbox_key,
                                     disabled=True,
-                                    help="This column is used in filters only"
+                                    help="This column is used in filters only",
                                 )
 
                 st.divider()
@@ -394,7 +412,9 @@ def render_modification_controls(output: dict, modification_options: dict):
             current_limit = modification_options.get("current_limit")
 
             # Build options for selectbox
-            sort_options = ["No sorting"] + [col["display_name"] for col in sortable_columns]
+            sort_options = ["No sorting"] + [
+                col["display_name"] for col in sortable_columns
+            ]
 
             # Determine current selection
             current_sort_col = None
@@ -418,7 +438,7 @@ def render_modification_controls(output: dict, modification_options: dict):
                     "Column",
                     sort_options,
                     index=default_index,
-                    key=f"sort_column_select_{key_prefix}"
+                    key=f"sort_column_select_{key_prefix}",
                 )
 
             with sort_col2:
@@ -427,18 +447,20 @@ def render_modification_controls(output: dict, modification_options: dict):
                     ["ASC", "DESC"],
                     index=0 if current_sort_dir == "ASC" else 1,
                     key=f"sort_direction_radio_{key_prefix}",
-                    horizontal=True
+                    horizontal=True,
                 )
 
             # Track sort changes
             new_sort_col = selected_sort if selected_sort != "No sorting" else None
             old_sort_col = current_sort_col if current_order_by else None
 
-            if new_sort_col != old_sort_col or (new_sort_col and direction != current_sort_dir):
+            if new_sort_col != old_sort_col or (
+                new_sort_col and direction != current_sort_dir
+            ):
                 sort_change = {
                     "selected_sort": selected_sort,
                     "direction": direction,
-                    "sortable_columns": sortable_columns
+                    "sortable_columns": sortable_columns,
                 }
 
             st.divider()
@@ -454,7 +476,7 @@ def render_modification_controls(output: dict, modification_options: dict):
                 max_value=1000000,
                 value=min(max(limit_value, 10), 1000000),
                 step=100,
-                key=f"limit_slider_{key_prefix}"
+                key=f"limit_slider_{key_prefix}",
             )
 
             # Track limit changes
@@ -470,7 +492,9 @@ def render_modification_controls(output: dict, modification_options: dict):
             change_summary = []
             if column_changes:
                 adds = sum(1 for c in column_changes if c["operation"] == "add_column")
-                removes = sum(1 for c in column_changes if c["operation"] == "remove_column")
+                removes = sum(
+                    1 for c in column_changes if c["operation"] == "remove_column"
+                )
                 if adds:
                     change_summary.append(f"➕ {adds} column(s)")
                 if removes:
@@ -489,7 +513,7 @@ def render_modification_controls(output: dict, modification_options: dict):
                 key=f"apply_all_changes_btn_{key_prefix}",
                 type="primary",
                 disabled=not changes_pending,
-                use_container_width=True
+                use_container_width=True,
             ):
                 # Apply all changes in sequence
                 try:
@@ -503,7 +527,7 @@ def render_modification_controls(output: dict, modification_options: dict):
                             change["table"],
                             change["column"],
                             change["operation"],
-                            immediate_rerun=False
+                            immediate_rerun=False,
                         )
 
                     # Add sort change to batch
@@ -513,7 +537,7 @@ def render_modification_controls(output: dict, modification_options: dict):
                             sort_change["selected_sort"],
                             sort_change["direction"],
                             sort_change["sortable_columns"],
-                            immediate_rerun=False
+                            immediate_rerun=False,
                         )
 
                     # Add limit change to batch
@@ -667,20 +691,50 @@ def render_query_results(
             st.write("**Full Plan JSON:**")
             st.json(planner_output)
 
-    # Display error corrections and refinements
-    if output.get("corrected_queries") or output.get("refined_queries"):
+    # Display error corrections and refinements (using new structured history)
+    has_corrections = output.get("correction_history") or output.get(
+        "corrected_queries"
+    )
+    has_refinements = output.get("refinement_history") or output.get("refined_queries")
+
+    if has_corrections or has_refinements:
         with st.expander("Query History", icon="📜"):
             col1, col2 = st.columns(2)
 
             with col1:
-                if output.get("retry_count", 0) > 0:
+                # Use new structured history if available, otherwise fall back to legacy
+                correction_history = output.get("correction_history", [])
+                if correction_history:
+                    st.subheader("Error Corrections")
+                    st.write(f"Total attempts: {len(correction_history)}")
+
+                    for record in correction_history:
+                        st.write(f"**Attempt {record['iteration']}:**")
+                        st.write(f"❌ **Error:** `{record['error']}`")
+                        st.write(f"💡 **Reasoning:** {record['reasoning']}")
+
+                        # Display the failing query
+                        st.write("**Original failing query:**")
+                        st.code(record["query"], language="sql")
+
+                        # Display the revised strategy
+                        with st.expander("View revised strategy"):
+                            st.markdown(record["strategy"])
+
+                        # Display the corrected plan
+                        with st.expander("View corrected plan"):
+                            st.json(record["plan"])
+
+                        st.divider()
+
+                elif output.get("retry_count", 0) > 0:
+                    # Legacy rendering (backward compatibility)
                     st.subheader("Error Corrections")
                     st.write("Retry count:", output["retry_count"])
                     for i, query in enumerate(output["corrected_queries"], 1):
                         st.write(f"**Attempt {i}:**")
                         st.write(f"❌ Error: `{output['error_history'][i-1]}`")
 
-                        # Display error correction reasoning if available
                         if output.get("error_reasoning") and i <= len(
                             output["error_reasoning"]
                         ):
@@ -688,11 +742,9 @@ def render_query_results(
                                 f"💡 **Reasoning:** {output['error_reasoning'][i-1]}"
                             )
 
-                        # Display the original failing query
                         st.write("**Original failing query:**")
                         st.code(query, language="sql")
 
-                        # Display the corrected plan if available
                         if output.get("corrected_plans") and i <= len(
                             output["corrected_plans"]
                         ):
@@ -702,23 +754,45 @@ def render_query_results(
                         st.divider()
 
             with col2:
-                if output.get("refined_count", 0) > 0:
+                # Use new structured history if available, otherwise fall back to legacy
+                refinement_history = output.get("refinement_history", [])
+                if refinement_history:
+                    st.subheader("Query Refinements")
+                    st.write(f"Total attempts: {len(refinement_history)}")
+
+                    for record in refinement_history:
+                        st.write(f"**Refinement {record['iteration']}:**")
+                        st.write("⚠️ Previous query returned no results")
+                        st.write(f"💡 **Reasoning:** {record['reasoning']}")
+
+                        # Display the query that returned no results
+                        st.write("**Original query:**")
+                        st.code(record["query"], language="sql")
+
+                        # Display the refined strategy
+                        with st.expander("View refined strategy"):
+                            st.markdown(record["strategy"])
+
+                        # Display the refined plan
+                        with st.expander("View refined plan"):
+                            st.json(record["plan"])
+
+                        st.divider()
+
+                elif output.get("refined_count", 0) > 0:
+                    # Legacy rendering (backward compatibility)
                     st.subheader("Query Refinements")
                     st.write("Refinement count:", output["refined_count"])
                     for i, query in enumerate(output["refined_queries"], 1):
                         st.write(f"**Refinement {i}:**")
                         st.write("⚠️ Previous query returned no results")
-
-                        # Display refinement reasoning
                         st.write(
                             f"💡 **Reasoning:** {output['refined_reasoning'][i-1]}"
                         )
 
-                        # Display the original query that returned no results
                         st.write("**Original query:**")
                         st.code(query, language="sql")
 
-                        # Display the refined plan if available
                         if output.get("refined_plans") and i <= len(
                             output["refined_plans"]
                         ):
@@ -757,9 +831,13 @@ def render_query_results(
             total_available = output.get("total_records_available")
 
             if total_available and total_available > returned_count:
-                st.caption(f"📊 Showing **{returned_count:,}** of **{total_available:,}** records (limit applied)")
+                st.caption(
+                    f"📊 Showing **{returned_count:,}** of **{total_available:,}** records (limit applied)"
+                )
             else:
-                st.caption(f"📊 Showing **{returned_count:,}** record{'s' if returned_count != 1 else ''}")
+                st.caption(
+                    f"📊 Showing **{returned_count:,}** record{'s' if returned_count != 1 else ''}"
+                )
 
             st.dataframe(
                 df,
@@ -885,7 +963,9 @@ def main():
                     ):
                         # Load the query results
                         st.session_state.selected_thread_id = thread_id
-                        st.session_state.current_output = None  # Clear current output when viewing history
+                        st.session_state.current_output = (
+                            None  # Clear current output when viewing history
+                        )
                         if queries:
                             st.session_state.loaded_state = queries[0].get("state")
                         st.rerun()
@@ -968,26 +1048,40 @@ def main():
 
     # Check if there's a pending patch operation to execute
     # Handle batch patch operations
-    if hasattr(st.session_state, 'apply_batch_patches') and st.session_state.apply_batch_patches:
+    if (
+        hasattr(st.session_state, "apply_batch_patches")
+        and st.session_state.apply_batch_patches
+    ):
         st.session_state.apply_batch_patches = False  # Clear the flag
-        patches = st.session_state.get('pending_batch_patches', [])
+        patches = st.session_state.get("pending_batch_patches", [])
 
         # Increment generation counter BEFORE processing to ensure fresh keys on next render
-        st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
+        st.session_state.controls_generation = (
+            st.session_state.get("controls_generation", 0) + 1
+        )
 
         if patches:
-            status = st.status(f"Applying {len(patches)} modification(s)...", expanded=True)
+            status = st.status(
+                f"Applying {len(patches)} modification(s)...", expanded=True
+            )
             try:
                 # Apply patches sequentially
                 current_output = None
                 for i, patch_info in enumerate(patches, 1):
-                    status.update(label=f"Applying modification {i} of {len(patches)}...", state="running")
+                    status.update(
+                        label=f"Applying modification {i} of {len(patches)}...",
+                        state="running",
+                    )
 
                     # For all patches except the first, use the output from the previous patch
                     if current_output:
                         # Update patch_info with latest executed_plan and filtered_schema
-                        patch_info["executed_plan"] = current_output.get("executed_plan")
-                        patch_info["filtered_schema"] = current_output.get("filtered_schema")
+                        patch_info["executed_plan"] = current_output.get(
+                            "executed_plan"
+                        )
+                        patch_info["filtered_schema"] = current_output.get(
+                            "filtered_schema"
+                        )
 
                     # Apply the patch with streaming
                     stream = query_database(
@@ -1004,13 +1098,15 @@ def main():
                         if update["type"] == "status":
                             status.update(
                                 label=f"[{i}/{len(patches)}] {update['display_name']}...",
-                                state="running"
+                                state="running",
                             )
                         elif update["type"] == "complete":
                             current_output = update["state"]
 
                     if current_output is None:
-                        raise RuntimeError(f"Stream {i} completed but no final result was received")
+                        raise RuntimeError(
+                            f"Stream {i} completed but no final result was received"
+                        )
 
                 # Use the final output
                 output = current_output
@@ -1026,12 +1122,14 @@ def main():
 
                 # Update status
                 if output.get("result") is None:
-                    status.update(label="⚠️ No results found", state="error", expanded=False)
+                    status.update(
+                        label="⚠️ No results found", state="error", expanded=False
+                    )
                 else:
                     status.update(
                         label=f"✅ All {len(patches)} modifications applied successfully!",
                         state="complete",
-                        expanded=False
+                        expanded=False,
                     )
 
                 # Clear the batch patches
@@ -1041,19 +1139,23 @@ def main():
                 # This prevents duplicate rendering which causes duplicate key errors
 
             except Exception as e:
-                status.update(label=f"❌ Error: {str(e)}", state="error", expanded=False)
+                status.update(
+                    label=f"❌ Error: {str(e)}", state="error", expanded=False
+                )
                 st.error(f"An error occurred applying modifications: {str(e)}")
                 st.exception(e)
                 # Clear the batch patches even on error
                 st.session_state.pending_batch_patches = []
 
     # Handle single patch operation (for backward compatibility)
-    elif hasattr(st.session_state, 'pending_patch') and st.session_state.pending_patch:
+    elif hasattr(st.session_state, "pending_patch") and st.session_state.pending_patch:
         patch_info = st.session_state.pending_patch
         st.session_state.pending_patch = None  # Clear the pending patch
 
         # Increment generation counter BEFORE processing to ensure fresh keys on next render
-        st.session_state.controls_generation = st.session_state.get("controls_generation", 0) + 1
+        st.session_state.controls_generation = (
+            st.session_state.get("controls_generation", 0) + 1
+        )
 
         status = st.status("Applying modification...", expanded=True)
         try:
@@ -1071,7 +1173,9 @@ def main():
             # Process stream updates
             for update in stream:
                 if update["type"] == "status":
-                    status.update(label=f"⏳ {update['display_name']}...", state="running")
+                    status.update(
+                        label=f"⏳ {update['display_name']}...", state="running"
+                    )
                 elif update["type"] == "complete":
                     output = update["state"]
 
@@ -1091,7 +1195,11 @@ def main():
             if output.get("result") is None:
                 status.update(label="⚠️ No results found", state="error", expanded=False)
             else:
-                status.update(label="✅ Modification applied successfully!", state="complete", expanded=False)
+                status.update(
+                    label="✅ Modification applied successfully!",
+                    state="complete",
+                    expanded=False,
+                )
 
             # DON'T render here - let the normal display flow handle it at line 1193
             # This prevents duplicate rendering which causes duplicate key errors
@@ -1154,13 +1262,17 @@ def main():
                 for update in stream:
                     if update["type"] == "status":
                         # Update status label with current workflow step
-                        status.update(label=f"⏳ {update['display_name']}...", state="running")
+                        status.update(
+                            label=f"⏳ {update['display_name']}...", state="running"
+                        )
                     elif update["type"] == "complete":
                         # Final result received
                         output = update["state"]
 
                 if output is None:
-                    raise RuntimeError("Stream completed but no final result was received")
+                    raise RuntimeError(
+                        "Stream completed but no final result was received"
+                    )
 
                 # Store current output in session state so it persists across reruns
                 st.session_state.current_output = output
@@ -1174,7 +1286,9 @@ def main():
                 # Update status based on result
                 planner_output = output.get("planner_output", {})
                 if planner_output.get("decision") == "terminate":
-                    status.update(label="❌ Query terminated", state="error", expanded=False)
+                    status.update(
+                        label="❌ Query terminated", state="error", expanded=False
+                    )
                 elif output.get("needs_clarification"):
                     status.update(
                         label="✅ Query executed (clarification suggested)",
@@ -1183,13 +1297,19 @@ def main():
                     )
                 elif not output.get("query"):
                     status.update(
-                        label=f"❌ {output.get('result', 'Query error')}", state="error", expanded=False
+                        label=f"❌ {output.get('result', 'Query error')}",
+                        state="error",
+                        expanded=False,
                     )
                 elif output.get("result") is None:
-                    status.update(label="⚠️ No results found", state="error", expanded=False)
+                    status.update(
+                        label="⚠️ No results found", state="error", expanded=False
+                    )
                 else:
                     status.update(
-                        label="✅ Query executed successfully!", state="complete", expanded=False
+                        label="✅ Query executed successfully!",
+                        state="complete",
+                        expanded=False,
                     )
 
                 # Render the results and store dataframe
@@ -1197,7 +1317,9 @@ def main():
                 st.session_state.current_dataframe = df
 
             except Exception as e:
-                status.update(label=f"❌ Error: {str(e)}", state="error", expanded=False)
+                status.update(
+                    label=f"❌ Error: {str(e)}", state="error", expanded=False
+                )
                 st.error(f"An error occurred: {str(e)}")
                 st.exception(e)
         else:
@@ -1206,8 +1328,7 @@ def main():
     # Display current output if it exists (persists across reruns from slider changes)
     elif st.session_state.current_output:
         df = render_query_results(
-            st.session_state.current_output,
-            status_label="Query executed successfully!"
+            st.session_state.current_output, status_label="Query executed successfully!"
         )
         st.session_state.current_dataframe = df
 

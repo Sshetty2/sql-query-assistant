@@ -8,10 +8,13 @@ debug files, and state objects.
 import json
 import os
 import time
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any
 from datetime import datetime
 from benchmark.config.benchmark_settings import (
-    DEBUG_DIR, DEBUG_FILES_TO_COLLECT, METRICS_TEMPLATE, TOKEN_COSTS
+    DEBUG_DIR,
+    DEBUG_FILES_TO_COLLECT,
+    METRICS_TEMPLATE,
+    TOKEN_COSTS,
 )
 
 
@@ -36,7 +39,9 @@ class MetricsCollector:
         """Stop execution timer and record duration."""
         if self.start_time:
             self.end_time = time.time()
-            self.metrics["execution_time_seconds"] = round(self.end_time - self.start_time, 2)
+            self.metrics["execution_time_seconds"] = round(
+                self.end_time - self.start_time, 2
+            )
 
     def collect_from_state(self, state: Dict[str, Any]):
         """
@@ -57,7 +62,9 @@ class MetricsCollector:
         # Extract error if present
         if "messages" in state and state["messages"]:
             last_message = state["messages"][-1]
-            if hasattr(last_message, "content") and "Error" in str(last_message.content):
+            if hasattr(last_message, "content") and "Error" in str(
+                last_message.content
+            ):
                 self.metrics["error_message"] = str(last_message.content)
                 self.metrics["success"] = False
 
@@ -89,7 +96,9 @@ class MetricsCollector:
                     if isinstance(col, dict):
                         col_name = col.get("name") or col.get("column")
                         if col_name:
-                            self.metrics["columns_selected"].append(f"{table_name}.{col_name}")
+                            self.metrics["columns_selected"].append(
+                                f"{table_name}.{col_name}"
+                            )
                     elif isinstance(col, str):
                         self.metrics["columns_selected"].append(f"{table_name}.{col}")
 
@@ -100,7 +109,7 @@ class MetricsCollector:
                     "from_table": edge.get("from_table"),
                     "from_column": edge.get("from_column"),
                     "to_table": edge.get("to_table"),
-                    "to_column": edge.get("to_column")
+                    "to_column": edge.get("to_column"),
                 }
                 self.metrics["joins_used"].append(join_info)
 
@@ -111,7 +120,7 @@ class MetricsCollector:
                     "table": filter_pred.get("table"),
                     "column": filter_pred.get("column"),
                     "operator": filter_pred.get("operator"),
-                    "value": filter_pred.get("value")
+                    "value": filter_pred.get("value"),
                 }
                 self.metrics["filters_applied"].append(filter_info)
 
@@ -126,21 +135,25 @@ class MetricsCollector:
         planner_prompt_file = os.path.join(DEBUG_DIR, "debug_planner_prompt.json")
         if os.path.exists(planner_prompt_file):
             try:
-                with open(planner_prompt_file, 'r', encoding='utf-8') as f:
+                with open(planner_prompt_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     # Count tokens from messages
                     messages = data.get("messages", [])
-                    total_input_chars = sum(len(str(msg.get("content", ""))) for msg in messages)
+                    total_input_chars = sum(
+                        len(str(msg.get("content", ""))) for msg in messages
+                    )
                     # Rough estimate: 1 token ≈ 4 characters
                     self.metrics["token_usage"]["input_tokens"] = total_input_chars // 4
             except Exception as e:
                 print(f"WARNING: Warning: Could not extract token usage: {e}")
 
         # Extract planner output if not already collected
-        planner_output_file = os.path.join(DEBUG_DIR, "debug_generated_planner_output.json")
+        planner_output_file = os.path.join(
+            DEBUG_DIR, "debug_generated_planner_output.json"
+        )
         if os.path.exists(planner_output_file):
             try:
-                with open(planner_output_file, 'r', encoding='utf-8') as f:
+                with open(planner_output_file, "r", encoding="utf-8") as f:
                     planner_data = json.load(f)
                     # Estimate output tokens
                     output_chars = len(json.dumps(planner_data))
@@ -150,8 +163,8 @@ class MetricsCollector:
 
         # Calculate total tokens
         self.metrics["token_usage"]["total_tokens"] = (
-            self.metrics["token_usage"]["input_tokens"] +
-            self.metrics["token_usage"]["output_tokens"]
+            self.metrics["token_usage"]["input_tokens"]
+            + self.metrics["token_usage"]["output_tokens"]
         )
 
         # Extract SQL from debug file if not in state
@@ -159,7 +172,7 @@ class MetricsCollector:
             sql_file = os.path.join(DEBUG_DIR, "debug_generated_sql.json")
             if os.path.exists(sql_file):
                 try:
-                    with open(sql_file, 'r', encoding='utf-8') as f:
+                    with open(sql_file, "r", encoding="utf-8") as f:
                         sql_data = json.load(f)
                         self.metrics["sql_generated"] = sql_data.get("query", "")
                 except Exception as e:
@@ -201,7 +214,7 @@ class MetricsCollector:
         metrics = self.get_metrics()
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             json.dump(metrics, f, indent=2, ensure_ascii=False)
 
         print(f" Saved metrics to {output_file}")
@@ -223,12 +236,15 @@ def copy_debug_files(destination_dir: str):
             dest_path = os.path.join(destination_dir, debug_file)
             try:
                 import shutil
+
                 shutil.copy2(source_path, dest_path)
                 copied_count += 1
             except Exception as e:
                 print(f"WARNING: Warning: Could not copy {debug_file}: {e}")
 
-    print(f" Copied {copied_count}/{len(DEBUG_FILES_TO_COLLECT)} debug files to {destination_dir}")
+    print(
+        f" Copied {copied_count}/{len(DEBUG_FILES_TO_COLLECT)} debug files to {destination_dir}"
+    )
 
 
 if __name__ == "__main__":

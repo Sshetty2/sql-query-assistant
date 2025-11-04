@@ -6,11 +6,9 @@ Generates comprehensive analysis reports from benchmark results.
 
 import os
 import json
-from pathlib import Path
 from typing import List, Dict, Any
 from datetime import datetime
 
-from benchmark.config.benchmark_settings import RESULTS_DIR, REPORTS_DIR
 from benchmark.config.model_configs import MODELS
 
 
@@ -43,7 +41,7 @@ class ReportGenerator:
 
                 metrics_file = os.path.join(query_path, "metrics.json")
                 if os.path.exists(metrics_file):
-                    with open(metrics_file, 'r', encoding='utf-8') as f:
+                    with open(metrics_file, "r", encoding="utf-8") as f:
                         metrics = json.load(f)
                         all_metrics.append(metrics)
 
@@ -64,37 +62,59 @@ class ReportGenerator:
         queries_tested = len(set(m["query_id"] for m in self.all_metrics))
 
         report.append(f"- **Total Runs:** {total_runs}\n")
-        report.append(f"- **Successful Runs:** {successful_runs} ({successful_runs/total_runs*100:.1f}%)\n")
+        report.append(
+            f"- **Successful Runs:** {successful_runs} ({successful_runs/total_runs*100:.1f}%)\n"
+        )
         report.append(f"- **Models Tested:** {models_tested}\n")
         report.append(f"- **Queries Tested:** {queries_tested}\n")
-        report.append(f"- **Planner Complexity:** Minimal (all models)\n\n")
+        report.append("- **Planner Complexity:** Minimal (all models)\n\n")
 
         # Overall Performance Table
         report.append("## Overall Performance\n\n")
-        report.append("| Model | Category | Avg Time (s) | Success Rate | Avg Quality Score | Avg Tokens | Est. Cost/Query |\n")
-        report.append("|-------|----------|--------------|--------------|-------------------|------------|------------------|\n")
+        report.append(
+            "| Model | Category | Avg Time (s) | Success Rate | Avg Quality Score | Avg Tokens | Est. Cost/Query |\n"  # noqa: E501
+        )
+        report.append(
+            "|-------|----------|--------------|--------------|-------------------|------------|------------------|\n"
+        )
 
         # Group by model
         model_stats = {}
         for model_name in sorted(set(m["model_name"] for m in self.all_metrics)):
-            model_metrics = [m for m in self.all_metrics if m["model_name"] == model_name]
+            model_metrics = [
+                m for m in self.all_metrics if m["model_name"] == model_name
+            ]
 
-            avg_time = sum(m.get("execution_time_seconds", 0) for m in model_metrics) / len(model_metrics)
-            success_rate = len([m for m in model_metrics if m.get("success")]) / len(model_metrics) * 100
-            avg_quality = sum(m.get("quality_score", 0) for m in model_metrics) / len(model_metrics)
-            avg_tokens = sum(m.get("token_usage", {}).get("total_tokens", 0) for m in model_metrics) / len(model_metrics)
-            avg_cost = sum(m.get("estimated_cost_usd", 0) for m in model_metrics) / len(model_metrics)
+            avg_time = sum(
+                m.get("execution_time_seconds", 0) for m in model_metrics
+            ) / len(model_metrics)
+            success_rate = (
+                len([m for m in model_metrics if m.get("success")])
+                / len(model_metrics)
+                * 100
+            )
+            avg_quality = sum(m.get("quality_score", 0) for m in model_metrics) / len(
+                model_metrics
+            )
+            avg_tokens = sum(
+                m.get("token_usage", {}).get("total_tokens", 0) for m in model_metrics
+            ) / len(model_metrics)
+            avg_cost = sum(m.get("estimated_cost_usd", 0) for m in model_metrics) / len(
+                model_metrics
+            )
 
             category = MODELS.get(model_name, {}).get("category", "unknown")
 
-            report.append(f"| {model_name} | {category} | {avg_time:.2f} | {success_rate:.0f}% | {avg_quality:.0f}/100 | {avg_tokens:.0f} | ${avg_cost:.6f} |\n")
+            report.append(
+                f"| {model_name} | {category} | {avg_time:.2f} | {success_rate:.0f}% | {avg_quality:.0f}/100 | {avg_tokens:.0f} | ${avg_cost:.6f} |\n"  # noqa: E501
+            )
 
             model_stats[model_name] = {
                 "avg_time": avg_time,
                 "success_rate": success_rate,
                 "avg_quality": avg_quality,
                 "avg_tokens": avg_tokens,
-                "avg_cost": avg_cost
+                "avg_cost": avg_cost,
             }
 
         report.append("\n")
@@ -104,22 +124,41 @@ class ReportGenerator:
 
         # Best overall (by quality score)
         best_model = max(model_stats.items(), key=lambda x: x[1]["avg_quality"])
-        report.append(f"- **Best Overall Quality:** {best_model[0]} ({best_model[1]['avg_quality']:.0f}/100)\n")
+        report.append(
+            f"- **Best Overall Quality:** {best_model[0]} ({best_model[1]['avg_quality']:.0f}/100)\n"
+        )
 
         # Fastest
         fastest_model = min(model_stats.items(), key=lambda x: x[1]["avg_time"])
-        report.append(f"- **Fastest:** {fastest_model[0]} ({fastest_model[1]['avg_time']:.2f}s)\n")
+        report.append(
+            f"- **Fastest:** {fastest_model[0]} ({fastest_model[1]['avg_time']:.2f}s)\n"
+        )
 
         # Best value (quality/cost for remote, quality/time for local)
-        remote_models = {k: v for k, v in model_stats.items() if MODELS.get(k, {}).get("category") == "remote"}
+        remote_models = {
+            k: v
+            for k, v in model_stats.items()
+            if MODELS.get(k, {}).get("category") == "remote"
+        }
         if remote_models:
-            best_value_remote = max(remote_models.items(), key=lambda x: x[1]["avg_quality"] / max(x[1]["avg_cost"], 0.000001))
-            report.append(f"- **Best Value (Remote):** {best_value_remote[0]} ({best_value_remote[1]['avg_quality']:.0f} quality / ${best_value_remote[1]['avg_cost']:.6f})\n")
+            best_value_remote = max(
+                remote_models.items(),
+                key=lambda x: x[1]["avg_quality"] / max(x[1]["avg_cost"], 0.000001),
+            )
+            report.append(
+                f"- **Best Value (Remote):** {best_value_remote[0]} ({best_value_remote[1]['avg_quality']:.0f} quality / ${best_value_remote[1]['avg_cost']:.6f})\n"  # noqa: E501
+            )
 
-        local_models = {k: v for k, v in model_stats.items() if MODELS.get(k, {}).get("category") == "local"}
+        local_models = {
+            k: v
+            for k, v in model_stats.items()
+            if MODELS.get(k, {}).get("category") == "local"
+        }
         if local_models:
             best_local = max(local_models.items(), key=lambda x: x[1]["avg_quality"])
-            report.append(f"- **Best Local Model:** {best_local[0]} ({best_local[1]['avg_quality']:.0f}/100)\n")
+            report.append(
+                f"- **Best Local Model:** {best_local[0]} ({best_local[1]['avg_quality']:.0f}/100)\n"
+            )
 
         report.append("\n")
 
@@ -132,20 +171,24 @@ class ReportGenerator:
             report.append("|-------|---------|----------|---------|--------|------|\n")
 
             query_metrics = [m for m in self.all_metrics if m["query_id"] == query_id]
-            for m in sorted(query_metrics, key=lambda x: x.get("quality_score", 0), reverse=True):
+            for m in sorted(
+                query_metrics, key=lambda x: x.get("quality_score", 0), reverse=True
+            ):
                 success = "" if m.get("success") else "X"
                 time_val = m.get("execution_time_seconds", 0)
                 quality = m.get("quality_score", 0)
                 tokens = m.get("token_usage", {}).get("total_tokens", 0)
                 cost = m.get("estimated_cost_usd", 0)
 
-                report.append(f"| {m['model_name']} | {success} | {time_val:.2f} | {quality}/100 | {tokens} | ${cost:.6f} |\n")
+                report.append(
+                    f"| {m['model_name']} | {success} | {time_val:.2f} | {quality}/100 | {tokens} | ${cost:.6f} |\n"
+                )
 
             report.append("\n")
 
         # Save report
         report_file = os.path.join(self.reports_dir, "benchmark_summary.md")
-        with open(report_file, 'w', encoding='utf-8') as f:
+        with open(report_file, "w", encoding="utf-8") as f:
             f.writelines(report)
 
         print(f" Generated benchmark summary: {report_file}")
@@ -168,13 +211,19 @@ class ReportGenerator:
                 report.append(f"### {model_name}\n\n")
 
                 # Load SQL comparison if available
-                comparison_file = os.path.join(self.results_dir, model_name, query_id, "sql_comparison.json")
+                comparison_file = os.path.join(
+                    self.results_dir, model_name, query_id, "sql_comparison.json"
+                )
                 if os.path.exists(comparison_file):
-                    with open(comparison_file, 'r', encoding='utf-8') as f:
+                    with open(comparison_file, "r", encoding="utf-8") as f:
                         comparison = json.load(f)
 
-                    report.append(f"**Quality Score:** {comparison.get('quality_score', 0)}/100\n\n")
-                    report.append(f"**Generated SQL:**\n```sql\n{comparison.get('generated_sql', 'N/A')}\n```\n\n")
+                    report.append(
+                        f"**Quality Score:** {comparison.get('quality_score', 0)}/100\n\n"
+                    )
+                    report.append(
+                        f"**Generated SQL:**\n```sql\n{comparison.get('generated_sql', 'N/A')}\n```\n\n"
+                    )
                     report.append(f"{comparison.get('differences_summary', '')}\n\n")
                 else:
                     report.append("*No SQL comparison available*\n\n")
@@ -183,7 +232,7 @@ class ReportGenerator:
 
         # Save report
         report_file = os.path.join(self.reports_dir, "model_comparison.md")
-        with open(report_file, 'w', encoding='utf-8') as f:
+        with open(report_file, "w", encoding="utf-8") as f:
             f.writelines(report)
 
         print(f" Generated model comparison: {report_file}")
@@ -197,27 +246,42 @@ class ReportGenerator:
         # Calculate model statistics
         model_stats = {}
         for model_name in set(m["model_name"] for m in self.all_metrics):
-            model_metrics = [m for m in self.all_metrics if m["model_name"] == model_name]
+            model_metrics = [
+                m for m in self.all_metrics if m["model_name"] == model_name
+            ]
 
-            avg_quality = sum(m.get("quality_score", 0) for m in model_metrics) / len(model_metrics)
-            avg_time = sum(m.get("execution_time_seconds", 0) for m in model_metrics) / len(model_metrics)
-            avg_cost = sum(m.get("estimated_cost_usd", 0) for m in model_metrics) / len(model_metrics)
-            success_rate = len([m for m in model_metrics if m.get("success")]) / len(model_metrics)
+            avg_quality = sum(m.get("quality_score", 0) for m in model_metrics) / len(
+                model_metrics
+            )
+            avg_time = sum(
+                m.get("execution_time_seconds", 0) for m in model_metrics
+            ) / len(model_metrics)
+            avg_cost = sum(m.get("estimated_cost_usd", 0) for m in model_metrics) / len(
+                model_metrics
+            )
+            success_rate = len([m for m in model_metrics if m.get("success")]) / len(
+                model_metrics
+            )
 
             model_stats[model_name] = {
                 "avg_quality": avg_quality,
                 "avg_time": avg_time,
                 "avg_cost": avg_cost,
                 "success_rate": success_rate,
-                "category": MODELS.get(model_name, {}).get("category", "unknown")
+                "category": MODELS.get(model_name, {}).get("category", "unknown"),
             }
 
         # Production Use
         report.append("## Best Model for Production Use\n\n")
-        best_production = max(model_stats.items(), key=lambda x: (x[1]["success_rate"], x[1]["avg_quality"]))
+        best_production = max(
+            model_stats.items(),
+            key=lambda x: (x[1]["success_rate"], x[1]["avg_quality"]),
+        )
         report.append(f"**Recommended:** {best_production[0]}\n\n")
         report.append(f"- Quality Score: {best_production[1]['avg_quality']:.0f}/100\n")
-        report.append(f"- Success Rate: {best_production[1]['success_rate']*100:.0f}%\n")
+        report.append(
+            f"- Success Rate: {best_production[1]['success_rate']*100:.0f}%\n"
+        )
         report.append(f"- Avg Time: {best_production[1]['avg_time']:.2f}s\n")
         report.append(f"- Cost/Query: ${best_production[1]['avg_cost']:.6f}\n\n")
 
@@ -241,13 +305,19 @@ class ReportGenerator:
         # Configuration Recommendations
         report.append("## Configuration Recommendations\n\n")
         report.append("Based on these benchmark results:\n\n")
-        report.append("1. **All models used PLANNER_COMPLEXITY=minimal** - This level is sufficient for most queries\n")
-        report.append("2. **Success rates varied** - Consider fallback strategies for less reliable models\n")
-        report.append("3. **Cost varies significantly** - Local models provide zero-cost alternative with acceptable quality\n\n")
+        report.append(
+            "1. **All models used PLANNER_COMPLEXITY=minimal** - This level is sufficient for most queries\n"
+        )
+        report.append(
+            "2. **Success rates varied** - Consider fallback strategies for less reliable models\n"
+        )
+        report.append(
+            "3. **Cost varies significantly** - Local models provide zero-cost alternative with acceptable quality\n\n"
+        )
 
         # Save report
         report_file = os.path.join(self.reports_dir, "recommendations.md")
-        with open(report_file, 'w', encoding='utf-8') as f:
+        with open(report_file, "w", encoding="utf-8") as f:
             f.writelines(report)
 
         print(f" Generated recommendations: {report_file}")
@@ -255,9 +325,9 @@ class ReportGenerator:
 
     def generate_all_reports(self):
         """Generate all reports."""
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("Generating Reports")
-        print("="*80 + "\n")
+        print("=" * 80 + "\n")
 
         self.generate_benchmark_summary()
         self.generate_model_comparison()
@@ -272,7 +342,9 @@ def main():
 
     if len(sys.argv) < 2:
         print("Usage: python generate_reports.py <results_timestamp_dir>")
-        print("Example: python generate_reports.py benchmark/results/2025-10-31_14-30-00")
+        print(
+            "Example: python generate_reports.py benchmark/results/2025-10-31_14-30-00"
+        )
         sys.exit(1)
 
     results_dir = sys.argv[1]

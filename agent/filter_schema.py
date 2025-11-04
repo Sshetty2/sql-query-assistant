@@ -13,7 +13,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_community.vectorstores.utils import filter_complex_metadata
 
 from agent.state import State
-from utils.llm_factory import is_using_ollama
+from utils.llm_factory import is_using_ollama, get_model_for_stage
 from utils.logger import get_logger, log_execution_time
 
 load_dotenv()
@@ -408,7 +408,8 @@ def filter_schema(state: State, vector_store=None):
     ).strip()
 
     with log_execution_time(logger, "stage2_llm_reasoning"):
-        llm = get_chat_llm(model_name=os.getenv("AI_MODEL"))
+        filtering_model = get_model_for_stage("filtering")
+        llm = get_chat_llm(model_name=filtering_model)
         structured_llm = llm.with_structured_output(TableSelectionOutput)
 
         # Create message list for chat models

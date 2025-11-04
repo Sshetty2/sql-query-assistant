@@ -99,6 +99,8 @@ def query_database(
             "refined_plans": [],
             "needs_clarification": False,
             "clarification_suggestions": [],
+            "correction_history": [],
+            "refinement_history": [],
         }
     else:
         # Continuation - load previous state if not provided
@@ -149,6 +151,8 @@ def query_database(
                 "refined_plans": [],
                 "needs_clarification": False,
                 "clarification_suggestions": [],
+                "correction_history": [],
+                "refinement_history": [],
             }
         else:
             # No previous state found, treat as new thread
@@ -190,6 +194,8 @@ def query_database(
                 "refined_plans": [],
                 "needs_clarification": False,
                 "clarification_suggestions": [],
+                "correction_history": [],
+                "refinement_history": [],
             }
 
     # Add patch-specific fields if patching is requested

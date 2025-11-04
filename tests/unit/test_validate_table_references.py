@@ -1,6 +1,5 @@
 """Unit tests for validating table references in query plans."""
 
-import pytest
 from agent.plan_audit import validate_table_references
 
 
@@ -17,9 +16,7 @@ class TestValidateTableReferences:
             "global_filters": [
                 {"table": "tb_Users", "column": "IsActive", "op": "=", "value": True}
             ],
-            "order_by": [
-                {"table": "tb_Company", "column": "Name", "direction": "ASC"}
-            ],
+            "order_by": [{"table": "tb_Company", "column": "Name", "direction": "ASC"}],
         }
 
         issues = validate_table_references(plan)
@@ -32,7 +29,12 @@ class TestValidateTableReferences:
                 {"table": "tb_Users", "columns": []},
             ],
             "global_filters": [
-                {"table": "tb_Company", "column": "Name", "op": "=", "value": "Acme"}  # Missing table
+                {
+                    "table": "tb_Company",
+                    "column": "Name",
+                    "op": "=",
+                    "value": "Acme",
+                }  # Missing table
             ],
         }
 
@@ -48,7 +50,11 @@ class TestValidateTableReferences:
                 {"table": "tb_Users", "columns": []},
             ],
             "order_by": [
-                {"table": "tb_Company", "column": "Name", "direction": "ASC"}  # Missing table
+                {
+                    "table": "tb_Company",
+                    "column": "Name",
+                    "direction": "ASC",
+                }  # Missing table
             ],
         }
 
@@ -67,7 +73,12 @@ class TestValidateTableReferences:
                     {"table": "tb_Company", "column": "Name"}  # Missing table
                 ],
                 "aggregates": [
-                    {"function": "SUM", "table": "tb_Sales", "column": "Amount", "alias": "TotalSales"}
+                    {
+                        "function": "SUM",
+                        "table": "tb_Sales",
+                        "column": "Amount",
+                        "alias": "TotalSales",
+                    }
                 ],
             },
         }
@@ -83,11 +94,14 @@ class TestValidateTableReferences:
                 {"table": "tb_Company", "columns": []},
             ],
             "group_by": {
-                "group_by_columns": [
-                    {"table": "tb_Company", "column": "Name"}
-                ],
+                "group_by_columns": [{"table": "tb_Company", "column": "Name"}],
                 "aggregates": [
-                    {"function": "COUNT", "table": "tb_Sales", "column": "ID", "alias": "SaleCount"}  # Missing
+                    {
+                        "function": "COUNT",
+                        "table": "tb_Sales",
+                        "column": "ID",
+                        "alias": "SaleCount",
+                    }  # Missing
                 ],
             },
         }
@@ -103,14 +117,22 @@ class TestValidateTableReferences:
                 {"table": "tb_Sales", "columns": []},
             ],
             "group_by": {
-                "group_by_columns": [
-                    {"table": "tb_Sales", "column": "ProductID"}
-                ],
+                "group_by_columns": [{"table": "tb_Sales", "column": "ProductID"}],
                 "aggregates": [
-                    {"function": "COUNT", "table": "tb_Sales", "column": "ID", "alias": "SaleCount"}
+                    {
+                        "function": "COUNT",
+                        "table": "tb_Sales",
+                        "column": "ID",
+                        "alias": "SaleCount",
+                    }
                 ],
                 "having_filters": [
-                    {"table": "tb_Company", "column": "Region", "op": "=", "value": "North"}  # Missing
+                    {
+                        "table": "tb_Company",
+                        "column": "Region",
+                        "op": "=",
+                        "value": "North",
+                    }  # Missing
                 ],
             },
         }
@@ -127,7 +149,12 @@ class TestValidateTableReferences:
                     "table": "tb_Users",
                     "columns": [],
                     "filters": [
-                        {"table": "tb_Company", "column": "IsActive", "op": "=", "value": True}  # Wrong table
+                        {
+                            "table": "tb_Company",
+                            "column": "IsActive",
+                            "op": "=",
+                            "value": True,
+                        }  # Wrong table
                     ],
                 },
             ],
@@ -145,7 +172,12 @@ class TestValidateTableReferences:
             ],
             "global_filters": [
                 {"table": "tb_Company", "column": "Name", "op": "=", "value": "Acme"},
-                {"table": "tb_Products", "column": "Category", "op": "=", "value": "Software"},
+                {
+                    "table": "tb_Products",
+                    "column": "Category",
+                    "op": "=",
+                    "value": "Software",
+                },
             ],
             "order_by": [
                 {"table": "tb_Sales", "column": "Amount", "direction": "DESC"}
@@ -240,7 +272,12 @@ class TestBenchmarkErrorScenarios:
                 {"table": "tb_SaasComputerUSBDeviceDetails", "columns": []},
             ],
             "global_filters": [
-                {"table": "tb_SaasScan", "column": "Schedule", "op": ">=", "value": "2025-10-01"}
+                {
+                    "table": "tb_SaasScan",
+                    "column": "Schedule",
+                    "op": ">=",
+                    "value": "2025-10-01",
+                }
             ],
         }
 
@@ -262,15 +299,29 @@ class TestBenchmarkErrorScenarios:
                 {
                     "table": "tb_SaasMasterInstalledApps",
                     "columns": [
-                        {"table": "tb_SaasMasterInstalledApps", "column": "Name", "role": "projection"}
+                        {
+                            "table": "tb_SaasMasterInstalledApps",
+                            "column": "Name",
+                            "role": "projection",
+                        }
                     ],
                 },
             ],
             "group_by": {
                 "group_by_columns": [],
                 "aggregates": [
-                    {"function": "AVG", "table": "tb_CVEConfiguration", "column": "AverageCVSSScore", "alias": "AvgScore"},
-                    {"function": "AVG", "table": "tb_CVE", "column": "CVSSScore", "alias": "CVEScore"},
+                    {
+                        "function": "AVG",
+                        "table": "tb_CVEConfiguration",
+                        "column": "AverageCVSSScore",
+                        "alias": "AvgScore",
+                    },
+                    {
+                        "function": "AVG",
+                        "table": "tb_CVE",
+                        "column": "CVSSScore",
+                        "alias": "CVEScore",
+                    },
                 ],
             },
         }
@@ -285,9 +336,18 @@ class TestBenchmarkErrorScenarios:
         """Test a complex but valid plan with many fields."""
         plan = {
             "selections": [
-                {"table": "tb_Users", "columns": [], "filters": [
-                    {"table": "tb_Users", "column": "IsActive", "op": "=", "value": True}
-                ]},
+                {
+                    "table": "tb_Users",
+                    "columns": [],
+                    "filters": [
+                        {
+                            "table": "tb_Users",
+                            "column": "IsActive",
+                            "op": "=",
+                            "value": True,
+                        }
+                    ],
+                },
                 {"table": "tb_Company", "columns": []},
                 {"table": "tb_Sales", "columns": []},
             ],
@@ -295,19 +355,25 @@ class TestBenchmarkErrorScenarios:
                 {"table": "tb_Company", "column": "Region", "op": "=", "value": "North"}
             ],
             "group_by": {
-                "group_by_columns": [
-                    {"table": "tb_Company", "column": "Name"}
-                ],
+                "group_by_columns": [{"table": "tb_Company", "column": "Name"}],
                 "aggregates": [
-                    {"function": "SUM", "table": "tb_Sales", "column": "Amount", "alias": "TotalSales"}
+                    {
+                        "function": "SUM",
+                        "table": "tb_Sales",
+                        "column": "Amount",
+                        "alias": "TotalSales",
+                    }
                 ],
                 "having_filters": [
-                    {"table": "tb_Company", "column": "Name", "op": "!=", "value": "Test"}
+                    {
+                        "table": "tb_Company",
+                        "column": "Name",
+                        "op": "!=",
+                        "value": "Test",
+                    }
                 ],
             },
-            "order_by": [
-                {"table": "tb_Company", "column": "Name", "direction": "ASC"}
-            ],
+            "order_by": [{"table": "tb_Company", "column": "Name", "direction": "ASC"}],
         }
 
         issues = validate_table_references(plan)

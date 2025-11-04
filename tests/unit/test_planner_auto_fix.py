@@ -1,6 +1,5 @@
 """Unit tests for planner auto-fix functionality."""
 
-import pytest
 from agent.planner import auto_fix_join_edges
 
 
@@ -41,7 +40,12 @@ def test_auto_fix_join_edges_multiple_missing_tables():
     """Test auto-fix with multiple missing tables."""
     plan = {
         "selections": [
-            {"table": "tb_Applications", "confidence": 0.9, "columns": [], "filters": []}
+            {
+                "table": "tb_Applications",
+                "confidence": 0.9,
+                "columns": [],
+                "filters": [],
+            }
         ],
         "join_edges": [
             {
@@ -135,7 +139,12 @@ def test_auto_fix_join_edges_preserves_existing_selections():
                     {"table": "tb_Users", "column": "Email", "role": "projection"}
                 ],
                 "filters": [
-                    {"table": "tb_Users", "column": "IsActive", "op": "=", "value": True}
+                    {
+                        "table": "tb_Users",
+                        "column": "IsActive",
+                        "op": "=",
+                        "value": True,
+                    }
                 ],
             }
         ],

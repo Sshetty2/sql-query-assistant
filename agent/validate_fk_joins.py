@@ -20,7 +20,7 @@ def extract_join_references(strategy: str) -> list[tuple[str, str, str, str]]:
     joins = []
 
     # Pattern: table.column = table.column
-    pattern = r'(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)'
+    pattern = r"(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)"
 
     for match in re.finditer(pattern, strategy, re.IGNORECASE):
         from_table, from_column, to_table, to_column = match.groups()
@@ -37,7 +37,9 @@ def get_table_columns(schema: list[dict], table_name: str) -> set[str]:
     return set()
 
 
-def get_foreign_key_mapping(schema: list[dict], table_name: str, fk_column: str) -> Optional[tuple[str, str]]:
+def get_foreign_key_mapping(
+    schema: list[dict], table_name: str, fk_column: str
+) -> Optional[tuple[str, str]]:
     """
     Get the target table and column for a foreign key.
 
@@ -55,7 +57,9 @@ def get_foreign_key_mapping(schema: list[dict], table_name: str, fk_column: str)
     return None
 
 
-def validate_and_fix_strategy_joins(strategy: str, schema: list[dict]) -> tuple[str, list[str]]:
+def validate_and_fix_strategy_joins(
+    strategy: str, schema: list[dict]
+) -> tuple[str, list[str]]:
     """
     Validate join references in strategy and auto-fix invalid column names.
 
@@ -103,7 +107,7 @@ def validate_and_fix_strategy_joins(strategy: str, schema: list[dict]) -> tuple[
                 fixed_from = fk_mapping[1]  # Use PK column from from_table
                 fixed_to = to_col  # Keep FK column in to_table
 
-                fix_msg = f"Swapped join: {from_table}.{fixed_from} = {to_table}.{fixed_to} (was {from_table}.{from_col} = {to_table}.{to_col})"
+                fix_msg = f"Swapped join: {from_table}.{fixed_from} = {to_table}.{fixed_to} (was {from_table}.{from_col} = {to_table}.{to_col})"  # noqa: E501
                 fixes.append(fix_msg)
 
                 # Replace in strategy
@@ -123,7 +127,7 @@ def validate_and_fix_strategy_joins(strategy: str, schema: list[dict]) -> tuple[
                     fixed_from = from_col  # FK column (exists in from_table schema)
                     fixed_to = fk_mapping[1]  # PK column in to_table
 
-                    fix_msg = f"Fixed FK target: {from_table}.{fixed_from} = {to_table}.{fixed_to} (was {from_table}.{from_col} = {to_table}.{to_col})"
+                    fix_msg = f"Fixed FK target: {from_table}.{fixed_from} = {to_table}.{fixed_to} (was {from_table}.{from_col} = {to_table}.{to_col})"  # noqa: E501
                     fixes.append(fix_msg)
 
                     # Replace in strategy
@@ -141,7 +145,7 @@ def validate_and_fix_strategy_joins(strategy: str, schema: list[dict]) -> tuple[
                     fixed_from = fk_mapping[1]  # PK column in from_table
                     fixed_to = to_col  # FK column (exists in to_table schema)
 
-                    fix_msg = f"Fixed FK source: {from_table}.{fixed_from} = {to_table}.{fixed_to} (was {from_table}.{from_col} = {to_table}.{to_col})"
+                    fix_msg = f"Fixed FK source: {from_table}.{fixed_from} = {to_table}.{fixed_to} (was {from_table}.{from_col} = {to_table}.{to_col})"  # noqa: E501
                     fixes.append(fix_msg)
 
                     # Replace in strategy

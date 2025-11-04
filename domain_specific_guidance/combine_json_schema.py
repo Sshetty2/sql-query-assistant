@@ -102,7 +102,7 @@ def combine_schema(json_schema, include_foreign_keys=True):
             table["foreign_keys"] = foreign_keys_map[table_name]
 
     # Fields to keep in metadata (all others will be removed)
-    metadata_fields_to_keep = {"description", "key_columns"}
+    metadata_fields_to_keep = {"description", "primary_key"}
 
     for table in json_schema:
         if "metadata" in table:
@@ -113,16 +113,6 @@ def combine_schema(json_schema, include_foreign_keys=True):
                 if k in metadata_fields_to_keep
             }
             table["metadata"] = filtered_metadata
-
-            # Convert key_columns from string to list if needed
-            if "key_columns" in table["metadata"] and isinstance(
-                table["metadata"]["key_columns"], str
-            ):
-                table["metadata"]["key_columns"] = [
-                    col.strip()
-                    for col in table["metadata"]["key_columns"].split("\n")
-                    if col.strip()
-                ]
         if "c" in table:
             table["columns"] = table.pop("c")
 

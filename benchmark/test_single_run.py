@@ -4,7 +4,8 @@ Test Single Benchmark Run
 Tests the benchmark infrastructure with just one model and one query.
 """
 
-import os
+from benchmark.run_benchmark import BenchmarkRunner
+from benchmark.config.model_configs import MODELS
 import sys
 from pathlib import Path
 
@@ -12,16 +13,13 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from benchmark.run_benchmark import BenchmarkRunner
-from benchmark.config.model_configs import MODELS
-
 
 def test_single_run(model_name=None, query_index=None):
     """Test with a single model and single query."""
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("TESTING BENCHMARK INFRASTRUCTURE")
-    print("="*80 + "\n")
+    print("=" * 80 + "\n")
 
     # Choose a model to test
     if model_name is None:
@@ -51,9 +49,13 @@ def test_single_run(model_name=None, query_index=None):
     if query_index is None:
         print("Available queries:")
         for i, query in enumerate(runner.queries, 1):
-            print(f"{i}. {query['query_id']} - {query['natural_language_query'][:80]}...")
+            print(
+                f"{i}. {query['query_id']} - {query['natural_language_query'][:80]}..."
+            )
 
-        query_choice = input(f"\nSelect query to test (1-{len(runner.queries)}): ").strip()
+        query_choice = input(
+            f"\nSelect query to test (1-{len(runner.queries)}): "
+        ).strip()
 
         try:
             query_index = int(query_choice) - 1
@@ -64,7 +66,7 @@ def test_single_run(model_name=None, query_index=None):
     try:
         query_data = runner.queries[query_index]
     except IndexError:
-        print(f"Invalid query index. Using first query as default.")
+        print("Invalid query index. Using first query as default.")
         query_data = runner.queries[0]
 
     print(f"\nSelected: {query_data['query_id']}\n")
@@ -76,13 +78,14 @@ def test_single_run(model_name=None, query_index=None):
     try:
         # Update config for selected model
         from benchmark.config.model_configs import get_model_config
+
         model_config = get_model_config(model_name)
 
         print(f"Switching to {model_name} configuration...")
         runner.env_manager.update_env(model_config)
 
         # Run single benchmark
-        print(f"\nRunning benchmark...")
+        print("\nRunning benchmark...")
         metrics = runner.run_single_benchmark(model_name, query_data)
 
         # Print summary
@@ -97,17 +100,23 @@ def test_single_run(model_name=None, query_index=None):
         print(f"Tokens Used: {metrics['token_usage']['total_tokens']}")
         print(f"Estimated Cost: ${metrics.get('estimated_cost_usd', 0):.6f}")
 
-        if not metrics['success']:
+        if not metrics["success"]:
             print(f"\nError: {metrics.get('error_message', 'Unknown error')}")
 
-        print(f"\nResults saved to: {runner.results_dir}/{model_name}/{query_data['query_id']}/")
+        print(
+            f"\nResults saved to: {runner.results_dir}/{model_name}/{query_data['query_id']}/"
+        )
         print(f"{'='*80}\n")
 
         # Ask if user wants to proceed with full benchmark (only in interactive mode)
         if sys.stdin.isatty():
-            proceed = input("\nTest successful! Run full benchmark for all models? (y/n): ").strip().lower()
+            proceed = (
+                input("\nTest successful! Run full benchmark for all models? (y/n): ")
+                .strip()
+                .lower()
+            )
 
-            if proceed == 'y':
+            if proceed == "y":
                 print("\nStarting full benchmark...")
                 runner.run_all_benchmarks()
             else:

@@ -566,8 +566,8 @@ def classify_issue_severity(issue: str) -> str:
     Classify validation issues as 'critical' or 'non-critical'.
 
     Critical issues are those that will ALWAYS cause SQL errors and cannot be
-    recovered from (e.g., hallucinated tables). Non-critical issues might be
-    fixable by SQL execution errors or refinement.
+    recovered from (e.g., hallucinated tables, invalid join columns).
+    Non-critical issues might be fixable by SQL execution errors or refinement.
 
     Args:
         issue: The validation issue text
@@ -577,6 +577,10 @@ def classify_issue_severity(issue: str) -> str:
     """
     # Critical: Table doesn't exist in schema (hallucination)
     if "does not exist in schema" in issue.lower():
+        return "critical"
+
+    # Critical: JOIN column doesn't exist (will cause immediate SQL error)
+    if "join column" in issue.lower() and "does not exist" in issue.lower():
         return "critical"
 
     # Non-critical: Everything else (column issues, connectivity, etc.)

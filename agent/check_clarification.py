@@ -47,7 +47,10 @@ def check_clarification(state: State) -> Dict[str, Any]:
         # Query is being terminated - no clarification suggestions needed
         logger.info(
             "Planner terminated query, skipping clarification suggestions",
-            extra={"decision": decision, "termination_reason": planner_output.get("termination_reason")}
+            extra={
+                "decision": decision,
+                "termination_reason": planner_output.get("termination_reason"),
+            },
         )
         return {
             **state,
@@ -155,6 +158,7 @@ def check_clarification(state: State) -> Dict[str, Any]:
 
     # Debug: Save clarification prompt
     from utils.debug_utils import save_debug_file
+
     save_debug_file(
         "clarification_prompt.json",
         {
@@ -163,14 +167,13 @@ def check_clarification(state: State) -> Dict[str, Any]:
             "prompt": prompt,
         },
         step_name="check_clarification",
-        include_timestamp=True
+        include_timestamp=True,
     )
 
     # Get structured LLM
     structured_llm = get_structured_llm(
         ClarificationSuggestions,
         model_name=os.getenv("AI_MODEL"),
-        
     )
 
     with log_execution_time(logger, "llm_clarification_suggestions"):
@@ -186,7 +189,7 @@ def check_clarification(state: State) -> Dict[str, Any]:
             "suggestion_count": len(suggestions),
         },
         step_name="check_clarification",
-        include_timestamp=True
+        include_timestamp=True,
     )
 
     logger.info(
@@ -196,7 +199,11 @@ def check_clarification(state: State) -> Dict[str, Any]:
 
     return {
         **state,
-        "messages": [AIMessage(content="Clarification flagged - generated statements for user review")],
+        "messages": [
+            AIMessage(
+                content="Clarification flagged - generated statements for user review"
+            )
+        ],
         "needs_clarification": True,
         "clarification_suggestions": suggestions,
         "last_step": "check_clarification",

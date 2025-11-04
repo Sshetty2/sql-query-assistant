@@ -5,6 +5,9 @@ Tests all ground truth SQL queries against the actual database
 to ensure they execute successfully before running benchmarks.
 """
 
+from database.connection import get_pyodbc_connection
+from benchmark.config.benchmark_settings import QUERIES_DIR
+
 import os
 import sys
 import json
@@ -14,19 +17,20 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from database.connection import get_pyodbc_connection
-from benchmark.config.benchmark_settings import QUERIES_DIR
-
 
 def validate_ground_truth_sql():
     """Validate all ground truth SQL queries."""
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("VALIDATING GROUND TRUTH SQL QUERIES")
-    print("="*80 + "\n")
+    print("=" * 80 + "\n")
 
     # Load all queries
-    query_dirs = [d for d in os.listdir(QUERIES_DIR) if os.path.isdir(os.path.join(QUERIES_DIR, d))]
+    query_dirs = [
+        d
+        for d in os.listdir(QUERIES_DIR)
+        if os.path.isdir(os.path.join(QUERIES_DIR, d))
+    ]
     query_dirs.sort()
 
     results = []
@@ -40,14 +44,14 @@ def validate_ground_truth_sql():
             continue
 
         # Load query metadata
-        with open(query_json_path, 'r', encoding='utf-8') as f:
+        with open(query_json_path, "r", encoding="utf-8") as f:
             query_data = json.load(f)
 
         # Load ground truth SQL
-        with open(ground_truth_path, 'r', encoding='utf-8') as f:
+        with open(ground_truth_path, "r", encoding="utf-8") as f:
             ground_truth_sql = f.read()
 
-        query_id = query_data['query_id']
+        query_id = query_data["query_id"]
         print(f"\n{'='*80}")
         print(f"Testing: {query_id}")
         print(f"Query: {query_data['natural_language_query']}")
@@ -64,39 +68,41 @@ def validate_ground_truth_sql():
             rows = cursor.fetchall()
 
             # Get column names
-            columns = [column[0] for column in cursor.description] if cursor.description else []
+            columns = (
+                [column[0] for column in cursor.description]
+                if cursor.description
+                else []
+            )
 
             cursor.close()
             conn.close()
 
             row_count = len(rows)
 
-            print(f"SUCCESS")
+            print("SUCCESS")
             print(f"  Rows returned: {row_count}")
             print(f"  Columns: {', '.join(columns)}")
 
             # Show sample rows (first 3)
             if rows and len(rows) > 0:
-                print(f"\n  Sample rows (first 3):")
+                print("\n  Sample rows (first 3):")
                 for i, row in enumerate(rows[:3], 1):
                     print(f"    {i}. {dict(zip(columns, row))}")
 
-            results.append({
-                "query_id": query_id,
-                "success": True,
-                "row_count": row_count,
-                "columns": columns
-            })
+            results.append(
+                {
+                    "query_id": query_id,
+                    "success": True,
+                    "row_count": row_count,
+                    "columns": columns,
+                }
+            )
 
         except Exception as e:
-            print(f"FAILED")
+            print("FAILED")
             print(f"  Error: {str(e)}")
 
-            results.append({
-                "query_id": query_id,
-                "success": False,
-                "error": str(e)
-            })
+            results.append({"query_id": query_id, "success": False, "error": str(e)})
 
     # Summary
     print(f"\n{'='*80}")
@@ -104,7 +110,7 @@ def validate_ground_truth_sql():
     print(f"{'='*80}")
 
     total = len(results)
-    passed = len([r for r in results if r['success']])
+    passed = len([r for r in results if r["success"]])
     failed = total - passed
 
     print(f"\nTotal Queries: {total}")
@@ -112,13 +118,15 @@ def validate_ground_truth_sql():
     print(f"Failed: {failed}")
 
     if failed == 0:
-        print(f"\nAll ground truth SQL queries are valid!")
-        print(f"You can proceed with the benchmark run.")
+        print("\nAll ground truth SQL queries are valid!")
+        print("You can proceed with the benchmark run.")
     else:
-        print(f"\nWARNING: Some queries failed. Please fix the ground truth SQL before running benchmarks.")
-        print(f"\nFailed queries:")
+        print(
+            "\nWARNING: Some queries failed. Please fix the ground truth SQL before running benchmarks."
+        )
+        print("\nFailed queries:")
         for r in results:
-            if not r['success']:
+            if not r["success"]:
                 print(f"  - {r['query_id']}: {r.get('error', 'Unknown error')}")
 
     print(f"{'='*80}\n")

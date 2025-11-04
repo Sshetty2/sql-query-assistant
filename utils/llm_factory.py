@@ -15,7 +15,98 @@ def is_using_ollama():
     return os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
 
 
-def get_chat_llm(model_name: str = None, temperature: float = 0.0, timeout: int = None):
+def get_model_for_stage(stage: str) -> str:
+    """
+    Get the appropriate model for a specific workflow stage.
+
+    Supports separate models for local and remote providers (provider-agnostic naming).
+    Falls back to AI_MODEL if stage-specific model not configured.
+
+    Args:
+        stage: Workflow stage name:
+            - "strategy" - Pre-planner (strategic analysis, text-based planning)
+            - "planning" - Planner (converts strategy to structured JSON)
+            - "filtering" - Schema filtering (if using LLM)
+            - "error_correction" - SQL error correction
+            - "refinement" - Query refinement when results are empty
+
+    Returns:
+        Model name to use for this stage
+
+    Environment Variables:
+        For Local LLMs (when USE_LOCAL_LLM=true):
+            - LOCAL_MODEL_STRATEGY - Strategy generation (default: AI_MODEL)
+            - LOCAL_MODEL_PLANNING - Planning stage (default: AI_MODEL)
+            - LOCAL_MODEL_FILTERING - Schema filtering (default: AI_MODEL)
+            - LOCAL_MODEL_ERROR_CORRECTION - Error correction (default: AI_MODEL)
+            - LOCAL_MODEL_REFINEMENT - Refinement stage (default: AI_MODEL_REFINE or AI_MODEL)
+
+        For Remote LLMs (when USE_LOCAL_LLM=false):
+            - REMOTE_MODEL_STRATEGY - Strategy generation (default: AI_MODEL)
+            - REMOTE_MODEL_PLANNING - Planning stage (default: AI_MODEL)
+            - REMOTE_MODEL_FILTERING - Schema filtering (default: AI_MODEL)
+            - REMOTE_MODEL_ERROR_CORRECTION - Error correction (default: AI_MODEL)
+            - REMOTE_MODEL_REFINEMENT - Refinement stage (default: AI_MODEL_REFINE or AI_MODEL)
+
+        Fallbacks (used if stage-specific not set):
+            - AI_MODEL - Primary model (used for all stages by default)
+            - AI_MODEL_REFINE - Refinement model (legacy, used for refinement if stage-specific not set)
+
+    Example:
+        >>> # Remote setup (USE_LOCAL_LLM=false)
+        >>> # REMOTE_MODEL_STRATEGY=gpt-4o
+        >>> # REMOTE_MODEL_PLANNING=gpt-4o-mini
+        >>> # REMOTE_MODEL_REFINEMENT=gpt-4o-mini
+        >>> # AI_MODEL=gpt-4o-mini  (fallback)
+        >>> get_model_for_stage("strategy")    # Returns "gpt-4o"
+        >>> get_model_for_stage("planning")    # Returns "gpt-4o-mini"
+        >>> get_model_for_stage("error_correction")  # Returns "gpt-4o-mini" (fallback to AI_MODEL)
+
+        >>> # Local setup (USE_LOCAL_LLM=true)
+        >>> # LOCAL_MODEL_STRATEGY=qwen3:14b
+        >>> # LOCAL_MODEL_PLANNING=qwen3:8b
+        >>> # LOCAL_MODEL_ERROR_CORRECTION=qwen3:8b
+        >>> # AI_MODEL=qwen3:8b  (fallback)
+        >>> get_model_for_stage("strategy")    # Returns "qwen3:14b"
+        >>> get_model_for_stage("planning")    # Returns "qwen3:8b"
+    """
+    use_local = is_using_ollama()
+
+    # Define stage-specific env var names based on provider type (local vs remote)
+    if use_local:
+        env_var_map = {
+            "strategy": "LOCAL_MODEL_STRATEGY",
+            "planning": "LOCAL_MODEL_PLANNING",
+            "filtering": "LOCAL_MODEL_FILTERING",
+            "error_correction": "LOCAL_MODEL_ERROR_CORRECTION",
+            "refinement": "LOCAL_MODEL_REFINEMENT",
+        }
+    else:
+        env_var_map = {
+            "strategy": "REMOTE_MODEL_STRATEGY",
+            "planning": "REMOTE_MODEL_PLANNING",
+            "filtering": "REMOTE_MODEL_FILTERING",
+            "error_correction": "REMOTE_MODEL_ERROR_CORRECTION",
+            "refinement": "REMOTE_MODEL_REFINEMENT",
+        }
+
+    # Get stage-specific model
+    stage_env_var = env_var_map.get(stage)
+    if stage_env_var:
+        model = os.getenv(stage_env_var)
+        if model:
+            logger.debug(
+                f"Using stage-specific model for {stage}: {model} (from {stage_env_var})"
+            )
+            return model
+
+    # Final fallback to AI_MODEL
+    fallback_model = os.getenv("AI_MODEL")
+    logger.debug(f"Using fallback model for {stage}: {fallback_model} (from AI_MODEL)")
+    return fallback_model
+
+
+def get_chat_llm(model_name: str = None, temperature: float = 0.3, timeout: int = None):
     """
     Returns ChatOpenAI or ChatOllama based on USE_LOCAL_LLM environment variable.
 
@@ -26,7 +117,7 @@ def get_chat_llm(model_name: str = None, temperature: float = 0.0, timeout: int 
         model_name: Model to use (e.g., "gpt-4o-mini" or "qwen3:8b").
                    If None, defaults to AI_MODEL from environment.
         temperature: Temperature for generation (0.0 = deterministic, 1.0 = creative).
-                    Default is 0.0 for maximum determinism.
+                    Default is 0.3 for balanced determinism and variation.
         timeout: Request timeout in seconds. If None, no timeout is set.
 
     Returns:
@@ -85,7 +176,7 @@ def get_chat_llm(model_name: str = None, temperature: float = 0.0, timeout: int 
 
 
 def get_structured_llm(
-    schema, model_name: str = None, temperature: float = 0.0, timeout: int = 120
+    schema, model_name: str = None, temperature: float = 0.3, timeout: int = 120
 ):
     """
     Returns an LLM configured for structured output with the correct method for the provider.
@@ -100,7 +191,7 @@ def get_structured_llm(
         model_name: Model to use (e.g., "gpt-4o-mini" or "qwen3:8b").
                    If None, defaults to AI_MODEL from environment.
         temperature: Temperature for generation (0.0 = deterministic, 1.0 = creative).
-                    Default is 0.0 for maximum determinism.
+                    Default is 0.3 for balanced determinism and variation.
         timeout: Request timeout in seconds. If None, no timeout is set.
 
     Returns:

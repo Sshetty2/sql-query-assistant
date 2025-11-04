@@ -34,7 +34,17 @@ def resolve_foreign_key_column(fk: dict, to_table_name: str, all_tables: list) -
     referenced_table = next((t for t in all_tables if t.get("table_name") == to_table_name), None)
 
     if referenced_table:
-        # Check if table has primary_key field
+        # Check metadata first for primary_key (from domain-specific config)
+        metadata = referenced_table.get("metadata", {})
+        if metadata.get("primary_key"):
+            pk = metadata["primary_key"]
+            # Could be a list or a single column
+            if isinstance(pk, list) and pk:
+                return pk[0]  # Use first PK column for composite keys
+            elif isinstance(pk, str):
+                return pk
+
+        # Fall back to schema-level primary_key field
         if referenced_table.get("primary_key"):
             pk = referenced_table["primary_key"]
             # Could be a list or a single column
@@ -109,13 +119,10 @@ def format_schema_to_markdown(schema: list) -> str:
             markdown_lines.append(f"**Description:** {metadata['description']}")
             markdown_lines.append("")
 
-        # Add key columns if available
-        if metadata.get("key_columns"):
-            key_cols = metadata["key_columns"]
-            if isinstance(key_cols, list):
-                markdown_lines.append(f"**Key Columns:** {', '.join(key_cols)}")
-            else:
-                markdown_lines.append(f"**Key Columns:** {key_cols}")
+        # Add primary key if available
+        if metadata.get("primary_key"):
+            primary_key = metadata["primary_key"]
+            markdown_lines.append(f"**Primary Key:** {primary_key}")
             markdown_lines.append("")
 
         # Add columns table
