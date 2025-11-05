@@ -464,6 +464,8 @@ def _create_minimal_planner_prompt_with_strategy(**format_params):
 
     user_content = dedent(
         """
+        **Original User Query:** {user_query}
+
         Convert the following strategy into PlannerOutputMinimal JSON:
 
         {pre_plan_strategy}
@@ -557,6 +559,8 @@ def _create_standard_planner_prompt_with_strategy(**format_params):
 
     user_content = dedent(
         """
+        **Original User Query:** {user_query}
+
         Convert the following strategy into PlannerOutputStandard JSON:
 
         {pre_plan_strategy}
@@ -657,6 +661,8 @@ def _create_full_planner_prompt_with_strategy(**format_params):
 
     user_content = dedent(
         """
+        **Original User Query:** {user_query}
+
         Convert the following strategy into PlannerOutput JSON:
 
         {pre_plan_strategy}

@@ -29,16 +29,16 @@ logger = get_logger()
 
 
 def load_domain_guidance():
-    """Load domain-specific guidance if available."""
+    """Load domain-specific guidance markdown if available."""
     guidance_path = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
         "domain_specific_guidance",
-        "domain-specific-guidance-instructions.json",
+        "domain-specific-guidance-instructions.md",
     )
     try:
         if os.path.exists(guidance_path):
-            with open(guidance_path, "r") as f:
-                return json.load(f)
+            with open(guidance_path, "r", encoding="utf-8") as f:
+                return f.read()
     except Exception as e:
         logger.warning(
             f"Could not load domain guidance: {str(e)}",
@@ -182,24 +182,33 @@ def _create_minimal_preplan_prompt(**format_params):
         * [list tables needed]
 
         ## Columns for Display (will appear in SELECT and GROUP BY)
-        * [list table.column that should be displayed to user]
-        * Example: tb_Department.DepartmentName, tb_Department.DepartmentID
+        * [list table.column (DATA_TYPE) that should be displayed to user]
+        * Example: tb_Department.DepartmentName (VARCHAR), tb_Department.DepartmentID (INTEGER)
 
         ## Columns for Aggregation ONLY (used in COUNT/SUM/AVG, NOT displayed)
-        * [list table.column that should be aggregated but NOT shown individually]
-        * Example: tb_Employee.EmployeeID - COUNT this to get employee count per department
+        * [list table.column (DATA_TYPE) that should be aggregated but NOT shown individually]
+        * Example: tb_Employee.EmployeeID (INTEGER) - COUNT this to get employee count per department
         * ⚠️ These columns should NEVER be listed in "Columns for Display"
 
         ## Joins Required
-        * [list join relationships between tables]
-        * Example: tb_Department.DepartmentID = tb_Employee.DepartmentID
+        * [list join relationships between tables with data types]
+        * Example: tb_Department.DepartmentID (INTEGER) = tb_Employee.DepartmentID (INTEGER)
 
         ## Filters Needed
-        * [list table.column operator value]
+        * [list table.column (DATA_TYPE) operator value]
+        * Example: tb_CDA.CDAName (VARCHAR) = 'NTA101'
+        * ⚠️ CRITICAL: Include data types to avoid type mismatches
+        *   (e.g., don't filter INTEGER column with VARCHAR value)
 
         ## Aggregations/Sorting/Limiting
         * [describe grouping, ordering, and row limits]
         ```
+
+        **⚠️ CRITICAL: Always Include Data Types**
+        - Whenever you reference a column, add its data type in parentheses
+        - This prevents type mismatches (e.g., filtering INTEGER column with VARCHAR value)
+        - Format: table.column (DATA_TYPE)
+        - Example: tb_CDA.CDAID (INTEGER), tb_CDA.CDAName (VARCHAR)
 
         **⚠️ CRITICAL: Distinguish Between Display and Aggregation Columns!**
         - **Display columns** go in SELECT and GROUP BY: user sees these values
@@ -442,27 +451,34 @@ def _create_standard_preplan_prompt(**format_params):
           - Include only for join: [yes/no]
 
         ### Columns for Display (will appear in SELECT and GROUP BY)
-        * [table].[column]
+        * [table].[column] (DATA_TYPE)
           - Reason: [why this column should be displayed to user]
-        * Example: tb_Department.DepartmentName, tb_Department.DepartmentID
+        * Example: tb_Department.DepartmentName (VARCHAR), tb_Department.DepartmentID (INTEGER)
 
         ### Columns for Aggregation ONLY (used in COUNT/SUM/AVG, NOT displayed)
-        * [table].[column]
+        * [table].[column] (DATA_TYPE)
           - Reason: [why this column should be aggregated]
-        * Example: tb_Employee.EmployeeID - COUNT this to get employee count per department
+        * Example: tb_Employee.EmployeeID (INTEGER) - COUNT this to get employee count per department
         * ⚠️ These columns should NEVER be listed in "Columns for Display"
 
         ### Joins Required
-        * [from_table].[from_column] = [to_table].[to_column] ([join_type])
+        * [from_table].[from_column] (DATA_TYPE) = [to_table].[to_column] (DATA_TYPE) ([join_type])
           - Reason: [why this join]
 
         ### Filters Needed
-        * [table].[column] [operator] [value]
+        * [table].[column] (DATA_TYPE) [operator] [value]
           - Reason: [why this filter]
+        * ⚠️ CRITICAL: Include data types to avoid type mismatches
 
         ### Aggregations/Sorting/Limiting
         * [describe grouping, ordering, and row limits]
         ```
+
+        **⚠️ CRITICAL: Always Include Data Types**
+        - Whenever you reference a column, add its data type in parentheses
+        - This prevents type mismatches (e.g., filtering INTEGER column with VARCHAR value)
+        - Format: table.column (DATA_TYPE)
+        - Example: tb_CDA.CDAID (INTEGER), tb_CDA.CDAName (VARCHAR)
 
         **⚠️ CRITICAL: Distinguish Between Display and Aggregation Columns!**
         - **Display columns** go in SELECT and GROUP BY: user sees these values
@@ -805,27 +821,29 @@ def _create_full_preplan_prompt(**format_params):
            - Data projection: [yes/no]
 
         ### COLUMNS FOR DISPLAY (will appear in SELECT and GROUP BY)
-        [table].[column]
+        [table].[column] (DATA_TYPE)
         - Reason: [why this column should be displayed to user]
-        - Data type: [type]
-        * Example: tb_Department.DepartmentName, tb_Department.DepartmentID
+        * Example: tb_Department.DepartmentName (VARCHAR), tb_Department.DepartmentID (INTEGER)
 
         ### COLUMNS FOR AGGREGATION ONLY (used in COUNT/SUM/AVG, NOT displayed)
-        [table].[column]
+        [table].[column] (DATA_TYPE)
         - Reason: [why this column should be aggregated]
         - Aggregation function: [COUNT/SUM/AVG/etc]
-        * Example: tb_Employee.EmployeeID - COUNT this to get employee count per department
+        * Example: tb_Employee.EmployeeID (INTEGER) - COUNT this to get employee count per department
         * ⚠️ These columns should NEVER be listed in "Columns for Display"
 
         ### JOIN STRATEGY
-        [from_table].[from_column] = [to_table].[to_column] ([join_type])
+        [from_table].[from_column] (DATA_TYPE) = [to_table].[to_column] (DATA_TYPE) ([join_type])
         - Reason: [explanation]
         - Confidence: [0.0-1.0]
 
         ### FILTER STRATEGY
-        [table].[column] [operator] [value]
+        [table].[column] (DATA_TYPE) [operator] [value]
         - Reason: [explanation]
         - Filter type: [table-level/global/having]
+        * Example: tb_CDA.CDAName (VARCHAR) = 'NTA101'
+        * ⚠️ CRITICAL: Include data types to avoid type mismatches
+        *   (e.g., don't filter INTEGER column with VARCHAR value)
 
         ### AGGREGATION STRATEGY
         [if applicable]
@@ -834,7 +852,7 @@ def _create_full_preplan_prompt(**format_params):
         - Having: [filters]
 
         ### ORDERING STRATEGY
-        - ORDER BY [table].[column] [ASC/DESC]
+        - ORDER BY [table].[column] (DATA_TYPE) [ASC/DESC]
         - LIMIT [N]
         - Reason: [explanation]
 
@@ -849,6 +867,12 @@ def _create_full_preplan_prompt(**format_params):
           - Display: tb_Department.DepartmentName, tb_Department.DepartmentID (shown in results)
           - Aggregation: tb_Employee.EmployeeID (counted, not shown individually)
           - Result: Each department name with its employee count
+
+        **⚠️ CRITICAL: Always Include Data Types**
+        - Whenever you reference a column, add its data type in parentheses
+        - This prevents type mismatches (e.g., filtering INTEGER column with VARCHAR value)
+        - Format: table.column (DATA_TYPE)
+        - Example: tb_CDA.CDAID (INTEGER), tb_CDA.CDAName (VARCHAR)
 
         # DOMAIN GUIDANCE
 
@@ -953,36 +977,12 @@ def create_preplan_strategy(state: State):
 
         parameters_text = "\n".join(params) if params else "No additional parameters"
 
-        # Load domain guidance
+        # Load domain guidance (now in markdown format)
         domain_guidance = load_domain_guidance()
 
-        # Format domain guidance text
+        # Domain guidance is now pre-formatted markdown, use directly
         if domain_guidance:
-            domain_text = f"""This system works with a {domain_guidance.get('domain', 'specialized')} domain.
-
-**Terminology Mappings:**
-"""
-            for term, info in domain_guidance.get("terminology_mappings", {}).items():
-                domain_text += (
-                    f"\n- **'{term}'** → {info['refers_to']}: {info['description']}"
-                )
-                domain_text += f"\n  Primary table: {info['primary_table']}"
-                if info.get("related_tables"):
-                    domain_text += (
-                        f"\n  Related tables: {', '.join(info['related_tables'])}"
-                    )
-
-            if domain_guidance.get("important_fields"):
-                domain_text += "\n\n**Important Fields:**\n"
-                for field, desc in domain_guidance.get("important_fields", {}).items():
-                    domain_text += f"- {field}: {desc}\n"
-
-            if domain_guidance.get("default_behaviors"):
-                domain_text += "\n**Default Behaviors:**\n"
-                for behavior, desc in domain_guidance.get(
-                    "default_behaviors", {}
-                ).items():
-                    domain_text += f"- {desc}\n"
+            domain_text = domain_guidance
         else:
             domain_text = "No domain-specific guidance available."
 

@@ -10,8 +10,10 @@ venv/
 
 # Domain-specific configuration files (not committed)
 domain_specific_guidance/domain-specific-*.json
+domain_specific_guidance/domain-specific-*.md
 # But keep the example files
 !domain_specific_guidance/domain-specific-*.example.json
+!domain_specific_guidance/domain-specific-*.example.md
 
 .claude/
 
