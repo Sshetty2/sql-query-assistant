@@ -83,12 +83,6 @@ class State(TypedDict):
     error_iteration: int  # Current error iteration (max: 3)
     refinement_iteration: int  # Current refinement iteration (max: 3)
 
-    # Termination flag for iteration exhaustion
-    needs_termination: bool  # Flag to signal iteration limits exhausted
-    termination_reason: Optional[
-        str
-    ]  # Reason for termination (error message or explanation)
-
     # Plan patching fields
     executed_plan: Optional[
         dict[str, Any]

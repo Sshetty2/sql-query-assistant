@@ -179,13 +179,12 @@ def route_from_handle_error(
     """
     Route from handle_error based on revised strategy.
 
-    - If needs_termination=True: route to cleanup (iteration limit reached)
-    - If revised_strategy is set: route to planner (bypassing pre-planner)
-    """
-    if state.get("needs_termination"):
-        logger.warning("Error handling triggered termination, routing to cleanup")
-        return "cleanup"
+    Note: Iteration limit checking is handled by route_from_execute_query.
+    This function should only be called when iterations are still available.
 
+    - If revised_strategy is set: route to planner (bypassing pre-planner)
+    - Otherwise: route to cleanup (fallback for unexpected states)
+    """
     if state.get("revised_strategy"):
         logger.info(
             "Error handler generated revised strategy, routing directly to planner (bypassing pre-planner)"
@@ -203,13 +202,12 @@ def route_from_refine_query(
     """
     Route from refine_query based on revised strategy.
 
-    - If needs_termination=True: route to cleanup (iteration limit reached)
-    - If revised_strategy is set: route to planner (bypassing pre-planner)
-    """
-    if state.get("needs_termination"):
-        logger.warning("Query refinement triggered termination, routing to cleanup")
-        return "cleanup"
+    Note: Iteration limit checking is handled by route_from_execute_query.
+    This function should only be called when iterations are still available.
 
+    - If revised_strategy is set: route to planner (bypassing pre-planner)
+    - Otherwise: route to cleanup (fallback for unexpected states)
+    """
     if state.get("revised_strategy"):
         logger.info(
             "Refinement generated revised strategy, routing directly to planner (bypassing pre-planner)"
@@ -248,7 +246,11 @@ def route_from_execute_query(
     refinement_iteration = state.get("refinement_iteration", 0)
     result = state["result"]
 
-    env_retry_count = int(os.getenv("ERROR_CORRECTION_COUNT")) if os.getenv("ERROR_CORRECTION_COUNT") else 3
+    env_retry_count = (
+        int(os.getenv("ERROR_CORRECTION_COUNT"))
+        if os.getenv("ERROR_CORRECTION_COUNT")
+        else 3
+    )
     env_refine_count = (
         int(os.getenv("REFINE_COUNT")) if os.getenv("REFINE_COUNT") else 2
     )
@@ -293,7 +295,11 @@ def should_continue(state: State) -> Literal["handle_error", "refine_query", "cl
     refinement_iteration = state.get("refinement_iteration", 0)
     result = state["result"]
 
-    env_retry_count = int(os.getenv("ERROR_CORRECTION_COUNT")) if os.getenv("ERROR_CORRECTION_COUNT") else 3
+    env_retry_count = (
+        int(os.getenv("ERROR_CORRECTION_COUNT"))
+        if os.getenv("ERROR_CORRECTION_COUNT")
+        else 3
+    )
     env_refine_count = (
         int(os.getenv("REFINE_COUNT")) if os.getenv("REFINE_COUNT") else 2
     )
@@ -422,25 +428,6 @@ def cleanup_connection(state: State, connection):
         logger.debug("Database connection closed successfully")
     except Exception as e:
         logger.error(f"Error closing database connection: {str(e)}", exc_info=True)
-
-    # Check if we're terminating due to iteration exhaustion
-    if state.get("needs_termination"):
-        termination_reason = state.get(
-            "termination_reason", "Unknown termination reason"
-        )
-        logger.warning(
-            "Workflow terminated due to iteration exhaustion",
-            extra={"termination_reason": termination_reason},
-        )
-        # Return state with termination info for UI display
-        return {
-            **state,
-            "schema": [],
-            "last_step": "cleanup",
-            "messages": [
-                AIMessage(content=f"Workflow terminated: {termination_reason}")
-            ],
-        }
 
     # Normal cleanup - query succeeded
     logger.debug("Workflow completed successfully")

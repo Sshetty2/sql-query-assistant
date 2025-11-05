@@ -250,24 +250,8 @@ def refine_query(state: State) -> Dict[str, Any]:
         },
     )
 
-    # Check if we've exhausted iteration limit
-    if refinement_iteration >= max_refinements:
-        logger.error(
-            f"Refinement iteration limit reached ({max_refinements} iterations), terminating",
-            extra={"refinement_iteration": refinement_iteration},
-        )
-        return {
-            **state,
-            "messages": [
-                AIMessage(
-                    content=f"No results after {refinement_iteration} refinement attempts"
-                )
-            ],
-            "planner_output": original_plan_dict,
-            "needs_termination": True,
-            "termination_reason": f"Query returned no results after {max_refinements} refinement attempts",
-            "last_step": "refine_query",
-        }
+    # Note: Iteration limit checking is handled by route_from_execute_query
+    # This node should only be called when iterations are still available
 
     # Use truncated schema if available (preferred for LLM context), otherwise filtered
     schema = (

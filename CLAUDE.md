@@ -268,7 +268,6 @@ The `State` TypedDict (in `agent/state.py`) tracks:
   - `audit_iteration` - Audit iteration counter (max: 2, currently unused)
   - `error_iteration` - Error correction iteration counter (max: 3)
   - `refinement_iteration` - Refinement iteration counter (max: 3)
-  - `needs_termination` - Flag for iteration exhaustion
   - `termination_reason` - Explanation for workflow termination
 - `error_history` - List of errors encountered
 - `refined_reasoning` - Explanations for refinements

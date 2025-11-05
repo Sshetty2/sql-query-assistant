@@ -308,24 +308,8 @@ def handle_tool_error(state) -> dict:
         extra={"error": error_message, "error_iteration": error_iteration},
     )
 
-    # Check if we've exhausted iteration limit
-    if error_iteration > max_error_corrections:
-        logger.error(
-            f"Error iteration limit reached ({max_error_corrections} iterations), terminating",
-            extra={"error": error_message},
-        )
-        return {
-            **state,
-            "messages": [
-                AIMessage(
-                    content=f"SQL error after {error_iteration} correction attempts"
-                )
-            ],
-            "planner_output": original_plan_dict,
-            "needs_termination": True,
-            "termination_reason": f"SQL execution error: {error_message}",
-            "last_step": "handle_tool_error",
-        }
+    # Note: Iteration limit checking is handled by route_from_execute_query
+    # This node should only be called when iterations are still available
 
     # Generate revised strategy directly (bypasses pre-planner)
     # Use markdown schema if available (easier for LLM to search)

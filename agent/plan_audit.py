@@ -782,6 +782,8 @@ def plan_audit(state: State):
         # Format critical issues for user
         critical_msg = "\n".join([f"• {issue}" for issue in critical_issues])
 
+        # Note: Critical errors continue to check_clarification where the planner's
+        # "decision" field should be "terminate".
         return {
             **state,
             "messages": [
@@ -792,8 +794,6 @@ def plan_audit(state: State):
                 )
             ],
             "planner_output": plan_dict,
-            "needs_termination": True,
-            "termination_reason": f"Critical plan validation errors: {len(critical_issues)} non-existent tables",
             "audit_passed": False,
             "audit_issues": all_issues,
             "audit_corrections": column_fixes,
@@ -818,7 +818,7 @@ def plan_audit(state: State):
     # DISABLED: Generate feedback and route back to pre-planner
     # audit_iteration = state.get("audit_iteration", 0)
     # if audit_iteration >= 2:
-    #     return {..., "needs_termination": True, ...}
+    #     return {...}  # Would stop iteration after max attempts
     # feedback = generate_audit_feedback(issues, plan_dict, plan_schema)
     # return {..., "audit_feedback": feedback, ...}
 
