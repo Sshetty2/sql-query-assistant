@@ -383,9 +383,6 @@ def execute_query(state: State, db_connection):
 
         # Regular error handling for all other errors or when inline fix failed
 
-        correction_history = state["correction_history"]
-        correction_history.append(str(e))
-
         log_and_stream(
             logger,
             "execute_query",
@@ -402,6 +399,5 @@ def execute_query(state: State, db_connection):
             "last_step": "execute_query",
             "result": None,
             "total_records_available": None,  # Reset on error
-            "correction_history": correction_history,
             "last_attempt_time": datetime.now().isoformat(),
         }

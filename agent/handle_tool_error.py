@@ -291,7 +291,6 @@ def handle_tool_error(state) -> dict:
 
     # Get previous error messages from correction_history
     correction_history = state.get("correction_history", [])
-    correction_history = [record.get("error", "") for record in correction_history]
 
     # Get the strategy that led to the error (could be from pre-planner or previous revision)
     previous_strategy = state.get("revised_strategy") or state.get(
