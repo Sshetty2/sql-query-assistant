@@ -4,6 +4,7 @@ import os
 from langchain_core.messages import AIMessage
 from agent.state import State
 from utils.logger import get_logger
+from utils.stream_utils import emit_node_status
 
 logger = get_logger()
 
@@ -31,7 +32,9 @@ def resolve_foreign_key_column(fk: dict, to_table_name: str, all_tables: list) -
         return fk["to_column"]
 
     # 2. Find the referenced table in schema and check for primary key
-    referenced_table = next((t for t in all_tables if t.get("table_name") == to_table_name), None)
+    referenced_table = next(
+        (t for t in all_tables if t.get("table_name") == to_table_name), None
+    )
 
     if referenced_table:
         # Check metadata first for primary_key (from domain-specific config)
@@ -58,9 +61,12 @@ def resolve_foreign_key_column(fk: dict, to_table_name: str, all_tables: list) -
         if fk_col_name and referenced_table.get("columns"):
             # Check if a column with the same name exists in the referenced table
             matching_col = next(
-                (col for col in referenced_table["columns"]
-                 if col.get("column_name") == fk_col_name),
-                None
+                (
+                    col
+                    for col in referenced_table["columns"]
+                    if col.get("column_name") == fk_col_name
+                ),
+                None,
             )
             if matching_col:
                 logger.debug(
@@ -174,6 +180,8 @@ def convert_schema_to_markdown(state: State):
     (or full schema if filtering didn't occur) into markdown for better
     LLM parsing and understanding.
     """
+    emit_node_status("format_schema_markdown", "running", "Formatting schema for AI")
+
     logger.info("Starting schema markdown formatting")
 
     try:

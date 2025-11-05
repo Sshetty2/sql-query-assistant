@@ -15,6 +15,7 @@ from langchain_community.vectorstores.utils import filter_complex_metadata
 from agent.state import State
 from utils.llm_factory import is_using_ollama, get_model_for_stage
 from utils.logger import get_logger, log_execution_time
+from utils.stream_utils import emit_node_status, log_and_stream
 
 load_dotenv()
 logger = get_logger()
@@ -174,8 +175,8 @@ def expand_with_mapping_tables(selected_tables, all_tables, table_metadata):
         "Starting recursive mapping table expansion (no depth limit)",
         extra={
             "initial_table_count": len(selected_table_names),
-            "initial_tables": list(selected_table_names)
-        }
+            "initial_tables": list(selected_table_names),
+        },
     )
 
     # Keep expanding until no new tables are added
@@ -189,28 +190,33 @@ def expand_with_mapping_tables(selected_tables, all_tables, table_metadata):
             mapping_tables = metadata.get("mapping_tables", [])
 
             for mapping_table in mapping_tables:
-                if mapping_table not in expanded_table_names and mapping_table in table_lookup:
+                if (
+                    mapping_table not in expanded_table_names
+                    and mapping_table in table_lookup
+                ):
                     expanded_table_names.add(mapping_table)
                     new_tables_this_iteration.append(mapping_table)
-                    mapping_tables_added.append({
-                        "iteration": iteration,
-                        "from_table": table_name,
-                        "mapping_table": mapping_table
-                    })
+                    mapping_tables_added.append(
+                        {
+                            "iteration": iteration,
+                            "from_table": table_name,
+                            "mapping_table": mapping_table,
+                        }
+                    )
                     logger.debug(
                         f"Adding mapping table at iteration {iteration}",
                         extra={
                             "iteration": iteration,
                             "from_table": table_name,
-                            "mapping_table": mapping_table
-                        }
+                            "mapping_table": mapping_table,
+                        },
                     )
 
         # If no new tables were added, we're done
         if not new_tables_this_iteration:
             logger.info(
                 f"Mapping table expansion converged after {iteration} iterations",
-                extra={"iteration": iteration}
+                extra={"iteration": iteration},
             )
             break
 
@@ -219,8 +225,8 @@ def expand_with_mapping_tables(selected_tables, all_tables, table_metadata):
             extra={
                 "iteration": iteration,
                 "new_tables": new_tables_this_iteration,
-                "total_expanded": len(expanded_table_names)
-            }
+                "total_expanded": len(expanded_table_names),
+            },
         )
 
     # Convert table names back to schema entries
@@ -236,14 +242,16 @@ def expand_with_mapping_tables(selected_tables, all_tables, table_metadata):
             "final_count": len(expanded_tables),
             "total_iterations": iteration,
             "mapping_tables_added": [m["mapping_table"] for m in mapping_tables_added],
-            "detailed_additions": mapping_tables_added
-        }
+            "detailed_additions": mapping_tables_added,
+        },
     )
 
     return expanded_tables
 
 
-def expand_with_foreign_keys(selected_tables, all_tables, foreign_keys_data, max_depth=2):
+def expand_with_foreign_keys(
+    selected_tables, all_tables, foreign_keys_data, max_depth=2
+):
     """
     Recursively expand the selected tables with tables linked via foreign keys.
 
@@ -316,7 +324,7 @@ def expand_with_foreign_keys(selected_tables, all_tables, foreign_keys_data, max
         if not next_level_tables:
             logger.info(
                 f"FK expansion stopped at depth {depth} (no new tables)",
-                extra={"depth": depth}
+                extra={"depth": depth},
             )
             break
 
@@ -362,10 +370,15 @@ def filter_schema(state: State, vector_store=None):
     from utils.llm_factory import get_chat_llm
     from models.table_selection import TableSelectionOutput
 
+    # Emit status update
+    emit_node_status("filter_schema", "running", "Filtering relevant tables")
+
     full_schema = state["schema"]
     user_query = state["user_question"]
 
-    logger.info(
+    log_and_stream(
+        logger,
+        "filter_schema",
         "Starting 5-stage schema filtering",
         extra={
             "total_tables": len(full_schema),
@@ -896,10 +909,6 @@ def filter_schema(state: State, vector_store=None):
         table.get("table_name", "Unknown") for table in filtered_schema_with_fks
     ]
 
-    truncated_table_names = [
-        table.get("table_name", "Unknown") for table in truncated_schema_with_fks
-    ]
-
     logger.info(
         "4-stage schema filtering completed",
         extra={
@@ -912,6 +921,8 @@ def filter_schema(state: State, vector_store=None):
             "final_tables": final_table_names,
         },
     )
+
+    emit_node_status("filter_schema", "completed")
 
     return {
         **state,

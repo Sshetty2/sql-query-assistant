@@ -192,7 +192,8 @@ def test_append_to_debug_array_when_disabled():
 
 def test_clear_debug_files(temp_debug_dir):
     """Test clearing debug files."""
-    with patch("utils.debug_utils.DEBUG_DIR", temp_debug_dir):
+    with patch("utils.debug_utils.DEBUG_DIR", temp_debug_dir), \
+         patch("utils.debug_utils.DEBUG_ENABLED", True):
         # Create some test files
         for i in range(3):
             file_path = os.path.join(temp_debug_dir, f"debug_test_{i}.json")
@@ -211,7 +212,8 @@ def test_clear_debug_files(temp_debug_dir):
 
 def test_clear_debug_files_with_pattern(temp_debug_dir):
     """Test clearing debug files with pattern."""
-    with patch("utils.debug_utils.DEBUG_DIR", temp_debug_dir):
+    with patch("utils.debug_utils.DEBUG_DIR", temp_debug_dir), \
+         patch("utils.debug_utils.DEBUG_ENABLED", True):
         # Create different types of files
         for i in range(2):
             file_path = os.path.join(temp_debug_dir, f"debug_planner_{i}.json")

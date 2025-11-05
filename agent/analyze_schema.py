@@ -7,6 +7,7 @@ from domain_specific_guidance.domain_specific_schema_callback import combine_sch
 from database.introspection import introspect_schema, validate_schema_structure
 from agent.state import State
 from utils.logger import get_logger, log_execution_time
+from utils.stream_utils import emit_node_status, log_and_stream
 
 load_dotenv()
 logger = get_logger()
@@ -30,7 +31,10 @@ def analyze_schema(state: State, db_connection):
     Returns:
         Updated state with schema information
     """
-    logger.info("Starting SQLAlchemy-based schema analysis")
+    # Emit status update for streaming
+    emit_node_status("analyze_schema", "running", "Analyzing database schema")
+
+    log_and_stream(logger, "analyze_schema", "Starting SQLAlchemy-based schema analysis")
 
     try:
         # Use SQLAlchemy Inspector for dialect-agnostic introspection
@@ -40,7 +44,9 @@ def analyze_schema(state: State, db_connection):
         # Validate structure matches schema_model.py
         validate_schema_structure(schema)
 
-        logger.info(
+        log_and_stream(
+            logger,
+            "analyze_schema",
             f"Retrieved schema with {len(schema)} tables",
             extra={
                 "table_count": len(schema),
@@ -61,7 +67,9 @@ def analyze_schema(state: State, db_connection):
             step_name="analyze_schema"
         )
 
-        logger.info(
+        log_and_stream(
+            logger,
+            "analyze_schema",
             "Schema analysis completed",
             extra={
                 "table_count": len(combined_schema_with_metadata),
@@ -74,6 +82,8 @@ def analyze_schema(state: State, db_connection):
             },
         )
 
+        emit_node_status("analyze_schema", "completed")
+
         return {
             **state,
             "messages": [AIMessage(content="Schema information gathered.")],
@@ -81,7 +91,8 @@ def analyze_schema(state: State, db_connection):
             "last_step": "analyze_schema",
         }
     except Exception as e:
-        logger.error(f"Error retrieving schema: {str(e)}", exc_info=True)
+        log_and_stream(logger, "analyze_schema", f"Error retrieving schema: {str(e)}", level="error", exc_info=True)
+        emit_node_status("analyze_schema", "error")
         return {
             **state,
             "messages": [AIMessage(content=f"Error retrieving schema: {e}")],

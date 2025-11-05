@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage
 from agent.state import State
 from utils.llm_factory import get_structured_llm
 from utils.logger import get_logger, log_execution_time
+from utils.stream_utils import emit_node_status, log_and_stream
 
 load_dotenv()
 logger = get_logger()
@@ -31,6 +32,7 @@ def check_clarification(state: State) -> Dict[str, Any]:
     If clarification is needed, uses an LLM to analyze the ambiguities and generate
     suggested query rewrites that the user can select from.
     """
+    emit_node_status("check_clarification", "running", "Checking for clarification needs")
     planner_output = state["planner_output"]
 
     if not planner_output:
@@ -45,7 +47,9 @@ def check_clarification(state: State) -> Dict[str, Any]:
     # Check if clarification is needed
     if decision == "terminate":
         # Query is being terminated - no clarification suggestions needed
-        logger.info(
+        log_and_stream(
+            logger,
+            "check_clarification",
             "Planner terminated query, skipping clarification suggestions",
             extra={
                 "decision": decision,
@@ -67,7 +71,9 @@ def check_clarification(state: State) -> Dict[str, Any]:
         }
 
     # Clarification is needed - generate suggestions
-    logger.info(
+    log_and_stream(
+        logger,
+        "check_clarification",
         "Planner flagged clarification, generating declarative clarification statements",
         extra={"decision": decision},
     )
@@ -192,10 +198,14 @@ def check_clarification(state: State) -> Dict[str, Any]:
         include_timestamp=True,
     )
 
-    logger.info(
+    log_and_stream(
+        logger,
+        "check_clarification",
         "Generated clarification statements",
         extra={"suggestion_count": len(suggestions)},
     )
+
+    emit_node_status("check_clarification", "completed")
 
     return {
         **state,

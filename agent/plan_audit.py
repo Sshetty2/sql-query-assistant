@@ -2,7 +2,8 @@
 
 from langchain_core.messages import AIMessage
 from utils.logger import get_logger
-
+from utils.stream_utils import emit_node_status
+from utils.debug_utils import save_debug_file
 from agent.state import State
 
 logger = get_logger()
@@ -92,7 +93,9 @@ def validate_selections(plan_dict: dict, schema: list[dict]) -> list[str]:
 
         for col_info in columns:
             column = col_info.get("column")
-            col_table = col_info.get("table", table_name)  # Should match selection table
+            col_table = col_info.get(
+                "table", table_name
+            )  # Should match selection table
 
             # Verify column exists
             if not validate_column_exists(col_table, column, schema):
@@ -457,8 +460,8 @@ def validate_table_references(plan_dict: dict) -> list[str]:
                 extra={
                     "missing_table": table,
                     "selected_tables": list(selected_tables),
-                    "referenced_tables": list(referenced_tables)
-                }
+                    "referenced_tables": list(referenced_tables),
+                },
             )
 
     return issues
@@ -505,7 +508,7 @@ def validate_table_connectivity(plan_dict: dict) -> list[str]:
         )
         logger.warning(
             "No join edges found for multi-table query",
-            extra={"selected_tables": list(selected_tables)}
+            extra={"selected_tables": list(selected_tables)},
         )
         return issues
 
@@ -554,8 +557,8 @@ def validate_table_connectivity(plan_dict: dict) -> list[str]:
                     "disconnected_table": table,
                     "connected_tables": list(visited),
                     "all_selected_tables": list(selected_tables),
-                    "adjacency_graph": {k: list(v) for k, v in adjacency.items()}
-                }
+                    "adjacency_graph": {k: list(v) for k, v in adjacency.items()},
+                },
             )
 
     return issues
@@ -587,7 +590,9 @@ def classify_issue_severity(issue: str) -> str:
     return "non-critical"
 
 
-def run_deterministic_checks(plan_dict: dict, schema: list[dict]) -> tuple[list[str], list[str]]:
+def run_deterministic_checks(
+    plan_dict: dict, schema: list[dict]
+) -> tuple[list[str], list[str]]:
     """
     Run all deterministic validation checks.
 
@@ -602,16 +607,26 @@ def run_deterministic_checks(plan_dict: dict, schema: list[dict]) -> tuple[list[
     all_issues.extend(validate_filters(plan_dict, schema))
     all_issues.extend(validate_group_by(plan_dict, schema))
     all_issues.extend(validate_table_references(plan_dict))
-    all_issues.extend(validate_table_connectivity(plan_dict))  # Detect disconnected tables
+    all_issues.extend(
+        validate_table_connectivity(plan_dict)
+    )  # Detect disconnected tables
 
     # Classify issues by severity
-    critical_issues = [issue for issue in all_issues if classify_issue_severity(issue) == "critical"]
-    non_critical_issues = [issue for issue in all_issues if classify_issue_severity(issue) == "non-critical"]
+    critical_issues = [
+        issue for issue in all_issues if classify_issue_severity(issue) == "critical"
+    ]
+    non_critical_issues = [
+        issue
+        for issue in all_issues
+        if classify_issue_severity(issue) == "non-critical"
+    ]
 
     return critical_issues, non_critical_issues
 
 
-def generate_audit_feedback(issues: list[str], plan_dict: dict, schema: list[dict]) -> str:
+def generate_audit_feedback(
+    issues: list[str], plan_dict: dict, schema: list[dict]
+) -> str:
     """
     Generate concise feedback for pre-planner about validation issues.
 
@@ -636,24 +651,36 @@ def generate_audit_feedback(issues: list[str], plan_dict: dict, schema: list[dic
     feedback_parts = []
 
     if column_issues:
-        feedback_parts.append("**Column Validation Errors:**\n" + "\n".join(f"- {issue}" for issue in column_issues))
+        feedback_parts.append(
+            "**Column Validation Errors:**\n"
+            + "\n".join(f"- {issue}" for issue in column_issues)
+        )
 
     if disconnect_issues:
         feedback_parts.append(
-            "**Table Connectivity Errors:**\n" + "\n".join(f"- {issue}" for issue in disconnect_issues)
+            "**Table Connectivity Errors:**\n"
+            + "\n".join(f"- {issue}" for issue in disconnect_issues)
         )
         feedback_parts.append(
             "\n**Fix**: Check schema foreign_keys to find how to join disconnected tables."
         )
 
     if join_issues:
-        feedback_parts.append("**Join Errors:**\n" + "\n".join(f"- {issue}" for issue in join_issues))
+        feedback_parts.append(
+            "**Join Errors:**\n" + "\n".join(f"- {issue}" for issue in join_issues)
+        )
 
     if reference_issues:
-        feedback_parts.append("**Table Reference Errors:**\n" + "\n".join(f"- {issue}" for issue in reference_issues))
+        feedback_parts.append(
+            "**Table Reference Errors:**\n"
+            + "\n".join(f"- {issue}" for issue in reference_issues)
+        )
 
     if group_by_issues:
-        feedback_parts.append("**GROUP BY Errors:**\n" + "\n".join(f"- {issue}" for issue in group_by_issues))
+        feedback_parts.append(
+            "**GROUP BY Errors:**\n"
+            + "\n".join(f"- {issue}" for issue in group_by_issues)
+        )
 
     # Add guidance on how to fix
     feedback_parts.append(
@@ -674,6 +701,8 @@ def plan_audit(state: State):
     Runs deterministic checks first. If validation issues are found, generates
     feedback for pre-planner to regenerate strategy instead of directly patching JSON.
     """
+    emit_node_status("plan_audit", "running", "Validating query plan")
+
     logger.info("Starting plan audit")
 
     planner_output = state.get("planner_output")
@@ -715,16 +744,19 @@ def plan_audit(state: State):
 
     # Fix invalid column names (CompanyName → Name, etc.)
     from agent.fix_invalid_columns import fix_plan_columns
+
     plan_dict, column_fixes = fix_plan_columns(plan_dict, plan_schema)
 
     if column_fixes:
         logger.info(
             f"Applied {len(column_fixes)} deterministic column name fixes",
-            extra={"fixes": column_fixes}
+            extra={"fixes": column_fixes},
         )
 
     # Run deterministic checks AFTER fixes
-    critical_issues, non_critical_issues = run_deterministic_checks(plan_dict, plan_schema)
+    critical_issues, non_critical_issues = run_deterministic_checks(
+        plan_dict, plan_schema
+    )
     all_issues = critical_issues + non_critical_issues
 
     if not all_issues:
@@ -791,10 +823,11 @@ def plan_audit(state: State):
     # return {..., "audit_feedback": feedback, ...}
 
     # Continue to execution despite audit issues
-    logger.info("Continuing to check_clarification despite audit issues (feedback disabled)")
+    logger.info(
+        "Continuing to check_clarification despite audit issues (feedback disabled)"
+    )
 
     # Debug: Save audit issues for inspection
-    from utils.debug_utils import save_debug_file
     save_debug_file(
         "audit_issues.json",
         {
@@ -804,7 +837,7 @@ def plan_audit(state: State):
             "plan": plan_dict,
             "column_fixes_applied": column_fixes,
         },
-        step_name="plan_audit"
+        step_name="plan_audit",
     )
 
     # Return plan with deterministic fixes applied, but don't block execution for non-critical issues
@@ -812,6 +845,8 @@ def plan_audit(state: State):
         f"Plan audit found {len(non_critical_issues)} non-critical issues "
         f"but continuing to execution"
     )
+    emit_node_status("plan_audit", "completed")
+
     return {
         **state,
         "messages": [AIMessage(content=msg)],

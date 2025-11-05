@@ -11,6 +11,7 @@ from decimal import Decimal
 from agent.state import State
 from langchain_core.messages import AIMessage
 from utils.logger import get_logger, log_execution_time
+from utils.stream_utils import emit_node_status, log_and_stream
 
 logger = get_logger()
 
@@ -107,6 +108,8 @@ def json_serial(obj):
 
 def execute_query(state: State, db_connection):
     """Execute the SQL query and return the result."""
+    emit_node_status("execute_query", "running", "Executing query")
+
     query = state["query"]
     DEFAULT_LIMIT = 500  # Default limit for large result sets
 
@@ -116,15 +119,21 @@ def execute_query(state: State, db_connection):
             "Cannot execute query: query is None or empty. "
             "This indicates a bug in the workflow routing or query generation."
         )
-        logger.error(error_msg, extra={"state_keys": list(state.keys())})
+        log_and_stream(
+            logger,
+            "execute_query",
+            error_msg,
+            level="error",
+            extra={"state_keys": list(state.keys())},
+        )
         return {
             **state,
             "result": None,
             "messages": state["messages"] + [AIMessage(content=f"Error: {error_msg}")],
         }
 
-    logger.info(
-        "Starting query execution", extra={"query": query}
+    log_and_stream(
+        logger, "execute_query", "Starting query execution", extra={"query": query}
     )  # Log first 200 chars
 
     # Debug: Save query execution input
@@ -156,10 +165,16 @@ def execute_query(state: State, db_connection):
                 extracted_limit = parsed.args["limit"]
                 # Remove LIMIT for counting
                 parsed.set("limit", None)
-                query_without_limit = parsed.sql(dialect="tsql", pretty=True, identify=True)
+                query_without_limit = parsed.sql(
+                    dialect="tsql", pretty=True, identify=True
+                )
                 logger.debug("Removed LIMIT clause for initial count query")
         except Exception as parse_error:
-            logger.warning(f"Could not parse query to remove LIMIT: {parse_error}")
+            log_and_stream(
+                logger,
+                "execute_query",
+                f"Could not parse query to remove LIMIT: {parse_error}",
+            )
             query_without_limit = query  # Fall back to original query
 
         with log_execution_time(logger, "database_query_execution"):
@@ -167,8 +182,11 @@ def execute_query(state: State, db_connection):
             try:
                 cursor = db_connection.cursor()
             except Exception as cursor_error:
-                logger.error(
+                log_and_stream(
+                    logger,
+                    "execute_query",
                     f"Failed to create cursor - connection may be closed: {str(cursor_error)}",
+                    level="error",
                     extra={
                         "connection_type": type(db_connection).__name__,
                         "error_type": type(cursor_error).__name__,
@@ -181,7 +199,9 @@ def execute_query(state: State, db_connection):
             results = cursor.fetchall()
             total_count = len(results)
 
-            logger.info(f"Query returned {total_count} total records")
+            log_and_stream(
+                logger, "execute_query", f"Query returned {total_count} total records"
+            )
 
             # Determine which limit to apply:
             # 1. If query had explicit limit (e.g., from planner or user modification), use that
@@ -192,7 +212,11 @@ def execute_query(state: State, db_connection):
                 # ALWAYS apply explicit limits, even if total_count is less than limit
                 # This preserves the planner's intent (e.g., "top 5" should always have TOP 5)
                 should_apply_limit = True
-                logger.info(f"Query has explicit limit of {limit_to_apply}, will always apply it")
+                log_and_stream(
+                    logger,
+                    "execute_query",
+                    f"Query has explicit limit of {limit_to_apply}, will always apply it",
+                )
             else:
                 # No explicit limit - use smart default
                 limit_to_apply = DEFAULT_LIMIT
@@ -203,7 +227,11 @@ def execute_query(state: State, db_connection):
 
             if should_apply_limit:
                 # Re-execute with the determined limit
-                logger.info(f"Applying limit of {limit_to_apply} records (total available: {total_count})")
+                log_and_stream(
+                    logger,
+                    "execute_query",
+                    f"Applying limit of {limit_to_apply} records (total available: {total_count})",
+                )
                 cursor.close()
                 cursor = db_connection.cursor()
 
@@ -211,12 +239,24 @@ def execute_query(state: State, db_connection):
                 try:
                     parsed_limited = sqlglot.parse_one(query_without_limit, read="tsql")
                     from sqlglot.expressions import Limit
-                    parsed_limited.set("limit", Limit(expression=sqlglot.parse_one(str(limit_to_apply))))
-                    final_query = parsed_limited.sql(dialect="tsql", pretty=True, identify=True)
+
+                    parsed_limited.set(
+                        "limit",
+                        Limit(expression=sqlglot.parse_one(str(limit_to_apply))),
+                    )
+                    final_query = parsed_limited.sql(
+                        dialect="tsql", pretty=True, identify=True
+                    )
                 except Exception as limit_error:
-                    logger.warning(f"Could not add LIMIT clause: {limit_error}")
+                    log_and_stream(
+                        logger,
+                        "execute_query",
+                        f"Could not add LIMIT clause: {limit_error}",
+                    )
                     # Fall back to TSQL TOP syntax
-                    final_query = query_without_limit.replace("SELECT", f"SELECT TOP {limit_to_apply}", 1)
+                    final_query = query_without_limit.replace(
+                        "SELECT", f"SELECT TOP {limit_to_apply}", 1
+                    )
 
                 cursor.execute(final_query)
                 final_results = cursor.fetchall()
@@ -251,7 +291,9 @@ def execute_query(state: State, db_connection):
         if final_query not in queries:  # Avoid duplicates
             queries = queries + [final_query]
 
-        logger.info(
+        log_and_stream(
+            logger,
+            "execute_query",
             "Query execution completed",
             extra={
                 "total_records": total_count,
@@ -326,7 +368,9 @@ def execute_query(state: State, db_connection):
             invalid_column = parse_invalid_column_name(error_message)
 
             if invalid_column:
-                logger.warning(
+                log_and_stream(
+                    logger,
+                    "execute_query",
                     f"Invalid column '{invalid_column}' detected. "
                     f"Skipping inline removal - letting error correction fix the plan.",
                     extra={"query": query, "invalid_column": invalid_column},
@@ -338,11 +382,15 @@ def execute_query(state: State, db_connection):
         # - Error correction can fix the underlying plan issue instead
 
         # Regular error handling for all other errors or when inline fix failed
-        error_history = state["error_history"]
-        error_history.append(str(e))
 
-        logger.error(
+        correction_history = state["correction_history"]
+        correction_history.append(str(e))
+
+        log_and_stream(
+            logger,
+            "execute_query",
             "Query execution failed",
+            level="error",
             exc_info=True,
             extra={"query": query, "error": str(e)},
         )
@@ -354,6 +402,6 @@ def execute_query(state: State, db_connection):
             "last_step": "execute_query",
             "result": None,
             "total_records_available": None,  # Reset on error
-            "error_history": error_history,
+            "correction_history": correction_history,
             "last_attempt_time": datetime.now().isoformat(),
         }

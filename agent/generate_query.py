@@ -9,6 +9,8 @@ from sqlglot import exp, parse_one
 
 from agent.state import State
 from utils.logger import get_logger, log_execution_time
+from utils.stream_utils import emit_node_status
+from utils.debug_utils import append_to_debug_array, save_debug_file
 
 load_dotenv()
 logger = get_logger()
@@ -17,6 +19,8 @@ logger = get_logger()
 def get_database_context():
     """Get database-specific context."""
     is_test_db = os.getenv("USE_TEST_DB", "").lower() == "true"
+    emit_node_status("generate_query", "completed")
+
     return {
         "type": "SQLite" if is_test_db else "SQL Server",
         "is_sqlite": is_test_db,
@@ -554,10 +558,7 @@ def unquote_sql_functions(value):
         unquoted = match.group(1)
         logger.info(
             "Unquoting SQL function expression",
-            extra={
-                "original_value": value,
-                "unquoted_value": unquoted
-            }
+            extra={"original_value": value, "unquoted_value": unquoted},
         )
         return unquoted
 
@@ -1736,7 +1737,9 @@ def format_filter_condition(
 
         # Check if value is a SQL expression (function call) after unquoting
         # If it was unquoted, it's now a raw SQL expression that should be used as-is
-        if isinstance(v, str) and re.match(r'^[A-Z_][A-Z0-9_]*\s*\(.*\)$', v, re.IGNORECASE):
+        if isinstance(v, str) and re.match(
+            r"^[A-Z_][A-Z0-9_]*\s*\(.*\)$", v, re.IGNORECASE
+        ):
             # This is a SQL function expression - return as-is without quoting
             return v
 
@@ -1914,6 +1917,8 @@ def build_time_filter_condition(
 
 def generate_query(state: State):
     """Generate SQL query deterministically from planner output using SQLGlot."""
+    emit_node_status("generate_query", "running", "Generating SQL query")
+
     logger.info("Starting SQL query generation")
 
     try:
@@ -1937,15 +1942,11 @@ def generate_query(state: State):
         with log_execution_time(logger, "build_sql_query"):
             query = build_sql_query(plan_dict, state, db_context)
 
-        # Debug: Save generated SQL
-        from utils.debug_utils import save_debug_file, append_to_debug_array
-
         save_debug_file(
             "generated_sql.json",
             {"sql": query, "dialect": db_context.get("dialect", "unknown")},
             step_name="generate_query",
         )
-
         # Debug: Track SQL query in the queries array
         error_iteration = state.get("error_iteration", 0)
         refinement_iteration = state.get("refinement_iteration", 0)

@@ -25,6 +25,7 @@ from agent.generate_modification_options import generate_modification_options_no
 # from agent.conversational_router import conversational_router
 from agent.state import State
 from utils.logger import get_logger
+from utils.stream_utils import emit_node_status
 
 from database.connection import get_pyodbc_connection
 
@@ -414,6 +415,7 @@ def cleanup_connection(state: State, connection):
     1. Normal completion - query executed successfully
     2. Iteration exhaustion - feedback loops hit iteration limits
     """
+    emit_node_status("cleanup", "running", "Finalizing results")
 
     try:
         connection.close()
@@ -442,5 +444,6 @@ def cleanup_connection(state: State, connection):
 
     # Normal cleanup - query succeeded
     logger.debug("Workflow completed successfully")
+    emit_node_status("cleanup", "completed")
     # NOTE: schema is not persisted in state anymore - always fetch fresh
     return {**state, "schema": [], "last_step": "cleanup"}

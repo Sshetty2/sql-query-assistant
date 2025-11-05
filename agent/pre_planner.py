@@ -23,6 +23,9 @@ from utils.llm_factory import (
 )
 from utils.logger import get_logger, log_execution_time
 from agent.state import State
+from utils.debug_utils import save_debug_file
+from utils.stream_utils import emit_node_status
+
 
 load_dotenv()
 logger = get_logger()
@@ -922,6 +925,8 @@ def create_preplan_strategy(state: State):
     Returns:
         Updated state with pre_plan_strategy field
     """
+    emit_node_status("pre_planner", "running", "Creating query strategy")
+
     user_query = state["user_question"]
     complexity = get_planner_complexity()
 
@@ -1107,9 +1112,6 @@ def create_preplan_strategy(state: State):
             "Pre-planning strategy generated successfully",
             extra={"strategy_length": len(strategy), "complexity": complexity},
         )
-
-        # Debug: Save the strategy
-        from utils.debug_utils import save_debug_file
 
         # Determine filename based on feedback presence and iteration
         if has_feedback:

@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, Literal, List, Any
+from typing import Optional, Literal, List, Any, Dict
 from dotenv import load_dotenv
 from agent.query_database import query_database
 from utils.logger import get_logger

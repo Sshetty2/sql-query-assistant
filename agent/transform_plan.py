@@ -3,6 +3,7 @@
 import copy
 from typing import Any, Dict, List, Optional
 from utils.logger import get_logger
+from utils.stream_utils import emit_node_status, log_and_stream
 
 logger = get_logger()
 
@@ -51,9 +52,7 @@ def get_column_type(
     return None
 
 
-def is_column_in_filters(
-    table: str, column: str, plan: Dict[str, Any]
-) -> bool:
+def is_column_in_filters(table: str, column: str, plan: Dict[str, Any]) -> bool:
     """
     Check if a column is used in any filter predicates.
 
@@ -107,7 +106,12 @@ def map_type_to_value_type(sql_type: str) -> str:
 
     if "int" in sql_type_lower or "serial" in sql_type_lower:
         return "integer"
-    elif "float" in sql_type_lower or "double" in sql_type_lower or "decimal" in sql_type_lower or "numeric" in sql_type_lower:  # noqa: E501
+    elif (
+        "float" in sql_type_lower
+        or "double" in sql_type_lower
+        or "decimal" in sql_type_lower
+        or "numeric" in sql_type_lower
+    ):  # noqa: E501
         return "number"
     elif "bool" in sql_type_lower or "bit" in sql_type_lower:
         return "boolean"
@@ -115,17 +119,19 @@ def map_type_to_value_type(sql_type: str) -> str:
         return "datetime"
     elif "date" in sql_type_lower:
         return "date"
-    elif "char" in sql_type_lower or "text" in sql_type_lower or "varchar" in sql_type_lower or "nvarchar" in sql_type_lower:  # noqa: E501
+    elif (
+        "char" in sql_type_lower
+        or "text" in sql_type_lower
+        or "varchar" in sql_type_lower
+        or "nvarchar" in sql_type_lower
+    ):  # noqa: E501
         return "string"
     else:
         return "unknown"
 
 
 def apply_add_column(
-    plan: Dict[str, Any],
-    table: str,
-    column: str,
-    schema: List[Dict[str, Any]]
+    plan: Dict[str, Any], table: str, column: str, schema: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     """
     Add a column to the plan's projection list.
@@ -157,7 +163,9 @@ def apply_add_column(
                 if col["column"].lower() == column.lower():
                     # If column exists but is filter-only, change to projection
                     if col["role"] == "filter":
-                        logger.info(f"Changing column {column} role from 'filter' to 'projection'")
+                        logger.info(
+                            f"Changing column {column} role from 'filter' to 'projection'"
+                        )
                         col["role"] = "projection"
                         return plan
                     else:
@@ -173,7 +181,7 @@ def apply_add_column(
                 "column": column,
                 "role": "projection",
                 "reason": "Added via plan patching",
-                "value_type": value_type
+                "value_type": value_type,
             }
             selection.setdefault("columns", []).append(new_column)
             logger.info(f"Added column {column} to table {table} projection")
@@ -186,9 +194,7 @@ def apply_add_column(
 
 
 def apply_remove_column(
-    plan: Dict[str, Any],
-    table: str,
-    column: str
+    plan: Dict[str, Any], table: str, column: str
 ) -> Dict[str, Any]:
     """
     Remove a column from the plan's projection list.
@@ -247,9 +253,7 @@ def apply_remove_column(
 
 
 def apply_modify_order_by(
-    plan: Dict[str, Any],
-    order_by: List[Dict[str, Any]],
-    schema: List[Dict[str, Any]]
+    plan: Dict[str, Any], order_by: List[Dict[str, Any]], schema: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     """
     Modify the ORDER BY clause of the plan.
@@ -278,7 +282,9 @@ def apply_modify_order_by(
         # Validate direction
         direction = order_spec.get("direction", "ASC")
         if direction not in ["ASC", "DESC"]:
-            raise ValueError(f"Invalid sort direction: {direction}. Must be 'ASC' or 'DESC'")
+            raise ValueError(
+                f"Invalid sort direction: {direction}. Must be 'ASC' or 'DESC'"
+            )
 
     # Replace ORDER BY
     plan["order_by"] = order_by
@@ -287,10 +293,7 @@ def apply_modify_order_by(
     return plan
 
 
-def apply_modify_limit(
-    plan: Dict[str, Any],
-    limit: int
-) -> Dict[str, Any]:
+def apply_modify_limit(plan: Dict[str, Any], limit: int) -> Dict[str, Any]:
     """
     Modify the LIMIT clause of the plan.
 
@@ -314,9 +317,7 @@ def apply_modify_limit(
 
 
 def apply_patch_operation(
-    plan: Dict[str, Any],
-    operation: Dict[str, Any],
-    schema: List[Dict[str, Any]]
+    plan: Dict[str, Any], operation: Dict[str, Any], schema: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     """
     Apply a single patch operation to a query plan.
@@ -348,14 +349,18 @@ def apply_patch_operation(
         table = operation.get("table")
         column = operation.get("column")
         if not table or not column:
-            raise ValueError("add_column operation requires 'table' and 'column' fields")
+            raise ValueError(
+                "add_column operation requires 'table' and 'column' fields"
+            )
         modified_plan = apply_add_column(modified_plan, table, column, schema)
 
     elif op_type == "remove_column":
         table = operation.get("table")
         column = operation.get("column")
         if not table or not column:
-            raise ValueError("remove_column operation requires 'table' and 'column' fields")
+            raise ValueError(
+                "remove_column operation requires 'table' and 'column' fields"
+            )
         modified_plan = apply_remove_column(modified_plan, table, column)
 
     elif op_type == "modify_order_by":
@@ -389,7 +394,9 @@ def transform_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Updated state with modified planner_output
     """
-    logger.info("=== Transform Plan Node ===")
+    emit_node_status("transform_plan", "running", "Applying plan modifications")
+
+    log_and_stream(logger, "transform_plan", "Transform Plan Node started")
 
     # Get required state
     current_patch = state.get("current_patch_operation")
@@ -397,65 +404,72 @@ def transform_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     filtered_schema = state.get("filtered_schema")
 
     if not current_patch:
-        logger.error("No patch operation provided")
+        log_and_stream(logger, "transform_plan", "No patch operation provided", level="error")
         return {
             **state,
             "patch_requested": False,
-            "messages": state.get("messages", []) + [{
-                "role": "assistant",
-                "content": "Error: No patch operation specified"
-            }]
+            "messages": state.get("messages", [])
+            + [{"role": "assistant", "content": "Error: No patch operation specified"}],
         }
 
     if not executed_plan:
-        logger.error("No executed plan found - cannot apply patch")
+        log_and_stream(logger, "transform_plan", "No executed plan found - cannot apply patch", level="error")
         return {
             **state,
             "patch_requested": False,
-            "messages": state.get("messages", []) + [{
-                "role": "assistant",
-                "content": "Error: No executed plan found to patch"
-            }]
+            "messages": state.get("messages", [])
+            + [
+                {
+                    "role": "assistant",
+                    "content": "Error: No executed plan found to patch",
+                }
+            ],
         }
 
     if not filtered_schema:
-        logger.error("No schema available for validation")
+        log_and_stream(logger, "transform_plan", "No schema available for validation", level="error")
         return {
             **state,
             "patch_requested": False,
-            "messages": state.get("messages", []) + [{
-                "role": "assistant",
-                "content": "Error: No schema available for validation"
-            }]
+            "messages": state.get("messages", [])
+            + [
+                {
+                    "role": "assistant",
+                    "content": "Error: No schema available for validation",
+                }
+            ],
         }
 
     try:
         # Apply the patch operation
-        logger.info(f"Applying patch operation: {current_patch.get('operation')}")
-        modified_plan = apply_patch_operation(executed_plan, current_patch, filtered_schema)
+        log_and_stream(logger, "transform_plan", f"Applying patch operation: {current_patch.get('operation')}")
+        modified_plan = apply_patch_operation(
+            executed_plan, current_patch, filtered_schema
+        )
 
         # Update state with modified plan
         patch_history = state.get("patch_history", [])
         patch_history.append(current_patch)
 
-        logger.info("Plan patched successfully, proceeding to SQL generation")
+        log_and_stream(logger, "transform_plan", "Plan patched successfully, proceeding to SQL generation")
+
+        emit_node_status("transform_plan", "completed")
 
         return {
             **state,
             "planner_output": modified_plan,  # This will be used for SQL generation
             "patch_history": patch_history,
             "patch_requested": False,  # Reset flag
-            "current_patch_operation": None  # Clear current patch
+            "current_patch_operation": None,  # Clear current patch
         }
 
     except Exception as e:
-        logger.error(f"Error applying patch: {str(e)}", exc_info=True)
+        log_and_stream(logger, "transform_plan", f"Error applying patch: {str(e)}", level="error", exc_info=True)
+        emit_node_status("transform_plan", "error")
         return {
             **state,
             "patch_requested": False,
             "current_patch_operation": None,
-            "messages": state.get("messages", []) + [{
-                "role": "assistant",
-                "content": f"Error applying patch: {str(e)}"
-            }]
+            "messages": state.get("messages", [])
+            + [{"role": "assistant", "content": f"Error applying patch: {str(e)}"}],
         }

@@ -8,6 +8,8 @@ from langchain_core.messages import AIMessage
 from models.history import ErrorCorrectionHistory
 from utils.llm_factory import get_chat_llm, get_model_for_stage
 from utils.logger import get_logger, log_execution_time
+from utils.stream_utils import emit_node_status
+from utils.debug_utils import append_to_debug_array
 
 load_dotenv()
 logger = get_logger()
@@ -78,7 +80,7 @@ def generate_revised_strategy(
     original_query: str,
     original_strategy: str,
     user_question: str,
-    error_history: list[str],
+    correction_history: list[str],
     schema: list[dict],
     schema_markdown: str = None,
 ) -> str:
@@ -93,7 +95,7 @@ def generate_revised_strategy(
         original_query: The SQL query that failed
         original_strategy: The previous strategy text that led to the error
         user_question: The original user question
-        error_history: List of previous errors
+        correction_history: List of previous errors
         schema: The database schema (filtered/truncated) as list of dicts
         schema_markdown: The database schema formatted as markdown (easier to search)
 
@@ -289,7 +291,7 @@ def handle_tool_error(state) -> dict:
 
     # Get previous error messages from correction_history
     correction_history = state.get("correction_history", [])
-    error_history = [record.get("error", "") for record in correction_history]
+    correction_history = [record.get("error", "") for record in correction_history]
 
     # Get the strategy that led to the error (could be from pre-planner or previous revision)
     previous_strategy = state.get("revised_strategy") or state.get(
@@ -335,7 +337,7 @@ def handle_tool_error(state) -> dict:
         original_query=original_query,
         original_strategy=previous_strategy,
         user_question=user_question,
-        error_history=error_history,
+        correction_history=correction_history,
         schema=schema,
         schema_markdown=schema_markdown,
     )
@@ -375,7 +377,6 @@ def handle_tool_error(state) -> dict:
     )
 
     # Debug: Append to single error correction history array
-    from utils.debug_utils import append_to_debug_array
 
     append_to_debug_array(
         "error_correction_history.json",
@@ -387,6 +388,8 @@ def handle_tool_error(state) -> dict:
         step_name="handle_tool_error",
         array_key="corrections",
     )
+
+    emit_node_status("handle_tool_error", "completed")
 
     return {
         **state,

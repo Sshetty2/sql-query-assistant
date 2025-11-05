@@ -12,6 +12,9 @@ from models.planner_output import PlannerOutput
 from models.history import RefinementHistory
 from utils.llm_factory import get_chat_llm, get_model_for_stage
 from utils.logger import get_logger, log_execution_time
+from utils.stream_utils import emit_node_status
+from utils.debug_utils import append_to_debug_array
+
 
 load_dotenv()
 logger = get_logger()
@@ -305,9 +308,6 @@ def refine_query(state: State) -> Dict[str, Any]:
         iteration=refinement_iteration + 1,
     )
 
-    # Debug: Append to single refinement history array
-    from utils.debug_utils import append_to_debug_array
-
     append_to_debug_array(
         "refinement_history.json",
         {
@@ -317,6 +317,8 @@ def refine_query(state: State) -> Dict[str, Any]:
         step_name="refine_query",
         array_key="refinements",
     )
+
+    emit_node_status("refine_query", "completed")
 
     return {
         **state,

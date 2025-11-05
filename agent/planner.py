@@ -13,6 +13,7 @@ from models.planner_output_minimal import PlannerOutputMinimal
 from models.planner_output_standard import PlannerOutputStandard
 from utils.llm_factory import is_using_ollama, get_model_for_stage
 from utils.logger import get_logger, log_execution_time
+from utils.stream_utils import emit_node_status
 
 from agent.state import State
 
@@ -1361,6 +1362,8 @@ def validate_group_by_completeness(plan_dict: dict) -> list[str]:
 
 def plan_query(state: State):
     """Create a structured query plan by analyzing schema and user intent."""
+    emit_node_status("planner", "running", "Planning query structure")
+
     user_query = state["user_question"]
     router_mode = state.get("router_mode")
 
@@ -1704,9 +1707,6 @@ def plan_query(state: State):
                         "problematic_field": error_details["problematic_field"],
                     },
                 )
-
-                # Save failed output to debug file
-                from utils.debug_utils import save_debug_file
 
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 save_debug_file(

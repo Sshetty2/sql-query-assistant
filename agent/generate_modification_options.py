@@ -27,9 +27,9 @@ def format_column_name_for_display(column_name: str) -> str:
         return column_name
 
     # Handle snake_case: replace underscores with spaces
-    if '_' in column_name:
+    if "_" in column_name:
         # Split by underscore and join with spaces
-        parts = column_name.split('_')
+        parts = column_name.split("_")
         # Keep acronyms uppercase, title case others
         formatted_parts = []
         for part in parts:
@@ -41,25 +41,27 @@ def format_column_name_for_display(column_name: str) -> str:
             else:
                 # Title case everything else, including 'id' -> 'Id'
                 formatted_parts.append(part.title())
-        return ' '.join(formatted_parts)
+        return " ".join(formatted_parts)
 
     # Handle PascalCase: insert spaces before capital letters
     # Special handling for common suffixes like ID, FK, PK
     result = column_name
 
     # Insert space before capital letters (except at start)
-    result = re.sub(r'(?<!^)(?=[A-Z][a-z])', ' ', result)
+    result = re.sub(r"(?<!^)(?=[A-Z][a-z])", " ", result)
 
     # Handle acronyms at end (e.g., CompanyID → Company ID)
-    result = re.sub(r'([a-z])([A-Z]+)$', r'\1 \2', result)
+    result = re.sub(r"([a-z])([A-Z]+)$", r"\1 \2", result)
 
     # Handle consecutive capitals followed by lowercase (e.g., XMLParser → XML Parser)
-    result = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1 \2', result)
+    result = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", result)
 
     return result
 
 
-def get_selected_columns_map(plan: Dict[str, Any]) -> Dict[str, Dict[str, Dict[str, Any]]]:
+def get_selected_columns_map(
+    plan: Dict[str, Any],
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
     """
     Build a map of selected columns from the plan.
 
@@ -80,15 +82,14 @@ def get_selected_columns_map(plan: Dict[str, Any]) -> Dict[str, Dict[str, Dict[s
             column_map[table][column_name] = {
                 "role": col["role"],
                 "reason": col.get("reason"),
-                "value_type": col.get("value_type", "unknown")
+                "value_type": col.get("value_type", "unknown"),
             }
 
     return column_map
 
 
 def get_table_columns_from_schema(
-    table: str,
-    schema: List[Dict[str, Any]]
+    table: str, schema: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
     """
     Get all columns for a table from the schema.
@@ -107,8 +108,7 @@ def get_table_columns_from_schema(
 
 
 def generate_modification_options(
-    executed_plan: Dict[str, Any],
-    filtered_schema: List[Dict[str, Any]]
+    executed_plan: Dict[str, Any], filtered_schema: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     """
     Generate UI modification options from executed plan and schema.
@@ -173,7 +173,11 @@ def generate_modification_options(
 
             # Check if column is selected in plan
             selected = col_name in selected_map.get(table, {})
-            role = selected_map.get(table, {}).get(col_name, {}).get("role") if selected else None
+            role = (
+                selected_map.get(table, {}).get(col_name, {}).get("role")
+                if selected
+                else None
+            )
 
             # Format display name for UI
             friendly_name = format_column_name_for_display(col_name)
@@ -185,22 +189,21 @@ def generate_modification_options(
                 "selected": selected,
                 "role": role,
                 "is_primary_key": is_pk,
-                "is_nullable": is_nullable
+                "is_nullable": is_nullable,
             }
             columns_list.append(column_info)
 
             # Add to sortable columns (all columns from selected tables)
-            sortable_columns.append({
-                "table": table,
-                "column": col_name,
-                "type": col_type,
-                "display_name": f"{table}.{friendly_name}"
-            })
+            sortable_columns.append(
+                {
+                    "table": table,
+                    "column": col_name,
+                    "type": col_type,
+                    "display_name": f"{table}.{friendly_name}",
+                }
+            )
 
-        tables_dict[table] = {
-            "alias": alias,
-            "columns": columns_list
-        }
+        tables_dict[table] = {"alias": alias, "columns": columns_list}
 
     # Extract current ORDER BY
     current_order_by = executed_plan.get("order_by", [])
@@ -213,7 +216,7 @@ def generate_modification_options(
         "tables": tables_dict,
         "current_order_by": current_order_by,
         "current_limit": current_limit,
-        "sortable_columns": sortable_columns
+        "sortable_columns": sortable_columns,
     }
 
     logger.info(
@@ -244,26 +247,23 @@ def generate_modification_options_node(state: Dict[str, Any]) -> Dict[str, Any]:
         return state
 
     if not filtered_schema:
-        logger.warning("No filtered schema found - cannot generate modification options")
+        logger.warning(
+            "No filtered schema found - cannot generate modification options"
+        )
         return state
 
     try:
         options = generate_modification_options(executed_plan, filtered_schema)
         logger.info("Modification options generated successfully")
 
-        return {
-            **state,
-            "modification_options": options
-        }
+        return {**state, "modification_options": options}
 
     except Exception as e:
         logger.error(f"Error generating modification options: {str(e)}", exc_info=True)
         return state
 
 
-def format_modification_options_for_display(
-    options: Dict[str, Any]
-) -> str:
+def format_modification_options_for_display(options: Dict[str, Any]) -> str:
     """
     Format modification options as human-readable text for debugging.
 
@@ -286,9 +286,7 @@ def format_modification_options_for_display(
             status = "✓" if col["selected"] else " "
             role = f" [{col['role']}]" if col["role"] else ""
             pk = " (PK)" if col.get("is_primary_key") else ""
-            lines.append(
-                f"    [{status}] {col['name']} ({col['type']}){role}{pk}"
-            )
+            lines.append(f"    [{status}] {col['name']} ({col['type']}){role}{pk}")
 
     # Current ORDER BY
     order_by = options.get("current_order_by", [])

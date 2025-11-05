@@ -1043,12 +1043,23 @@ def main():
 
                     # Process stream updates
                     for update in stream:
-                        if update["type"] == "status":
-                            status.update(
-                                label=f"[{i}/{len(patches)}] {update['display_name']}...",
-                                state="running",
-                            )
-                        elif update["type"] == "complete":
+                        print("UPDATE:", update)
+                        # Handle custom events from nodes (status updates and logs)
+                        if "node_name" in update:
+                            node_message = update.get("node_message", "Processing")
+                            node_logs = update.get("node_logs")
+
+                            if update.get("node_status") == "running" and node_message:
+                                status.update(
+                                    label=f"[{i}/{len(patches)}] {node_message}...",
+                                    state="running",
+                                )
+
+                            # Write logs to status container
+                            if node_logs:
+                                status.write(node_logs)
+
+                        elif update.get("type") == "complete":
                             current_output = update["state"]
 
                     if current_output is None:
@@ -1120,11 +1131,19 @@ def main():
             output = None
             # Process stream updates
             for update in stream:
-                if update["type"] == "status":
-                    status.update(
-                        label=f"⏳ {update['display_name']}...", state="running"
-                    )
-                elif update["type"] == "complete":
+                # Handle custom events from nodes (status updates and logs)
+                if "node_name" in update:
+                    node_message = update.get("node_message", "Processing")
+                    node_logs = update.get("node_logs")
+
+                    if update.get("node_status") == "running" and node_message:
+                        status.update(label=f"⏳ {node_message}...", state="running")
+
+                    # Write logs to status container
+                    if node_logs:
+                        status.write(node_logs)
+
+                elif update.get("type") == "complete":
                     output = update["state"]
 
             if output is None:
@@ -1206,14 +1225,26 @@ def main():
                 )
 
                 output = None
+
                 # Process stream updates
                 for update in stream:
-                    if update["type"] == "status":
+                    # Handle custom events from nodes (status updates and logs)
+                    if "node_name" in update:
+                        node_status = update.get("node_status", "running")
+                        node_message = update.get("node_message", "Processing")
+                        node_logs = update.get("node_logs")
+
                         # Update status label with current workflow step
-                        status.update(
-                            label=f"⏳ {update['display_name']}...", state="running"
-                        )
-                    elif update["type"] == "complete":
+                        if node_status == "running" and node_message:
+                            status.update(
+                                label=f"⏳ {node_message}...", state="running"
+                            )
+
+                        # Write logs to status container
+                        if node_logs:
+                            status.write(node_logs)
+
+                    elif update.get("type") == "complete":
                         # Final result received
                         output = update["state"]
 

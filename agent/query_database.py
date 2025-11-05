@@ -14,6 +14,69 @@ from utils.debug_utils import clear_debug_files
 logger = get_logger("query_database")
 
 
+def _create_base_state(
+    thread_id: str,
+    question: str,
+    sort_order: str,
+    result_limit: int,
+    time_filter: str,
+) -> Dict[str, Any]:
+    """Create base state dictionary with default values.
+
+    Args:
+        thread_id: Thread identifier
+        question: User's question
+        sort_order: Sort order preference
+        result_limit: Result limit
+        time_filter: Time filter preference
+
+    Returns:
+        Base state dictionary
+    """
+    return {
+        # Thread management
+        "thread_id": thread_id,
+        # Conversation history
+        "messages": [HumanMessage(content=question)],
+        "user_questions": [question],
+        "user_question": question,
+        # Schema and planning (will be populated by workflow)
+        "schema": [],
+        "planner_outputs": [],
+        "planner_output": None,
+        "filtered_schema": None,
+        "schema_markdown": None,
+        # Query state
+        "queries": [],
+        "query": "",
+        "result": "",
+        # Router state
+        "router_mode": None,
+        "router_instructions": None,
+        # Query preferences
+        "sort_order": sort_order,
+        "result_limit": result_limit,
+        "time_filter": time_filter,
+        # Workflow tracking
+        "last_step": "start_query_pipeline",
+        "error_iteration": 0,
+        "refinement_iteration": 0,
+        "column_removal_count": 0,
+        "removed_columns": [],
+        "last_attempt_time": None,
+        "needs_clarification": False,
+        "clarification_suggestions": [],
+        "correction_history": [],
+        "refinement_history": [],
+        # Patch-specific fields
+        "patch_requested": False,
+        "current_patch_operation": None,
+        "patch_history": [],
+        "executed_plan": None,
+        "modification_options": None,
+    }
+
+
 def query_database(
     question: str,
     sort_order="Default",
@@ -56,45 +119,19 @@ def query_database(
     if thread_id is None:
         # New conversation - create new thread
         thread_id = create_thread(question)
+        initial_state = _create_base_state(
+            thread_id, question, sort_order, result_limit, time_filter
+        )
 
-        # Build full initial state for new thread
-        initial_state = {
-            # Thread management
-            "thread_id": thread_id,
-            # Conversation history
-            "messages": [HumanMessage(content=question)],
-            "user_questions": [question],
-            "user_question": question,
-            # NOTE: is_continuation removed - we always analyze schema now
-            # Schema and planning (will be populated by workflow)
-            "schema": previous_state.get("schema", []),
-            "planner_outputs": [],
-            "planner_output": None,
-            "filtered_schema": previous_state.get("filtered_schema", []),
-            "schema_markdown": previous_state.get("schema_markdown", ""),
-            # Query state
-            "queries": [],
-            "query": "",
-            "result": "",
-            # Router state
-            "router_mode": None,
-            "router_instructions": None,
-            # Query preferences
-            "sort_order": sort_order,
-            "result_limit": result_limit,
-            "time_filter": time_filter,
-            # Workflow tracking
-            "last_step": "start_query_pipeline",
-            "error_iteration": 0,
-            "refinement_iteration": 0,
-            "column_removal_count": 0,
-            "removed_columns": [],
-            "last_attempt_time": None,
-            "needs_clarification": False,
-            "clarification_suggestions": [],
-            "correction_history": [],
-            "refinement_history": [],
-        }
+        # Override schema fields if previous_state provided
+        if previous_state:
+            initial_state["schema"] = previous_state.get("schema", [])
+            initial_state["filtered_schema"] = previous_state.get(
+                "filtered_schema", None
+            )
+            initial_state["schema_markdown"] = previous_state.get(
+                "schema_markdown", None
+            )
     else:
         # Continuation - load previous state if not provided
         if previous_state is None:
@@ -102,80 +139,28 @@ def query_database(
 
         if previous_state:
             # Build state from previous execution
-            user_questions = previous_state.get("user_questions", [])
-            user_questions.append(question)
+            user_questions = previous_state.get("user_questions", []) + [question]
 
-            initial_state = {
-                # Thread management
-                "thread_id": thread_id,
-                # Conversation history
-                "messages": previous_state.get("messages", [])
-                + [HumanMessage(content=question)],
-                "user_questions": user_questions,
-                "user_question": question,  # Latest question
-                # NOTE: is_continuation removed - we always analyze schema now
-                # (no longer carrying over schema since we don't persist it)
-                "schema": [],  # Will be populated fresh by analyze_schema
-                "filtered_schema": None,
-                "schema_markdown": None,
-                "planner_outputs": previous_state.get("planner_outputs", []),
-                "planner_output": previous_state.get("planner_output"),
-                # Carry over query history
-                "queries": previous_state.get("queries", []),
-                "query": previous_state.get("query", ""),
-                "result": "",  # Reset result for new query
-                # Query preferences (use new values if provided, else carry over)
-                "sort_order": sort_order,
-                "result_limit": result_limit,
-                "time_filter": time_filter,
-                # Workflow tracking (reset for new iteration)
-                "last_step": "start_query_pipeline",
-                "error_iteration": 0,
-                "refinement_iteration": 0,
-                "column_removal_count": 0,
-                "removed_columns": [],
-                "last_attempt_time": None,
-                "needs_clarification": False,
-                "clarification_suggestions": [],
-                "correction_history": [],
-                "refinement_history": [],
-            }
+            initial_state = _create_base_state(
+                thread_id, question, sort_order, result_limit, time_filter
+            )
+            # Override with continuation-specific values
+            initial_state.update(
+                {
+                    "messages": previous_state.get("messages", [])
+                    + [HumanMessage(content=question)],
+                    "user_questions": user_questions,
+                    "planner_outputs": previous_state.get("planner_outputs", []),
+                    "planner_output": previous_state.get("planner_output"),
+                    "queries": previous_state.get("queries", []),
+                    "query": previous_state.get("query", ""),
+                }
+            )
         else:
             # No previous state found, treat as new thread
-            initial_state = {
-                # Thread management
-                "thread_id": thread_id,
-                # Conversation history
-                "messages": [HumanMessage(content=question)],
-                "user_questions": [question],
-                "user_question": question,
-                # NOTE: is_continuation and router fields removed
-                # Schema and planning (will be populated by workflow)
-                "schema": [],
-                "planner_outputs": [],
-                "planner_output": None,
-                "filtered_schema": None,
-                "schema_markdown": None,
-                # Query state
-                "queries": [],
-                "query": "",
-                "result": "",
-                # Query preferences
-                "sort_order": sort_order,
-                "result_limit": result_limit,
-                "time_filter": time_filter,
-                # Workflow tracking
-                "last_step": "start_query_pipeline",
-                "error_iteration": 0,
-                "refinement_iteration": 0,
-                "column_removal_count": 0,
-                "removed_columns": [],
-                "last_attempt_time": None,
-                "needs_clarification": False,
-                "clarification_suggestions": [],
-                "correction_history": [],
-                "refinement_history": [],
-            }
+            initial_state = _create_base_state(
+                thread_id, question, sort_order, result_limit, time_filter
+            )
 
     # Add patch-specific fields if patching is requested
     if patch_operation is not None:
@@ -195,117 +180,61 @@ def query_database(
                 "planner_output": executed_plan,  # Set as current plan for regeneration
             }
         )
-    else:
-        # Ensure patch fields are initialized for non-patch queries
-        initial_state.setdefault("patch_requested", False)
-        initial_state.setdefault("current_patch_operation", None)
-        initial_state.setdefault("patch_history", [])
-        initial_state.setdefault("executed_plan", None)
-        initial_state.setdefault("modification_options", None)
-
-    # NEEDS UPDATING IF GRAPH WORKFLOW IS MODIFIED
-    # Node display names for better UI presentation
-    # Maps completed node -> next likely node (what's actually running)
-    NODE_TRANSITIONS = {
-        "__start__": "analyze_schema",
-        "analyze_schema": "filter_schema",
-        "filter_schema": "format_schema_markdown",  # Or infer_foreign_keys if enabled
-        "infer_foreign_keys": "format_schema_markdown",
-        "format_schema_markdown": "pre_planner",  # Two-stage planning: strategy first
-        "pre_planner": "planner",  # Strategy → structured plan
-        "planner": "plan_audit",
-        "plan_audit": "check_clarification",  # Audit feedback disabled, always continues
-        "check_clarification": "generate_query",
-        "generate_query": "execute_query",
-        "execute_query": "generate_modification_options",  # On success
-        "handle_error": "pre_planner",  # Feedback loop: error → pre-planner → planner → SQL
-        "refine_query": "pre_planner",  # Feedback loop: refinement → pre-planner → planner → SQL
-        "transform_plan": "generate_query",
-        "generate_modification_options": "cleanup",
-        "cleanup": "__end__",
-    }
-
-    NODE_DISPLAY_NAMES = {
-        "analyze_schema": "Analyzing database schema",
-        "filter_schema": "Filtering relevant tables",
-        "infer_foreign_keys": "Inferring foreign key relationships",
-        "format_schema_markdown": "Formatting schema for AI",
-        "pre_planner": "Creating query strategy",  # Stage 1: Text-based strategy
-        "planner": "Planning query structure",  # Stage 2: Structured JSON plan
-        "plan_audit": "Validating query plan",
-        "check_clarification": "Checking for ambiguities",
-        "generate_query": "Generating SQL query",
-        "execute_query": "Executing query",
-        "handle_error": "Analyzing error and regenerating strategy",  # Routes back to pre-planner
-        "refine_query": "Analyzing empty results and regenerating strategy",  # Routes back to pre-planner
-        "transform_plan": "Applying plan modifications",
-        "generate_modification_options": "Generating modification options",
-        "cleanup": "Finalizing results",
-    }
 
     # Execute workflow with guaranteed connection cleanup
     try:
         if stream_updates:
-            # Streaming mode: yield status updates as workflow progresses
-            # Show initial status before workflow starts
-            yield {
-                "type": "status",
-                "node": "__start__",
-                "display_name": NODE_DISPLAY_NAMES.get(
-                    "analyze_schema", "Starting workflow"
-                ),
-            }
-
+            # Streaming mode: use both "custom" and "values" stream modes
+            # - "custom": gets custom events emitted by nodes (status, logs)
+            # - "values": gets the final state after workflow completes
             result = None
             for chunk in agent.stream(
-                initial_state, config={"recursion_limit": 1000}, stream_mode="updates"
+                initial_state,
+                config={"recursion_limit": 1000},
+                stream_mode=["custom", "values"],
             ):
-                # chunk is a dict with node name as key
-                for node_name, node_output in chunk.items():
-                    logger.debug(f"Workflow node completed: {node_name}")
+                # When using stream_mode=["custom", "values"], chunks are tuples:
+                # - ("custom", {...}) for custom events from nodes
+                # - ("values", {...}) for state updates
 
-                    # Get the next node that will execute
-                    next_node = NODE_TRANSITIONS.get(node_name, "cleanup")
-                    next_display_name = NODE_DISPLAY_NAMES.get(next_node, "Processing")
+                if isinstance(chunk, tuple) and len(chunk) == 2:
+                    mode, data = chunk
 
-                    # Yield status update showing what's coming NEXT
-                    if next_node != "__end__":
-                        yield {
-                            "type": "status",
-                            "node": next_node,
-                            "display_name": next_display_name,
-                        }
+                    if mode == "custom":
+                        # This is a custom event from a node
+                        logger.debug(f"Received custom stream event: {data}")
+                        yield data
+                    elif mode == "values":
+                        # This is a state update (final state)
+                        result = data
+                        logger.debug("Received final state update")
+                else:
+                    # Fallback for unexpected format
+                    logger.warning(f"Unexpected chunk format: {chunk}")
+                    result = chunk
 
-                    # Store the latest output as result
-                    result = node_output
-
-            # After streaming completes, save and return final result
+            # Validate and finalize result
             if result is None:
                 raise RuntimeError("Workflow completed but no final state was produced")
-
-            # Save the result state to thread
-            query_id = save_query_state(thread_id, question, result)
-
-            # Yield final result
-            yield {
-                "type": "complete",
-                "state": result,
-                "thread_id": thread_id,
-                "query_id": query_id,
-            }
         else:
             # Non-streaming mode: original invoke behavior
             result = agent.invoke(initial_state)
 
-            # Save the result state to thread
-            query_id = save_query_state(thread_id, question, result)
+        # Save the result state to thread
+        query_id = save_query_state(thread_id, question, result)
 
-            # Return state, thread_id, and query_id
-            return {
-                "state": result,
-                "thread_id": thread_id,
-                "query_id": query_id,
-            }
+        # Return/yield final result
+        final_output = {
+            "type": "complete",
+            "state": result,
+            "thread_id": thread_id,
+            "query_id": query_id,
+        }
+
+        if stream_updates:
+            yield final_output
+        else:
+            return final_output
     finally:
         # CRITICAL: Always close the database connection, even if an exception occurred
         # This prevents connection leaks when errors happen before the cleanup node
