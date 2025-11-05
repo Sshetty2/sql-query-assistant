@@ -1043,7 +1043,6 @@ def main():
 
                     # Process stream updates
                     for update in stream:
-                        print("UPDATE:", update)
                         # Handle custom events from nodes (status updates and logs)
                         if "node_name" in update:
                             node_message = update.get("node_message", "Processing")

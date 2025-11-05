@@ -293,13 +293,26 @@ def expand_with_foreign_keys(
     # Track tables added at each depth level for logging
     depth_additions = {0: list(selected_table_names)}
 
+    # Build reverse FK lookup: primary_key_table -> list of tables that reference it
+    reverse_fk_lookup = {}
+    for table_name, foreign_keys in fk_lookup.items():
+        for fk in foreign_keys:
+            pk_table = fk.get("primary_key_table", "")
+            if pk_table:
+                if pk_table not in reverse_fk_lookup:
+                    reverse_fk_lookup[pk_table] = []
+                reverse_fk_lookup[pk_table].append(
+                    {"referencing_table": table_name, "foreign_key": fk.get("foreign_key")}
+                )
+
     # Recursively expand FK relationships up to max_depth
     current_level_tables = set(selected_table_names)
     for depth in range(1, max_depth + 1):
         next_level_tables = set()
 
-        # For each table at current level, find FK references
+        # For each table at current level, find FK references (both forward and reverse)
         for table_name in current_level_tables:
+            # FORWARD FK expansion: Tables this table references (via its FKs)
             if table_name in fk_lookup:
                 foreign_keys = fk_lookup[table_name]
                 for fk in foreign_keys:
@@ -307,16 +320,37 @@ def expand_with_foreign_keys(
                     if referenced_table and referenced_table in table_lookup:
                         if referenced_table not in expanded_table_names:
                             logger.debug(
-                                f"Adding FK table at depth {depth}",
+                                f"Adding FK table (forward) at depth {depth}",
                                 extra={
                                     "from_table": table_name,
                                     "foreign_key": fk.get("foreign_key"),
                                     "referenced_table": referenced_table,
                                     "depth": depth,
+                                    "direction": "forward",
                                 },
                             )
                             expanded_table_names.add(referenced_table)
                             next_level_tables.add(referenced_table)
+
+            # REVERSE FK expansion: Tables that reference this table (via their FKs)
+            if table_name in reverse_fk_lookup:
+                referencing_tables = reverse_fk_lookup[table_name]
+                for ref_info in referencing_tables:
+                    referencing_table = ref_info.get("referencing_table", "")
+                    if referencing_table and referencing_table in table_lookup:
+                        if referencing_table not in expanded_table_names:
+                            logger.debug(
+                                f"Adding FK table (reverse) at depth {depth}",
+                                extra={
+                                    "from_table": table_name,
+                                    "foreign_key": ref_info.get("foreign_key"),
+                                    "referencing_table": referencing_table,
+                                    "depth": depth,
+                                    "direction": "reverse",
+                                },
+                            )
+                            expanded_table_names.add(referencing_table)
+                            next_level_tables.add(referencing_table)
 
         depth_additions[depth] = list(next_level_tables)
 
@@ -682,9 +716,6 @@ def filter_schema(state: State, vector_store=None):
         If a table shows: "Available columns: ID, ScanID, ComputerID, Name, Description"
         Then you can ONLY select from: ID, ScanID, ComputerID, Name, Description
         You CANNOT select: computer_id, scan_id, DeviceName, or any other columns not in the list.
-
-        **Important:** When in doubt, be liberal and include columns from the available list,
-        especially human-readable names and identifiers that users might reference or want to see.
     """
     ).strip()
 

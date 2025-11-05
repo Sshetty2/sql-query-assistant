@@ -134,6 +134,10 @@ def generate_revised_strategy(
         - "Invalid column name 'X'" → Column doesn't exist in that table
         - "Multi-part identifier 'tb_Table.Column' not bound" → Table not joined yet or column doesn't exist
         - "Invalid object name 'tb_Table'" → Table doesn't exist in schema
+        - "Column 'X' is invalid in the ORDER BY clause" → When using GROUP BY, you MUST order by either:
+          1. A column in the GROUP BY clause (e.g., Product, Vendor), OR
+          2. An aggregate alias (e.g., CriticalVulnerabilityCount), NOT the raw aggregated column
+        - "Column 'X' is invalid in the select list" → Column must be in GROUP BY or wrapped in aggregate function
 
         ### STEP 2: List Available Columns for Each Table
         **Before suggesting ANY join, list out the actual columns available in each table you want to use.**
@@ -164,6 +168,8 @@ def generate_revised_strategy(
         - **Filters**: Any WHERE conditions
         - **Aggregations**: GROUP BY if needed
         - **Ordering**: ORDER BY if needed
+          - ⚠️ When using GROUP BY: Order by the AGGREGATE ALIAS (e.g., "CriticalVulnerabilityCount"), NOT the raw column
+          - Example: "Order by CriticalVulnerabilityCount DESC" → NOT "Order by COUNT(tb_CVE.CVEID) DESC"
         - **Limiting**: Result limit if needed
 
         ## CRITICAL RULES
@@ -171,7 +177,8 @@ def generate_revised_strategy(
         2. ⚠️ ONLY use columns that ACTUALLY EXIST in the table (check schema!)
         3. ⚠️ For joins, use Foreign Key relationships from schema
         4. ⚠️ Most table PKs are named "ID" (not TableNameID)
-        5. ⚠️ Preserve the user's intent - just fix the technical errors
+        5. ⚠️ When ordering by aggregates (COUNT, SUM, AVG): Use the aggregate ALIAS, not the raw column name
+        6. ⚠️ Preserve the user's intent - just fix the technical errors
 
         ## OUTPUT
         Write ONLY the corrected strategy in markdown format (no explanation, no preamble).

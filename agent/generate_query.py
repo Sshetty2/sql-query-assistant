@@ -613,12 +613,14 @@ def infer_value_type(value) -> str:
                 return "number"
             return "boolean"
 
-        # Try to parse as number
-        try:
-            float(value)
-            return "number"
-        except (ValueError, TypeError):
-            pass
+        # IMPORTANT: Do NOT automatically treat numeric-looking strings as numbers!
+        # Many VARCHAR columns contain numeric-looking values (e.g., '2012', '20h2', 'v1.2.3')
+        # Only actual Python int/float types should be treated as numbers
+        # This prevents type mismatch errors like:
+        #   "Conversion failed when converting the nvarchar value '20h2' to data type int"
+        #
+        # If we need schema-aware literal generation in the future, add it to
+        # create_typed_literal() with column type information from the schema
 
     # Default to string
     return "string"

@@ -1021,6 +1021,31 @@ def create_planner_prompt(mode: str = None, **format_params):
         - Always set `limit` to the number specified by the user
         - Do NOT put this in `ambiguities` - specify the ORDER BY and LIMIT directly!
 
+        ### 9b. ORDER BY with Aggregates (GROUP BY Queries)
+
+        **⚠️ CRITICAL:** When using `group_by`, you can ONLY order by:
+        1. Columns in `group_by_columns` (e.g., Product, Vendor)
+        2. Aggregate aliases (e.g., SalesCount, VulnerabilityCount)
+
+        **You CANNOT order by raw columns being aggregated!**
+
+        **Example - Counting sales by category:**
+        ```json
+        {{
+          "group_by": {{
+            "group_by_columns": [{{"table": "tb_Products", "column": "Category"}}],
+            "aggregates": [{{"function": "COUNT", "table": "tb_Sales", "column": "ID", "alias": "SalesCount"}}]
+          }},
+          "order_by": [
+            {{"table": "tb_Products", "column": "SalesCount", "direction": "DESC"}}  // ✓ Use alias
+            // NOT {{"table": "tb_Sales", "column": "ID"}}  ← Would cause SQL error!
+          ]
+        }}
+        ```
+
+        **Why:** SQL rejects ORDER BY columns that aren't in GROUP BY or aren't aggregate results.
+        **Error if wrong:** "Column 'X' is invalid in the ORDER BY clause because it is not contained in either an aggregate function or the GROUP BY clause."
+
         ### 10. Date Filters for Relative Queries
 
         **When the user asks for relative date ranges ("last 30 days", "past week", "this month"):**

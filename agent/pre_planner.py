@@ -424,6 +424,11 @@ def _create_standard_preplan_prompt(**format_params):
         - "First N" → ORDER BY timestamp ASC, LIMIT N
         - "Top N" → ORDER BY metric DESC, LIMIT N
 
+        **⚠️ CRITICAL - ORDER BY with Aggregates:**
+        When using GROUP BY with aggregates (COUNT, SUM, AVG):
+        - Order by the aggregate ALIAS (e.g., VulnerabilityCount), NOT the raw column
+        - Example: "Order by VulnerabilityCount DESC" ✓ (NOT "Order by tb_CVE.CVEID DESC" ❌)
+
         ### 6. Complete GROUP BY
         When aggregating:
         - ALL projection columns must be in group by
@@ -783,6 +788,24 @@ def _create_full_preplan_prompt(**format_params):
         - "First N" / "Oldest N" → ORDER BY timestamp ASC, LIMIT N
         - "Top N" / "Bottom N" → ORDER BY metric DESC/ASC, LIMIT N
 
+        **⚠️ CRITICAL - ORDER BY with Aggregates:**
+        When using GROUP BY with aggregates (COUNT, SUM, AVG), you can ONLY order by:
+        1. Columns in the GROUP BY clause (e.g., Product, Vendor)
+        2. The aggregate ALIAS (e.g., VulnerabilityCount, TotalSales)
+
+        You CANNOT order by the raw column being aggregated!
+
+        **Examples:**
+        - ✓ CORRECT: "Order by VulnerabilityCount DESC" (using the aggregate alias)
+        - ✓ CORRECT: "Order by Product ASC" (using a grouped column)
+        - ❌ WRONG: "Order by tb_CVE.CVEID DESC" (raw column being counted)
+        - ❌ WRONG: "Order by COUNT(tb_CVE.CVEID) DESC" (function call, not alias)
+
+        **In your strategy, write:**
+        - "Order by [AggregateAlias] DESC" → Example: "Order by CriticalVulnerabilityCount DESC"
+        - NOT "Order by COUNT(tb_CVE.CVEID) DESC"
+        - NOT "Order by tb_CVE.CVEID DESC"
+
         **LIMIT:**
         - Number of rows to return
         - Reason: Why this limit
@@ -856,6 +879,7 @@ def _create_full_preplan_prompt(**format_params):
 
         ### ORDERING STRATEGY
         - ORDER BY [table].[column] (DATA_TYPE) [ASC/DESC]
+          - ⚠️ For aggregates: Use aggregate alias (e.g., VulnerabilityCount), NOT raw column
         - LIMIT [N]
         - Reason: [explanation]
 
