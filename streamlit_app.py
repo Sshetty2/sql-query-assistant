@@ -691,18 +691,15 @@ def render_query_results(
             st.write("**Full Plan JSON:**")
             st.json(planner_output)
 
-    # Display error corrections and refinements (using new structured history)
-    has_corrections = output.get("correction_history") or output.get(
-        "corrected_queries"
-    )
-    has_refinements = output.get("refinement_history") or output.get("refined_queries")
+    # Display error corrections and refinements
+    has_corrections = bool(output.get("correction_history"))
+    has_refinements = bool(output.get("refinement_history"))
 
     if has_corrections or has_refinements:
         with st.expander("Query History", icon="📜"):
             col1, col2 = st.columns(2)
 
             with col1:
-                # Use new structured history if available, otherwise fall back to legacy
                 correction_history = output.get("correction_history", [])
                 if correction_history:
                     st.subheader("Error Corrections")
@@ -727,34 +724,7 @@ def render_query_results(
 
                         st.divider()
 
-                elif output.get("retry_count", 0) > 0:
-                    # Legacy rendering (backward compatibility)
-                    st.subheader("Error Corrections")
-                    st.write("Retry count:", output["retry_count"])
-                    for i, query in enumerate(output["corrected_queries"], 1):
-                        st.write(f"**Attempt {i}:**")
-                        st.write(f"❌ Error: `{output['error_history'][i-1]}`")
-
-                        if output.get("error_reasoning") and i <= len(
-                            output["error_reasoning"]
-                        ):
-                            st.write(
-                                f"💡 **Reasoning:** {output['error_reasoning'][i-1]}"
-                            )
-
-                        st.write("**Original failing query:**")
-                        st.code(query, language="sql")
-
-                        if output.get("corrected_plans") and i <= len(
-                            output["corrected_plans"]
-                        ):
-                            with st.expander("View corrected plan"):
-                                st.json(output["corrected_plans"][i - 1])
-
-                        st.divider()
-
             with col2:
-                # Use new structured history if available, otherwise fall back to legacy
                 refinement_history = output.get("refinement_history", [])
                 if refinement_history:
                     st.subheader("Query Refinements")
@@ -776,28 +746,6 @@ def render_query_results(
                         # Display the refined plan
                         with st.expander("View refined plan"):
                             st.json(record["plan"])
-
-                        st.divider()
-
-                elif output.get("refined_count", 0) > 0:
-                    # Legacy rendering (backward compatibility)
-                    st.subheader("Query Refinements")
-                    st.write("Refinement count:", output["refined_count"])
-                    for i, query in enumerate(output["refined_queries"], 1):
-                        st.write(f"**Refinement {i}:**")
-                        st.write("⚠️ Previous query returned no results")
-                        st.write(
-                            f"💡 **Reasoning:** {output['refined_reasoning'][i-1]}"
-                        )
-
-                        st.write("**Original query:**")
-                        st.code(query, language="sql")
-
-                        if output.get("refined_plans") and i <= len(
-                            output["refined_plans"]
-                        ):
-                            with st.expander("View refined plan"):
-                                st.json(output["refined_plans"][i - 1])
 
                         st.divider()
 

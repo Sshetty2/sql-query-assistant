@@ -134,8 +134,8 @@ def execute_query(state: State, db_connection):
         "execute_query_input.json",
         {
             "query": query,
-            "retry_count": state.get("retry_count", 0),
-            "refined_count": state.get("refined_count", 0),
+            "error_iteration": state.get("error_iteration", 0),
+            "refinement_iteration": state.get("refinement_iteration", 0),
         },
         step_name="execute_query",
         include_timestamp=True,

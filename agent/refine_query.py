@@ -224,7 +224,6 @@ def refine_query(state: State) -> Dict[str, Any]:
     original_query = state["query"]
     original_plan = state["planner_output"]
     user_question = state["user_question"]
-    refined_count = state.get("refined_count", 0)
     refinement_iteration = state.get("refinement_iteration", 0)
 
     # Get max refinement attempts from environment
@@ -244,7 +243,6 @@ def refine_query(state: State) -> Dict[str, Any]:
     logger.warning(
         f"Query returned no results (iteration {refinement_iteration + 1}/{max_refinements})",
         extra={
-            "refined_count": refined_count,
             "refinement_iteration": refinement_iteration,
         },
     )
@@ -265,9 +263,6 @@ def refine_query(state: State) -> Dict[str, Any]:
             "planner_output": original_plan_dict,
             "needs_termination": True,
             "termination_reason": f"Query returned no results after {max_refinements} refinement attempts",
-            "refined_plans": state["refined_plans"] + [original_plan_dict],
-            "refined_reasoning": state.get("refined_reasoning", [])
-            + ["⚠️ NO RESULTS: Iteration limit reached"],
             "last_step": "refine_query",
         }
 
@@ -275,7 +270,10 @@ def refine_query(state: State) -> Dict[str, Any]:
     schema = (
         state.get("truncated_schema") or state.get("filtered_schema") or state["schema"]
     )
-    refined_plans = state.get("refined_plans", [])
+
+    # Extract previous refinement plans from history for prompt context
+    refinement_history = state.get("refinement_history", [])
+    refined_plans = [record.get("plan", {}) for record in refinement_history]
 
     # Generate refined strategy directly (bypasses pre-planner)
     # Use markdown schema if available (easier for LLM to search)
@@ -331,13 +329,7 @@ def refine_query(state: State) -> Dict[str, Any]:
         "planner_output": original_plan_dict,  # Keep current plan for history
         "revised_strategy": refined_strategy,  # Refined strategy for planner
         "refinement_iteration": refinement_iteration + 1,  # Increment counter
-        # NEW: Structured history tracking
         "refinement_history": state.get("refinement_history", [])
         + [refinement_record.model_dump()],
-        # LEGACY: Keep these for backward compatibility during migration
-        "refined_plans": state["refined_plans"] + [original_plan_dict],
-        "refined_queries": state.get("refined_queries", []) + [original_query],
-        "refined_reasoning": state.get("refined_reasoning", [])
-        + [refinement_record.reasoning],
         "last_step": "refine_query",
     }

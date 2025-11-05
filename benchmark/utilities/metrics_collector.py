@@ -51,8 +51,8 @@ class MetricsCollector:
             state: The final workflow state
         """
         # Extract basic execution info
-        self.metrics["retry_count"] = state.get("retry_count", 0)
-        self.metrics["refinement_count"] = state.get("refined_count", 0)
+        self.metrics["retry_count"] = state.get("error_iteration", 0)
+        self.metrics["refinement_count"] = state.get("refinement_iteration", 0)
 
         # Extract SQL query
         if "query" in state and state["query"]:

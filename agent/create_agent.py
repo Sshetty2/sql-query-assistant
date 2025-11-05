@@ -243,8 +243,8 @@ def route_from_execute_query(
     # Otherwise use the existing should_continue logic
     messages = state["messages"]
     last_message = messages[-1]
-    retry_count = state["retry_count"]
-    refined_count = state["refined_count"]
+    error_iteration = state.get("error_iteration", 0)
+    refinement_iteration = state.get("refinement_iteration", 0)
     result = state["result"]
 
     env_retry_count = int(os.getenv("ERROR_CORRECTION_COUNT")) if os.getenv("ERROR_CORRECTION_COUNT") else 3
@@ -255,14 +255,14 @@ def route_from_execute_query(
     has_error = "Error" in last_message.content
 
     # Handle errors - try error correction first
-    if has_error and retry_count < env_retry_count:
+    if has_error and error_iteration < env_retry_count:
         return "handle_error"
 
     # If we hit max retries with errors, try refinement as last resort
     if (
         has_error
-        and retry_count >= env_retry_count
-        and refined_count < env_refine_count
+        and error_iteration >= env_retry_count
+        and refinement_iteration < env_refine_count
     ):
         logger.info(
             "Max error correction retries reached, routing to refinement as fallback"
@@ -270,7 +270,7 @@ def route_from_execute_query(
         return "refine_query"
 
     # If result is None and refinement is not exhausted, refine
-    if none_result and refined_count < env_refine_count:
+    if none_result and refinement_iteration < env_refine_count:
         return "refine_query"
 
     # Success - generate modification options before cleanup
@@ -288,8 +288,8 @@ def should_continue(state: State) -> Literal["handle_error", "refine_query", "cl
 
     messages = state["messages"]
     last_message = messages[-1]
-    retry_count = state["retry_count"]
-    refined_count = state["refined_count"]
+    error_iteration = state.get("error_iteration", 0)
+    refinement_iteration = state.get("refinement_iteration", 0)
     result = state["result"]
 
     env_retry_count = int(os.getenv("ERROR_CORRECTION_COUNT")) if os.getenv("ERROR_CORRECTION_COUNT") else 3
@@ -300,14 +300,14 @@ def should_continue(state: State) -> Literal["handle_error", "refine_query", "cl
     has_error = "Error" in last_message.content
 
     # Handle errors - try error correction first
-    if has_error and retry_count < env_retry_count:
+    if has_error and error_iteration < env_retry_count:
         return "handle_error"
 
     # If we hit max retries with errors, try refinement as last resort
     if (
         has_error
-        and retry_count >= env_retry_count
-        and refined_count < env_refine_count
+        and error_iteration >= env_retry_count
+        and refinement_iteration < env_refine_count
     ):
         logger.info(
             "Max error correction retries reached, routing to refinement as fallback"
@@ -315,7 +315,7 @@ def should_continue(state: State) -> Literal["handle_error", "refine_query", "cl
         return "refine_query"
 
     # If result is None and refinement is not exhausted, refine
-    if none_result and refined_count < env_refine_count:
+    if none_result and refinement_iteration < env_refine_count:
         return "refine_query"
 
     # Default path if no errors/refinements are needed

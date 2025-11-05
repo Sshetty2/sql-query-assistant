@@ -57,32 +57,13 @@ class State(TypedDict):
     # Workflow tracking
     last_step: str  # Holds current step in the workflow
 
-    # Legacy history fields (DEPRECATED - kept for backward compatibility during migration)
-    corrected_queries: list[
-        str
-    ]  # Corrected query if error occurred (deprecated - use correction_history)
-    corrected_plans: list[
+    # Error correction and refinement history
+    correction_history: list[
         dict[str, Any]
-    ]  # Holds the corrected plans if query error occurred (deprecated - use correction_history)
-    refined_queries: list[
-        str
-    ]  # Refined queries if no results (deprecated - use refinement_history)
-    refined_plans: list[
+    ]  # Structured history of error corrections (contains strategy, plan, query, error, reasoning, iteration)
+    refinement_history: list[
         dict[str, Any]
-    ]  # Holds the refined plans if query returned no results (deprecated - use refinement_history)
-    error_history: list[
-        str
-    ]  # List of errors encountered (deprecated - use correction_history)
-    error_reasoning: list[
-        str
-    ]  # List of reasoning for each error correction (deprecated - use correction_history)
-    refined_reasoning: list[
-        str
-    ]  # List of reasoning for each refinement (deprecated - use refinement_history)
-
-    # Counters
-    retry_count: int  # Number of retries
-    refined_count: int  # Number of times the query has been refined
+    ]  # Structured history of refinements (contains strategy, plan, query, reasoning, iteration)
     column_removal_count: (
         int  # Number of times invalid columns have been removed inline
     )

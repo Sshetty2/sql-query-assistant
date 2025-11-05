@@ -1947,12 +1947,12 @@ def generate_query(state: State):
         )
 
         # Debug: Track SQL query in the queries array
-        retry_count = state.get("retry_count", 0)
-        refined_count = state.get("refined_count", 0)
+        error_iteration = state.get("error_iteration", 0)
+        refinement_iteration = state.get("refinement_iteration", 0)
 
-        if retry_count > 0:
+        if error_iteration > 0:
             step_type = "error_correction_regenerated"
-        elif refined_count > 0:
+        elif refinement_iteration > 0:
             step_type = "refinement_regenerated"
         else:
             step_type = "initial_generation"
@@ -1962,8 +1962,8 @@ def generate_query(state: State):
             {
                 "step": step_type,
                 "sql": query,
-                "retry_count": retry_count,
-                "refined_count": refined_count,
+                "error_iteration": error_iteration,
+                "refinement_iteration": refinement_iteration,
                 "status": "generated",
             },
             step_name="generate_query",

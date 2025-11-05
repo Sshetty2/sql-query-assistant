@@ -252,7 +252,7 @@ def append_to_debug_array(
         append_to_debug_array(
             "error_corrections.json",
             {
-                "attempt": retry_count,
+                "attempt": error_iteration,
                 "error": error_msg,
                 "correction": corrected_plan
             },

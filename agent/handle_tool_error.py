@@ -263,8 +263,8 @@ def handle_tool_error(state) -> dict:
     error_message = state["messages"][-1].content
     original_query = state["query"]
     original_plan = state["planner_output"]
-    retry_count = state.get("retry_count", 0)
     user_question = state.get("user_question", "")
+    error_iteration = state.get("error_iteration", 0)
 
     # Get max error correction attempts from environment
     max_error_corrections = (
@@ -276,7 +276,7 @@ def handle_tool_error(state) -> dict:
     logger.info(
         "Starting plan correction for error",
         extra={
-            "retry_count": retry_count,
+            "error_iteration": error_iteration,
             "error": error_message,
             "original_query": original_query,
         },
@@ -286,8 +286,10 @@ def handle_tool_error(state) -> dict:
     schema = (
         state.get("truncated_schema") or state.get("filtered_schema") or state["schema"]
     )
-    error_history = state["error_history"][:-1]
-    error_iteration = state.get("error_iteration", 0)
+
+    # Get previous error messages from correction_history
+    correction_history = state.get("correction_history", [])
+    error_history = [record.get("error", "") for record in correction_history]
 
     # Get the strategy that led to the error (could be from pre-planner or previous revision)
     previous_strategy = state.get("revised_strategy") or state.get(
@@ -321,9 +323,6 @@ def handle_tool_error(state) -> dict:
             "planner_output": original_plan_dict,
             "needs_termination": True,
             "termination_reason": f"SQL execution error: {error_message}",
-            "corrected_plans": state["corrected_plans"] + [original_plan_dict],
-            "error_reasoning": state.get("error_reasoning", [])
-            + [f"⚠️ ERROR: {error_message}"],
             "last_step": "handle_tool_error",
         }
 
@@ -400,13 +399,7 @@ def handle_tool_error(state) -> dict:
         "planner_output": original_plan_dict,  # Keep current plan for history
         "revised_strategy": revised_strategy,  # Revised strategy for planner
         "error_iteration": error_iteration + 1,  # Increment counter
-        # NEW: Structured history tracking
         "correction_history": state.get("correction_history", [])
         + [correction_record.model_dump()],
-        # LEGACY: Keep these for backward compatibility during migration
-        "corrected_plans": state["corrected_plans"] + [original_plan_dict],
-        "corrected_queries": state.get("corrected_queries", []) + [original_query],
-        "error_reasoning": state.get("error_reasoning", [])
-        + [correction_record.reasoning],
         "last_step": "handle_tool_error",
     }

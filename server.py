@@ -112,22 +112,19 @@ class QueryResponse(BaseModel):
     result_limit: int = Field(description="Maximum number of results requested")
     time_filter: str = Field(description="Time filter applied to the query")
     last_step: str = Field(description="Last step executed in the query pipeline")
-    corrected_queries: List[str] = Field(
-        default_factory=list,
-        description="List of queries that were corrected due to errors",
+    error_iteration: int = Field(
+        default=0, description="Current error correction iteration"
     )
-    refined_queries: List[str] = Field(
-        default_factory=list,
-        description="List of queries that were refined to improve results",
+    refinement_iteration: int = Field(
+        default=0, description="Current refinement iteration"
     )
-    retry_count: int = Field(description="Number of times the query was retried")
-    refined_count: int = Field(description="Number of times the query was refined")
-    error_history: List[str] = Field(
+    correction_history: List[Dict[str, Any]] = Field(
         default_factory=list,
-        description="List of errors encountered during query execution",
+        description="Structured history of error corrections (strategy, plan, query, error, reasoning, iteration)",
     )
-    refined_reasoning: List[str] = Field(
-        default_factory=list, description="Explanations for why queries were refined"
+    refinement_history: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Structured history of refinements (strategy, plan, query, reasoning, iteration)",
     )
     last_attempt_time: Optional[datetime] = Field(
         description="Timestamp of the last query attempt"
