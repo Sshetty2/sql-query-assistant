@@ -81,7 +81,17 @@ def get_page_content(entry):
 
 
 def load_foreign_keys():
-    """Load foreign key mappings from the domain-specific JSON file."""
+    """Load foreign key mappings from the domain-specific JSON file.
+
+    Skips loading when using test database since domain-specific FKs are
+    specific to the production schema and may not apply to test databases.
+    """
+    # Skip domain-specific FKs when using test database
+    use_test_db = os.getenv("USE_TEST_DB", "").lower() == "true"
+    if use_test_db:
+        logger.info("Using test database, skipping domain-specific foreign keys")
+        return []
+
     fk_path = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
         "domain_specific_guidance",
@@ -100,7 +110,17 @@ def load_foreign_keys():
 
 
 def load_table_metadata():
-    """Load table metadata from the domain-specific JSON file."""
+    """Load table metadata from the domain-specific JSON file.
+
+    Skips loading when using test database since domain-specific metadata is
+    specific to the production schema and may not apply to test databases.
+    """
+    # Skip domain-specific metadata when using test database
+    use_test_db = os.getenv("USE_TEST_DB", "").lower() == "true"
+    if use_test_db:
+        logger.info("Using test database, skipping domain-specific table metadata")
+        return {}
+
     metadata_path = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
         "domain_specific_guidance",
@@ -567,7 +587,21 @@ def filter_schema(state: State, vector_store=None):
     # ============================================================================
     logger.info("Stage 2: Recursively expanding candidates with FK-related tables")
 
+    # Load domain-specific FKs (returns [] for test DB)
     foreign_keys_data = load_foreign_keys()
+
+    # If no domain-specific FKs, extract from schema (introspected FKs)
+    if not foreign_keys_data:
+        logger.info("No domain-specific FKs found, using introspected FKs from schema")
+        foreign_keys_data = [
+            {"table_name": table["table_name"], "foreign_keys": table.get("foreign_keys", [])}
+            for table in full_schema
+            if table.get("foreign_keys")
+        ]
+        logger.info(
+            f"Extracted {len(foreign_keys_data)} tables with FKs from schema",
+            extra={"tables_with_fks": [item["table_name"] for item in foreign_keys_data]}
+        )
 
     with log_execution_time(logger, "stage2_foreign_key_expansion"):
         # Expand candidates with FK-related tables (2 levels deep)

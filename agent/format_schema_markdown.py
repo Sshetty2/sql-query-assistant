@@ -114,7 +114,7 @@ def format_schema_to_markdown(schema: list) -> str:
 
         # Add indicator if columns have been filtered
         if is_filtered:
-            markdown_lines.append(f"## {table_name} (filtered columns)")
+            markdown_lines.append(f"## TABLE: {table_name} (filtered columns)")
         else:
             markdown_lines.append(f"## {table_name}")
         markdown_lines.append("")
