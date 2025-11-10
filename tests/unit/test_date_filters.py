@@ -41,10 +41,15 @@ class TestDateValueTypeInference:
 
     def test_infer_numeric_types(self):
         """Test that numeric types are still correctly identified."""
+        # Python int and float types should be recognized as numbers
         assert infer_value_type(123) == "number"
         assert infer_value_type(45.67) == "number"
-        assert infer_value_type("123") == "number"
-        assert infer_value_type("45.67") == "number"
+
+        # Numeric-looking strings are intentionally NOT treated as numbers
+        # This prevents SQL type errors when comparing with VARCHAR columns
+        # that may contain values like '2012', '20h2', 'v1.2.3'
+        assert infer_value_type("123") == "string"
+        assert infer_value_type("45.67") == "string"
 
     def test_infer_boolean_types(self):
         """Test that boolean types are still correctly identified."""

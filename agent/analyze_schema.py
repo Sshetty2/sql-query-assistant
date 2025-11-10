@@ -13,7 +13,7 @@ load_dotenv()
 logger = get_logger()
 
 
-def analyze_schema(state: State, db_connection):
+def analyze_schema(state: State):
     """
     Retrieve comprehensive schema information using SQLAlchemy introspection.
 
@@ -25,12 +25,26 @@ def analyze_schema(state: State, db_connection):
     - Additional metadata from domain-specific files (if available)
 
     Args:
-        state: Current workflow state
-        db_connection: Database connection (pyodbc or sqlite3)
+        state: Current workflow state (includes db_connection)
 
     Returns:
         Updated state with schema information
     """
+    # Get connection from state
+    db_connection = state.get("db_connection")
+    if not db_connection:
+        log_and_stream(
+            logger,
+            "analyze_schema",
+            "No database connection available in state",
+            level="error"
+        )
+        emit_node_status("analyze_schema", "error")
+        return {
+            **state,
+            "messages": [AIMessage(content="Error: No database connection available")],
+            "last_step": "analyze_schema",
+        }
     # Emit status update for streaming
     emit_node_status("analyze_schema", "running", "Analyzing database schema")
 

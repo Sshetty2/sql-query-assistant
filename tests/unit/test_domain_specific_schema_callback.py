@@ -57,12 +57,11 @@ def test_remove_empty_properties():
     assert remove_empty_properties(input_data) == expected
 
 
-@patch("os.getenv")
-def test_combine_schema_with_test_db(mock_getenv):
-    mock_getenv.return_value = "true"
-    schema = [{"table_name": "test"}]
-    result = combine_schema(schema)
-    assert result == schema
+def test_combine_schema_with_test_db():
+    with patch.dict("os.environ", {"USE_TEST_DB": "true"}):
+        schema = [{"table_name": "test"}]
+        result = combine_schema(schema)
+        assert result == schema
 
 
 def test_combine_schema_full(
@@ -77,8 +76,8 @@ def test_combine_schema_full(
         json.dump(sample_foreign_keys, f)
 
     # Mock the current directory to point to tmp_path and USE_TEST_DB=false
-    with patch("os.path.dirname", return_value=str(tmp_path)), patch(
-        "os.getenv", return_value="false"
+    with patch("os.path.dirname", return_value=str(tmp_path)), patch.dict(
+        "os.environ", {"USE_TEST_DB": "false"}
     ):
         result = combine_schema(sample_schema)
 
@@ -165,7 +164,7 @@ def test_combine_schema_removes_misleading_columns(sample_schema):
     ]
 
     # Mock USE_TEST_DB=false and no metadata files
-    with patch("os.getenv", return_value="false"), patch(
+    with patch.dict("os.environ", {"USE_TEST_DB": "false"}), patch(
         "os.path.exists", return_value=False
     ):
         result = combine_schema(schema_with_isdeleted)

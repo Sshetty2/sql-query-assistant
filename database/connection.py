@@ -36,7 +36,12 @@ def build_connection_string():
 def get_db_connection():
     """Get a SQLDatabase instance using the appropriate connection string."""
     if os.getenv("USE_TEST_DB", "").lower() == "true":
-        return SQLDatabase.from_uri(f"sqlite:///{sample_db_path}")
+        # Use connect_args to pass check_same_thread=False to SQLite
+        # This allows the connection to be used across threads in LangGraph workflows
+        return SQLDatabase.from_uri(
+            f"sqlite:///{sample_db_path}",
+            engine_args={"connect_args": {"check_same_thread": False}}
+        )
 
     connection_string = build_connection_string()
     return SQLDatabase.from_uri(f"mssql+pyodbc:///?odbc_connect={connection_string}")
@@ -48,7 +53,13 @@ def get_pyodbc_connection():
     if os.getenv("USE_TEST_DB", "").lower() == "true":
         import sqlite3
 
-        return sqlite3.connect(connection_string)
+        # Allow SQLite connection to be used across threads
+        # This is necessary because LangGraph may execute workflow nodes in different threads
+        # check_same_thread=False is safe here because:
+        # 1. We're not doing concurrent writes (single workflow execution)
+        # 2. Connection is managed by workflow state machine
+        # 3. Proper cleanup is enforced in cleanup node
+        return sqlite3.connect(connection_string, check_same_thread=False)
     return pyodbc.connect(connection_string)
 
 

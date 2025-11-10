@@ -8,8 +8,6 @@ from utils.logger import get_logger
 load_dotenv()
 logger = get_logger()
 
-use_test_db = os.getenv("USE_TEST_DB").lower() == "true"
-
 
 def load_domain_specific_json(filename):
     """Utility function to load JSON from the domain-specific-guidance directory.
@@ -201,6 +199,10 @@ def combine_schema(json_schema, include_foreign_keys=True):
         Modified schema with misleading tables/columns removed, metadata added,
         and optionally foreign keys (if domain-specific files exist)
     """
+    # Check environment variable at runtime instead of module load time
+    # This allows tests to override the value
+    use_test_db = os.getenv("USE_TEST_DB", "false").lower() == "true"
+
     if use_test_db:
         logger.info("Using test database, skipping domain-specific modifications")
         return json_schema

@@ -12,6 +12,9 @@ class State(TypedDict):
     # Thread management
     thread_id: str  # Unique identifier for this conversation thread
 
+    # Database connection (created once, passed through workflow, closed in cleanup)
+    db_connection: Optional[Any]  # pyodbc.Connection or sqlite3.Connection
+
     # Conversation history fields
     user_questions: list[str]  # History of all user questions in conversation
     user_question: str  # Current/latest user question (convenience field)

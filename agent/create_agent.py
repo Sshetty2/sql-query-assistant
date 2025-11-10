@@ -3,9 +3,9 @@
 import os
 from typing import Literal
 from langgraph.graph import StateGraph, END, START
-from langchain_core.messages import AIMessage
 from dotenv import load_dotenv
 
+from agent.initialize_connection import initialize_connection
 from agent.analyze_schema import analyze_schema
 from agent.filter_schema import filter_schema
 from agent.infer_foreign_keys import infer_foreign_keys_node
@@ -26,8 +26,6 @@ from agent.generate_modification_options import generate_modification_options_no
 from agent.state import State
 from utils.logger import get_logger
 from utils.stream_utils import emit_node_status
-
-from database.connection import get_pyodbc_connection
 
 load_dotenv()
 logger = get_logger()
@@ -55,12 +53,12 @@ def is_none_result(result):
 
 def route_from_start(
     state: State,
-) -> Literal["analyze_schema", "transform_plan"]:
+) -> Literal["initialize_connection", "transform_plan"]:
     """
     Route from START.
 
     - If patch_requested=True: route directly to transform_plan (skip analysis/planning)
-    - Otherwise: analyze schema for new query
+    - Otherwise: initialize connection for new query
 
     NOTE: Conversational router disabled for now. We always fetch fresh schema
     since we don't persist it in state anymore (to avoid inflating saved state).
@@ -71,8 +69,8 @@ def route_from_start(
         logger.info("Patch requested, routing directly to transform_plan")
         return "transform_plan"
 
-    # Normal flow: analyze schema for new query
-    return "analyze_schema"
+    # Normal flow: initialize connection for new query
+    return "initialize_connection"
 
 
 # DISABLED: Conversational router commented out for now
@@ -333,18 +331,15 @@ def create_sql_agent():
     """Create the SQL agent.
 
     Returns:
-        Tuple of (compiled_workflow, db_connection)
-        The connection is returned so it can be closed in a finally block
-        if an error occurs before the cleanup node is reached.
+        Compiled workflow graph
+        Note: Connection is now managed within the workflow state (created in
+        initialize_connection node, closed in cleanup node)
     """
     workflow = StateGraph(State)
 
-    db_connection = get_pyodbc_connection()
-
     # Add all nodes
-    workflow.add_node(
-        "analyze_schema", lambda state: analyze_schema(state, db_connection)
-    )
+    workflow.add_node("initialize_connection", initialize_connection)
+    workflow.add_node("analyze_schema", analyze_schema)
     workflow.add_node("filter_schema", filter_schema)
     workflow.add_node("infer_foreign_keys", infer_foreign_keys_node)
     workflow.add_node("format_schema_markdown", convert_schema_to_markdown)
@@ -357,11 +352,9 @@ def create_sql_agent():
     workflow.add_node("plan_audit", plan_audit)  # Audit plan before SQL generation
     workflow.add_node("check_clarification", check_clarification)
     workflow.add_node("generate_query", generate_query)
-    workflow.add_node(
-        "execute_query", lambda state: execute_query(state, db_connection)
-    )
+    workflow.add_node("execute_query", execute_query)
     workflow.add_node("handle_error", handle_tool_error)
-    workflow.add_node("cleanup", lambda state: cleanup_connection(state, db_connection))
+    workflow.add_node("cleanup", cleanup_connection)
     workflow.add_node("refine_query", refine_query)
     # Plan patching nodes
     workflow.add_node("transform_plan", transform_plan_node)
@@ -373,6 +366,7 @@ def create_sql_agent():
     workflow.add_conditional_edges(START, route_from_start)
 
     # Standard workflow path (new conversations)
+    workflow.add_edge("initialize_connection", "analyze_schema")
     workflow.add_edge("analyze_schema", "filter_schema")
     # Conditional routing from filter_schema based on FK inference flag
     workflow.add_conditional_edges("filter_schema", route_after_filter_schema)
@@ -411,10 +405,10 @@ def create_sql_agent():
     # - Error correction loops (up to 3 iterations)
     # - Refinement loops (up to 3 iterations)
     # Set to 100 to be safe (each iteration adds ~10-15 steps)
-    return workflow.compile(), db_connection
+    return workflow.compile()
 
 
-def cleanup_connection(state: State, connection):
+def cleanup_connection(state: State):
     """Cleanup node to ensure connection is closed and handle termination.
 
     Handles two scenarios:
@@ -423,14 +417,21 @@ def cleanup_connection(state: State, connection):
     """
     emit_node_status("cleanup", "running", "Finalizing results")
 
-    try:
-        connection.close()
-        logger.debug("Database connection closed successfully")
-    except Exception as e:
-        logger.error(f"Error closing database connection: {str(e)}", exc_info=True)
+    # Get connection from state
+    connection = state.get("db_connection")
+
+    if connection:
+        try:
+            connection.close()
+            logger.debug("Database connection closed successfully")
+        except Exception as e:
+            logger.error(f"Error closing database connection: {str(e)}", exc_info=True)
+    else:
+        logger.debug("No database connection to close")
 
     # Normal cleanup - query succeeded
     logger.debug("Workflow completed successfully")
     emit_node_status("cleanup", "completed")
     # NOTE: schema is not persisted in state anymore - always fetch fresh
-    return {**state, "schema": [], "last_step": "cleanup"}
+    # Set db_connection to None for serialization
+    return {**state, "schema": [], "db_connection": None, "last_step": "cleanup"}

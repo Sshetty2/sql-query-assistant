@@ -19,6 +19,17 @@ logger = get_logger()
 MAX_COLUMN_REMOVALS = 3
 
 
+def get_sql_dialect():
+    """Get the SQL dialect based on database type.
+
+    Returns:
+        str: 'sqlite' for test database, 'tsql' for SQL Server
+    """
+    import os
+    is_test_db = os.getenv("USE_TEST_DB", "").lower() == "true"
+    return "sqlite" if is_test_db else "tsql"
+
+
 def parse_invalid_column_name(error_message: str) -> str | None:
     """
     Parse the invalid column name from a SQL Server error message.
@@ -67,7 +78,7 @@ def remove_column_from_query(query: str, column_name: str) -> str | None:
             for expr in expressions:
                 # Get the column name from the expression
                 # Handle cases like: column_name, table.column_name, column_name AS alias
-                column_text = expr.sql(dialect="tsql")
+                column_text = expr.sql(dialect=get_sql_dialect())
 
                 # Check if this expression references the invalid column
                 # Use word boundaries to match the exact column name
@@ -87,7 +98,7 @@ def remove_column_from_query(query: str, column_name: str) -> str | None:
             select.set("expressions", new_expressions)
 
         # Generate the modified query
-        modified_query = parsed.sql(dialect="tsql")
+        modified_query = parsed.sql(dialect=get_sql_dialect())
         return modified_query
 
     except Exception as e:
@@ -106,9 +117,25 @@ def json_serial(obj):
     raise TypeError(f"Type {type(obj)} not serializable")
 
 
-def execute_query(state: State, db_connection):
+def execute_query(state: State):
     """Execute the SQL query and return the result."""
     emit_node_status("execute_query", "running", "Executing query")
+
+    # Get connection from state
+    db_connection = state.get("db_connection")
+    if not db_connection:
+        error_msg = "No database connection available in state"
+        log_and_stream(
+            logger,
+            "execute_query",
+            error_msg,
+            level="error"
+        )
+        return {
+            **state,
+            "result": None,
+            "messages": state["messages"] + [AIMessage(content=f"Error: {error_msg}")],
+        }
 
     query = state["query"]
     DEFAULT_LIMIT = 500  # Default limit for large result sets
@@ -159,14 +186,15 @@ def execute_query(state: State, db_connection):
         extracted_limit = None
 
         try:
-            parsed = sqlglot.parse_one(query, read="tsql")
+            dialect = get_sql_dialect()
+            parsed = sqlglot.parse_one(query, read=dialect)
             # Check if query has LIMIT
             if parsed.args.get("limit"):
                 extracted_limit = parsed.args["limit"]
                 # Remove LIMIT for counting
                 parsed.set("limit", None)
                 query_without_limit = parsed.sql(
-                    dialect="tsql", pretty=True, identify=True
+                    dialect=get_sql_dialect(), pretty=True, identify=True
                 )
                 logger.debug("Removed LIMIT clause for initial count query")
         except Exception as parse_error:
@@ -237,7 +265,8 @@ def execute_query(state: State, db_connection):
 
                 # Apply the limit to query
                 try:
-                    parsed_limited = sqlglot.parse_one(query_without_limit, read="tsql")
+                    dialect = get_sql_dialect()
+                    parsed_limited = sqlglot.parse_one(query_without_limit, read=dialect)
                     from sqlglot.expressions import Limit
 
                     parsed_limited.set(
@@ -245,7 +274,7 @@ def execute_query(state: State, db_connection):
                         Limit(expression=sqlglot.parse_one(str(limit_to_apply))),
                     )
                     final_query = parsed_limited.sql(
-                        dialect="tsql", pretty=True, identify=True
+                        dialect=dialect, pretty=True, identify=True
                     )
                 except Exception as limit_error:
                     log_and_stream(
@@ -253,10 +282,15 @@ def execute_query(state: State, db_connection):
                         "execute_query",
                         f"Could not add LIMIT clause: {limit_error}",
                     )
-                    # Fall back to TSQL TOP syntax
-                    final_query = query_without_limit.replace(
-                        "SELECT", f"SELECT TOP {limit_to_apply}", 1
-                    )
+                    # Fall back to dialect-specific syntax
+                    if dialect == "sqlite":
+                        # SQLite: add LIMIT clause at the end
+                        final_query = f"{query_without_limit.rstrip(';')} LIMIT {limit_to_apply}"
+                    else:
+                        # SQL Server: use TOP syntax
+                        final_query = query_without_limit.replace(
+                            "SELECT", f"SELECT TOP {limit_to_apply}", 1
+                        )
 
                 cursor.execute(final_query)
                 final_results = cursor.fetchall()

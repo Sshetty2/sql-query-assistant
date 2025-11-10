@@ -290,7 +290,15 @@ def get_planner_model_class(complexity: str = None):
 
 
 def load_domain_guidance():
-    """Load domain-specific guidance if available."""
+    """Load domain-specific guidance if available.
+
+    Skips loading when using test database since guidance is specific to production schema.
+    """
+    # Skip domain-specific guidance when using test database
+    if os.getenv("USE_TEST_DB", "").lower() == "true":
+        logger.info("Using test database, skipping domain-specific guidance")
+        return None
+
     guidance_path = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
         "domain-specific-guidance",

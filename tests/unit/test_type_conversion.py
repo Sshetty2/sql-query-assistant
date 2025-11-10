@@ -34,13 +34,19 @@ class TestValueTypeInference:
         # String '0' and '1' should be treated as numbers for BIT compatibility
         assert infer_value_type('0') == 'number'
         assert infer_value_type('1') == 'number'
+
+        # Python int and float types should be recognized as numbers
         assert infer_value_type(0) == 'number'
         assert infer_value_type(1) == 'number'
         assert infer_value_type(42) == 'number'
         assert infer_value_type(3.14) == 'number'
-        assert infer_value_type('42') == 'number'
-        assert infer_value_type('3.14') == 'number'
-        assert infer_value_type('9.0') == 'number'
+
+        # Other numeric-looking strings are intentionally NOT treated as numbers
+        # This prevents SQL type errors when comparing with VARCHAR columns
+        # that may contain values like '2012', '20h2', 'v1.2.3'
+        assert infer_value_type('42') == 'string'
+        assert infer_value_type('3.14') == 'string'
+        assert infer_value_type('9.0') == 'string'
 
     def test_string_values(self):
         """Test string value inference."""
@@ -82,7 +88,7 @@ class TestTypedLiteralCreation:
 
     def test_numeric_literal(self):
         """Test numeric literal creation."""
-        # Integer
+        # Python numeric types (int, float) are treated as numbers
         literal = create_typed_literal(0)
         assert isinstance(literal, exp.Literal)
         assert literal.sql() == '0'
@@ -94,16 +100,17 @@ class TestTypedLiteralCreation:
         literal = create_typed_literal(3.14)
         assert literal.sql() == '3.14'
 
-        # String numbers (for BIT columns: '0', '1')
+        # String numbers for BIT columns ('0', '1') are special-cased as numbers
         literal = create_typed_literal('0')
         assert literal.sql() == '0'
 
         literal = create_typed_literal('1')
         assert literal.sql() == '1'
 
-        # String decimals
+        # Other numeric-looking strings are treated as strings (quoted)
+        # This prevents SQL type errors with VARCHAR columns
         literal = create_typed_literal('9.0')
-        assert literal.sql() == '9.0'
+        assert literal.sql() == "'9.0'"  # Quoted as a string
 
     def test_string_literal(self):
         """Test string literal creation."""

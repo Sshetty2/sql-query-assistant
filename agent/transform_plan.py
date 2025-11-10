@@ -2,6 +2,7 @@
 
 import copy
 from typing import Any, Dict, List, Optional
+from database.connection import get_pyodbc_connection
 from utils.logger import get_logger
 from utils.stream_utils import emit_node_status, log_and_stream
 
@@ -397,6 +398,26 @@ def transform_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     emit_node_status("transform_plan", "running", "Applying plan modifications")
 
     log_and_stream(logger, "transform_plan", "Transform Plan Node started")
+
+    # Ensure database connection exists (needed for patch operations that skip initialize_connection)
+    if not state.get("db_connection"):
+        log_and_stream(logger, "transform_plan", "Creating database connection for patch operation")
+        try:
+            db_connection = get_pyodbc_connection()
+            state = {**state, "db_connection": db_connection}
+        except Exception as e:
+            log_and_stream(
+                logger,
+                "transform_plan",
+                f"Failed to create database connection: {str(e)}",
+                level="error"
+            )
+            return {
+                **state,
+                "patch_requested": False,
+                "messages": state.get("messages", [])
+                + [{"role": "assistant", "content": f"Error: Could not create database connection: {str(e)}"}],
+            }
 
     # Get required state
     current_patch = state.get("current_patch_operation")

@@ -36,6 +36,8 @@ def _create_base_state(
     return {
         # Thread management
         "thread_id": thread_id,
+        # Database connection (will be created by initialize_connection node)
+        "db_connection": None,
         # Conversation history
         "messages": [HumanMessage(content=question)],
         "user_questions": [question],
@@ -111,9 +113,9 @@ def query_database(
     # This prevents confusion when looking at debug files
     clear_debug_files()
 
-    # Create agent (this also creates a database connection)
-    # The connection will be stored in the agent's closure and passed to nodes
-    agent, db_connection = create_sql_agent()
+    # Create agent (connection is now managed within workflow state)
+    # The connection is created in initialize_connection node and closed in cleanup node
+    agent = create_sql_agent()
 
     # Determine if this is a new thread or continuation
     if thread_id is None:
@@ -236,20 +238,27 @@ def query_database(
         else:
             return final_output
     finally:
-        # CRITICAL: Always close the database connection, even if an exception occurred
+        # CRITICAL: Safety net to close the database connection if workflow was interrupted
         # This prevents connection leaks when errors happen before the cleanup node
-        # NOTE: In normal flow, the cleanup node already closes the connection,
-        # but this ensures cleanup even if workflow is interrupted by an exception
+        # NOTE: In normal flow, the cleanup node already closes the connection and sets
+        # db_connection to None. This only runs if workflow was interrupted by an exception.
         try:
+            # Try to get connection from result state if available
+            db_connection = None
+            if 'result' in locals() and result and isinstance(result, dict):
+                db_connection = result.get("db_connection")
+
             if db_connection and hasattr(db_connection, "close"):
                 # Check if connection is still open (pyodbc connections have a 'closed' attribute)
                 if hasattr(db_connection, "closed") and db_connection.closed:
                     logger.debug("Database connection already closed by cleanup node")
                 else:
                     db_connection.close()
-                    logger.debug(
-                        "Database connection closed successfully in finally block"
+                    logger.warning(
+                        "Database connection was not closed by cleanup node - closed in finally block"
                     )
+            else:
+                logger.debug("No open database connection found in state (likely already closed)")
         except Exception as e:
             # This is okay - connection might already be closed by cleanup node
             logger.debug(

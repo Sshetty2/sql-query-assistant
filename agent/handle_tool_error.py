@@ -187,7 +187,7 @@ def generate_revised_strategy(
         ```
         {original_strategy}
         ```
-    """
+    """  # noqa: E501
     ).strip()
 
     try:

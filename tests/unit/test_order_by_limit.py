@@ -1,108 +1,113 @@
 """Tests for ORDER BY and LIMIT support in planner models and query generation."""
 
+import os
+from unittest.mock import patch
 from agent.generate_query import build_sql_query, get_database_context
 
 
 def test_plan_with_order_by_and_limit():
     """Test that plan's order_by and limit are used in generated SQL."""
-    plan_dict = {
-        "selections": [
-            {
-                "table": "tb_Logins",
-                "alias": None,
-                "columns": [
-                    {"column": "ID", "role": "projection"},
-                    {"column": "UserName", "role": "projection"},
-                    {"column": "LoginDate", "role": "projection"},
-                ],
-                "filters": [],
-            }
-        ],
-        "join_edges": [],
-        "global_filters": [],
-        "group_by": None,
-        "window_functions": [],
-        "subquery_filters": [],
-        # ORDER BY and LIMIT from plan
-        "order_by": [
-            {"table": "tb_Logins", "column": "LoginDate", "direction": "DESC"}
-        ],
-        "limit": 10,
-    }
+    # Force SQL Server mode for consistent testing
+    with patch.dict(os.environ, {"USE_TEST_DB": "false"}):
+        plan_dict = {
+            "selections": [
+                {
+                    "table": "tb_Logins",
+                    "alias": None,
+                    "columns": [
+                        {"column": "ID", "role": "projection"},
+                        {"column": "UserName", "role": "projection"},
+                        {"column": "LoginDate", "role": "projection"},
+                    ],
+                    "filters": [],
+                }
+            ],
+            "join_edges": [],
+            "global_filters": [],
+            "group_by": None,
+            "window_functions": [],
+            "subquery_filters": [],
+            # ORDER BY and LIMIT from plan
+            "order_by": [
+                {"table": "tb_Logins", "column": "LoginDate", "direction": "DESC"}
+            ],
+            "limit": 10,
+        }
 
-    state = {
-        "sort_order": "Default",  # Plan should override this
-        "result_limit": 100,  # Plan should override this
-        "time_filter": "All Time",
-    }
+        state = {
+            "sort_order": "Default",  # Plan should override this
+            "result_limit": 100,  # Plan should override this
+            "time_filter": "All Time",
+        }
 
-    db_context = get_database_context()
-    sql = build_sql_query(plan_dict, state, db_context)
+        db_context = get_database_context()
+        sql = build_sql_query(plan_dict, state, db_context)
 
-    # Verify ORDER BY is present with DESC
-    assert "ORDER BY" in sql.upper()
-    assert "[LoginDate]" in sql
-    assert "DESC" in sql.upper()
+        # Verify ORDER BY is present with DESC
+        assert "ORDER BY" in sql.upper()
+        assert "[LoginDate]" in sql
+        assert "DESC" in sql.upper()
 
-    # Verify LIMIT is 10 (from plan), not 100 (from state)
-    # SQL Server/SQLite both support LIMIT in SQLGlot output
-    assert "LIMIT 10" in sql.upper() or "TOP 10" in sql.upper()
+        # Verify TOP 10 is used (SQL Server syntax)
+        assert "TOP 10" in sql.upper()
 
     print(f"Generated SQL:\n{sql}")
 
 
 def test_plan_order_by_multiple_columns():
     """Test ORDER BY with multiple columns."""
-    plan_dict = {
-        "selections": [
-            {
-                "table": "tb_Customers",
-                "alias": None,
-                "columns": [
-                    {"column": "ID", "role": "projection"},
-                    {"column": "Name", "role": "projection"},
-                    {"column": "Revenue", "role": "projection"},
-                    {"column": "Country", "role": "projection"},
-                ],
-                "filters": [],
-            }
-        ],
-        "join_edges": [],
-        "global_filters": [],
-        "group_by": None,
-        "window_functions": [],
-        "subquery_filters": [],
-        "order_by": [
-            {"table": "tb_Customers", "column": "Country", "direction": "ASC"},
-            {"table": "tb_Customers", "column": "Revenue", "direction": "DESC"},
-        ],
-        "limit": 5,
-    }
+    # Force SQL Server mode for consistent testing
+    with patch.dict(os.environ, {"USE_TEST_DB": "false"}):
+        plan_dict = {
+            "selections": [
+                {
+                    "table": "tb_Customers",
+                    "alias": None,
+                    "columns": [
+                        {"column": "ID", "role": "projection"},
+                        {"column": "Name", "role": "projection"},
+                        {"column": "Revenue", "role": "projection"},
+                        {"column": "Country", "role": "projection"},
+                    ],
+                    "filters": [],
+                }
+            ],
+            "join_edges": [],
+            "global_filters": [],
+            "group_by": None,
+            "window_functions": [],
+            "subquery_filters": [],
+            "order_by": [
+                {"table": "tb_Customers", "column": "Country", "direction": "ASC"},
+                {"table": "tb_Customers", "column": "Revenue", "direction": "DESC"},
+            ],
+            "limit": 5,
+        }
 
-    state = {
-        "sort_order": "Default",
-        "result_limit": 0,
-        "time_filter": "All Time",
-    }
+        state = {
+            "sort_order": "Default",
+            "result_limit": 0,
+            "time_filter": "All Time",
+        }
 
-    db_context = get_database_context()
-    sql = build_sql_query(plan_dict, state, db_context)
+        db_context = get_database_context()
+        sql = build_sql_query(plan_dict, state, db_context)
 
-    # Verify both ORDER BY columns are present
-    assert "ORDER BY" in sql.upper()
-    assert "[Country]" in sql
-    assert "[Revenue]" in sql
+        # Verify both ORDER BY columns are present
+        assert "ORDER BY" in sql.upper()
+        assert "[Country]" in sql
+        assert "[Revenue]" in sql
 
-    # Extract the ORDER BY clause to check column order
-    order_by_start = sql.upper().find("ORDER BY")
-    order_by_clause = sql[order_by_start:]
+        # Extract the ORDER BY clause to check column order
+        order_by_start = sql.upper().find("ORDER BY")
+        order_by_clause = sql[order_by_start:]
 
-    # Country should come before Revenue in the ORDER BY clause
-    country_pos = order_by_clause.upper().find("[COUNTRY]")
-    revenue_pos = order_by_clause.upper().find("[REVENUE]")
-    assert country_pos < revenue_pos, "Country should come before Revenue in ORDER BY clause"
+        # Country should come before Revenue in the ORDER BY clause
+        country_pos = order_by_clause.upper().find("[COUNTRY]")
+        revenue_pos = order_by_clause.upper().find("[REVENUE]")
+        assert country_pos < revenue_pos, "Country should come before Revenue in ORDER BY clause"
 
-    print(f"Generated SQL:\n{sql}")
+        print(f"Generated SQL:\n{sql}")
 
 
 def test_fallback_to_state_when_no_plan_order_by():
@@ -188,45 +193,47 @@ def test_plan_limit_without_order_by():
 
 def test_asc_direction():
     """Test ORDER BY with ASC direction (for 'first N' queries)."""
-    plan_dict = {
-        "selections": [
-            {
-                "table": "tb_Entries",
-                "alias": None,
-                "columns": [
-                    {"column": "ID", "role": "projection"},
-                    {"column": "CreatedOn", "role": "projection"},
-                ],
-                "filters": [],
-            }
-        ],
-        "join_edges": [],
-        "global_filters": [],
-        "group_by": None,
-        "window_functions": [],
-        "subquery_filters": [],
-        "order_by": [
-            {"table": "tb_Entries", "column": "CreatedOn", "direction": "ASC"}
-        ],
-        "limit": 3,
-    }
+    # Force SQL Server mode for consistent testing
+    with patch.dict(os.environ, {"USE_TEST_DB": "false"}):
+        plan_dict = {
+            "selections": [
+                {
+                    "table": "tb_Entries",
+                    "alias": None,
+                    "columns": [
+                        {"column": "ID", "role": "projection"},
+                        {"column": "CreatedOn", "role": "projection"},
+                    ],
+                    "filters": [],
+                }
+            ],
+            "join_edges": [],
+            "global_filters": [],
+            "group_by": None,
+            "window_functions": [],
+            "subquery_filters": [],
+            "order_by": [
+                {"table": "tb_Entries", "column": "CreatedOn", "direction": "ASC"}
+            ],
+            "limit": 3,
+        }
 
-    state = {
-        "sort_order": "Default",
-        "result_limit": 0,
-        "time_filter": "All Time",
-    }
+        state = {
+            "sort_order": "Default",
+            "result_limit": 0,
+            "time_filter": "All Time",
+        }
 
-    db_context = get_database_context()
-    sql = build_sql_query(plan_dict, state, db_context)
+        db_context = get_database_context()
+        sql = build_sql_query(plan_dict, state, db_context)
 
-    # Verify ASC direction
-    assert "ORDER BY" in sql.upper()
-    assert "[CreatedOn]" in sql
-    assert "ASC" in sql.upper()
-    assert "LIMIT 3" in sql.upper() or "TOP 3" in sql.upper()
+        # Verify ASC direction
+        assert "ORDER BY" in sql.upper()
+        assert "[CreatedOn]" in sql
+        assert "ASC" in sql.upper()
+        assert "TOP 3" in sql.upper()
 
-    print(f"Generated SQL:\n{sql}")
+        print(f"Generated SQL:\n{sql}")
 
 
 if __name__ == "__main__":
