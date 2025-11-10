@@ -49,11 +49,66 @@ def remove_empty_properties(data):
         return data
 
 
+def remove_misleading_tables(json_schema):
+    """Remove tables that are misleading and interfere with query generation.
+
+    This function removes entire tables that should not be considered during
+    schema filtering and query planning.
+
+    Args:
+        json_schema: The database schema with tables and columns
+
+    Returns:
+        Schema with misleading tables removed
+
+    Example:
+        Nessus-related tables are removed because they are outdated/misleading
+        and cause the LLM to generate incorrect queries.
+    """
+    # Tables to remove (case-insensitive matching)
+    table_patterns_to_remove = [
+        "nessus",  # Any table containing "nessus" (case-insensitive)
+    ]
+
+    original_count = len(json_schema)
+
+    # Filter out tables matching any of the patterns
+    filtered_schema = []
+    removed_tables = []
+
+    for table in json_schema:
+        table_name = table.get("table_name", "").lower()
+        should_remove = any(
+            pattern.lower() in table_name for pattern in table_patterns_to_remove
+        )
+
+        if should_remove:
+            removed_tables.append(table.get("table_name"))
+        else:
+            filtered_schema.append(table)
+
+    removed_count = len(removed_tables)
+    if removed_count > 0:
+        logger.info(
+            f"Removed {removed_count} misleading table(s) from schema",
+            extra={
+                "removed_tables": removed_tables,
+                "original_count": original_count,
+                "filtered_count": len(filtered_schema),
+            },
+        )
+
+    return filtered_schema
+
+
 def remove_misleading_columns(json_schema):
     """Remove columns that are misleading due to data quality issues.
 
     This function removes columns that appear to be boolean flags (0/1) but actually
     contain NULL values, which breaks filter logic and leads to incorrect queries.
+
+    Exception: StatusID is kept for tb_CVECDAMap as it contains important CVE status
+    information (Matched/Unmatched/Assessment states).
 
     Args:
         json_schema: The database schema with tables and columns
@@ -71,6 +126,9 @@ def remove_misleading_columns(json_schema):
         "OrgID",
     ]  # Add more column names here as needed
 
+    # Tables where StatusID should be kept (exception to the removal rule)
+    statusid_exceptions = ["tb_CVECDAMap"]
+
     removed_count = 0
     for table in json_schema:
         table_name = table.get("table_name")
@@ -79,9 +137,15 @@ def remove_misleading_columns(json_schema):
         # Track original count
         original_count = len(columns)
 
+        # Determine which columns to remove for this specific table
+        columns_to_remove_for_table = columns_to_remove.copy()
+        if table_name in statusid_exceptions:
+            # Keep StatusID for exception tables
+            columns_to_remove_for_table.remove("StatusID")
+
         # Filter out misleading columns
         filtered_columns = [
-            col for col in columns if col.get("column_name") not in columns_to_remove
+            col for col in columns if col.get("column_name") not in columns_to_remove_for_table
         ]
 
         # Update table columns
@@ -97,7 +161,7 @@ def remove_misleading_columns(json_schema):
                     "table": table_name,
                     "removed_columns": [
                         col
-                        for col in columns_to_remove
+                        for col in columns_to_remove_for_table
                         if col in [c.get("column_name") for c in columns]
                     ],
                 },
@@ -116,15 +180,16 @@ def combine_schema(json_schema, include_foreign_keys=True):
     """Combine schema with domain-specific table metadata and foreign keys.
 
     This function:
-    1. Removes misleading columns (like IsDeleted with NULL values)
-    2. Enriches schema with domain-specific table metadata
-    3. Adds domain-specific foreign key relationships
+    1. Removes misleading tables (like Nessus tables that interfere with queries)
+    2. Removes misleading columns (like IsDeleted with NULL values)
+    3. Enriches schema with domain-specific table metadata
+    4. Adds domain-specific foreign key relationships
 
     This function looks for domain-specific JSON files in the domain-specific-guidance directory:
     - domain-specific-table-metadata.json
     - domain-specific-foreign-keys.json
 
-    If these files don't exist, the original schema is returned with only column filtering applied.
+    If these files don't exist, the original schema is returned with only table/column filtering applied.
 
     Args:
         json_schema: The database schema to enrich with metadata
@@ -133,17 +198,20 @@ def combine_schema(json_schema, include_foreign_keys=True):
                              but not ground truth FKs. (default: True)
 
     Returns:
-        Modified schema with misleading columns removed, metadata added,
+        Modified schema with misleading tables/columns removed, metadata added,
         and optionally foreign keys (if domain-specific files exist)
     """
     if use_test_db:
         logger.info("Using test database, skipping domain-specific modifications")
         return json_schema
 
-    # Step 1: Remove misleading columns (always do this)
+    # Step 1: Remove misleading tables (always do this first)
+    json_schema = remove_misleading_tables(json_schema)
+
+    # Step 2: Remove misleading columns (always do this)
     json_schema = remove_misleading_columns(json_schema)
 
-    # Step 2: Load domain-specific metadata and foreign keys
+    # Step 3: Load domain-specific metadata and foreign keys
     table_metadata = load_domain_specific_json("domain-specific-table-metadata.json")
 
     # Only load foreign keys if requested
@@ -153,11 +221,11 @@ def combine_schema(json_schema, include_foreign_keys=True):
 
     if not table_metadata and not foreign_keys:
         logger.info(
-            "No domain-specific metadata or foreign keys found, returning schema with column filtering only"
+            "No domain-specific metadata or foreign keys found, returning schema with table/column filtering only"
         )
         return json_schema
 
-    # Step 3: Combine metadata and foreign keys
+    # Step 4: Combine metadata and foreign keys
 
     metadata_map = {entry["table_name"]: entry for entry in (table_metadata or [])}
     foreign_keys_map = {}
