@@ -6,7 +6,6 @@ from textwrap import dedent
 from dotenv import load_dotenv
 
 from langchain_openai import OpenAIEmbeddings
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -25,6 +24,7 @@ def get_embedding_model():
     """Get the appropriate embedding model based on environment configuration."""
     if is_using_ollama():
         # Use local HuggingFace embeddings for local LLM
+        from langchain_huggingface import HuggingFaceEmbeddings
         embedding_model_name = os.getenv(
             "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
         )

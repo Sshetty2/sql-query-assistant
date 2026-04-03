@@ -2,7 +2,6 @@
 
 import json
 import re
-import pyodbc
 import sqlglot
 from sqlglot import exp
 
@@ -386,7 +385,12 @@ def execute_query(state: State):
         is_column_error = False
         error_code = None
 
-        if pyodbc and isinstance(e, pyodbc.ProgrammingError):
+        try:
+            import pyodbc as _pyodbc
+        except ImportError:
+            _pyodbc = None
+
+        if _pyodbc and isinstance(e, _pyodbc.ProgrammingError):
             # Extract error code from the exception
             # pyodbc.ProgrammingError: ('42S22', "[42S22] ... Invalid column name 'X' ...")
             if len(e.args) >= 1:

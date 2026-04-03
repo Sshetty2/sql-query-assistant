@@ -1,7 +1,6 @@
 """Database connection utilities."""
 
 import os
-import pyodbc
 from langchain_community.utilities import SQLDatabase
 from dotenv import load_dotenv
 
@@ -60,6 +59,7 @@ def get_pyodbc_connection():
         # 2. Connection is managed by workflow state machine
         # 3. Proper cleanup is enforced in cleanup node
         return sqlite3.connect(connection_string, check_same_thread=False)
+    import pyodbc
     return pyodbc.connect(connection_string)
 
 
