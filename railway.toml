@@ -1,8 +1,2 @@
 [build]
 dockerfilePath = "Dockerfile.streamlit"
-
-[deploy]
-healthcheckPath = "/_stcore/health"
-healthcheckTimeout = 120
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
