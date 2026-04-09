@@ -1,0 +1,10 @@
+[build]
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+# No public domain — only accessible via Railway private networking
+# Frontend proxy connects via http://<service>.railway.internal:8000

@@ -19,3 +19,6 @@ Thumbs.db
 
 .git/
 .gitignore
+
+demo_frontend/node_modules/
+demo_frontend/dist/

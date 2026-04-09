@@ -17,6 +17,10 @@ domain_specific_guidance/domain-specific-*.md
 
 .claude/
 
+# Frontend build artifacts
+demo_frontend/node_modules/
+demo_frontend/dist/
+
 thread_states.json
 
 *.xlsx
