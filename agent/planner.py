@@ -1858,6 +1858,22 @@ def plan_query(state: State):
             plan.decision == "clarify" if hasattr(plan, "decision") else False
         )
 
+        # Emit planner metadata
+        emit_node_status("planner", "completed", metadata={
+            "intent_summary": plan_dict.get("intent_summary", ""),
+            "decision": plan_dict.get("decision", ""),
+            "table_count": len(plan_dict.get("selections", [])),
+            "tables": [s.get("table", "") for s in plan_dict.get("selections", [])],
+            "join_count": len(plan_dict.get("join_edges", [])),
+            "filter_count": sum(
+                len(s.get("filters", []))
+                for s in plan_dict.get("selections", [])
+            ) + len(plan_dict.get("global_filters", [])),
+            "has_aggregation": bool(plan_dict.get("group_by", {}).get("aggregates")),
+            "has_order_by": bool(plan_dict.get("order_by")),
+            "limit": plan_dict.get("limit"),
+        })
+
         # Prepare return state
         return_state = {
             **state,

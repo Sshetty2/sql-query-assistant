@@ -1,4 +1,14 @@
-import type { QueryRequest, PatchRequest, StatusEvent, QueryResult } from "./types";
+import type {
+  QueryRequest,
+  PatchRequest,
+  StatusEvent,
+  QueryResult,
+  ChatRequest,
+  ChatTokenEvent,
+  ChatToolStartEvent,
+  ChatToolErrorEvent,
+  ChatCompleteEvent,
+} from "./types";
 
 // All API calls go through the /api proxy on the same origin.
 // In production, the Node server proxies /api/* to the backend via Railway private networking.
@@ -93,6 +103,7 @@ function streamSSE(
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let receivedComplete = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -109,6 +120,7 @@ function streamSSE(
             if (event.type === "status") {
               callbacks.onStatus(parsed as StatusEvent);
             } else if (event.type === "complete") {
+              receivedComplete = true;
               callbacks.onComplete(parsed as QueryResult);
             } else if (event.type === "error") {
               callbacks.onError(parsed.detail || "Unknown error");
@@ -117,6 +129,29 @@ function streamSSE(
             callbacks.onError(`Failed to parse event: ${event.data}`);
           }
         }
+      }
+
+      // Flush remaining buffer after stream ends
+      if (buffer.trim()) {
+        const { events } = parseSSEEvents(buffer + "\n\n");
+        for (const event of events) {
+          try {
+            const parsed = JSON.parse(event.data);
+            if (event.type === "complete") {
+              receivedComplete = true;
+              callbacks.onComplete(parsed as QueryResult);
+            } else if (event.type === "error") {
+              callbacks.onError(parsed.detail || "Unknown error");
+            }
+          } catch {
+            // Ignore unparseable trailing data
+          }
+        }
+      }
+
+      // If stream ended without a complete event, signal error
+      if (!receivedComplete) {
+        callbacks.onError("Stream ended without completing");
       }
     })
     .catch((err: Error) => {
@@ -148,4 +183,148 @@ export function streamPatch(
   callbacks: StreamCallbacks
 ): AbortController {
   return streamSSE("/api/query/patch", request, callbacks);
+}
+
+// ---------------------------------------------------------------------------
+// Chat reset
+// ---------------------------------------------------------------------------
+
+/**
+ * Reset the server-side chat conversation memory for a session.
+ */
+export async function resetChat(sessionId: string): Promise<void> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const csrfToken = getCsrfToken();
+  if (csrfToken) {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+
+  await fetch("/api/query/chat/reset", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Chat streaming (agentic — supports tool calls)
+// ---------------------------------------------------------------------------
+
+interface ChatStreamCallbacks {
+  onToken: (event: ChatTokenEvent) => void;
+  onComplete: (result: ChatCompleteEvent) => void;
+  onError: (error: string) => void;
+  onToolStart?: (event: ChatToolStartEvent) => void;
+  onToolResult?: (result: QueryResult) => void;
+  onToolError?: (event: ChatToolErrorEvent) => void;
+  onStatus?: (event: StatusEvent) => void;
+}
+
+/**
+ * Stream a chat message about query results via SSE.
+ * Supports tool_start and tool_result events from the agentic chat loop.
+ * Returns an AbortController to cancel the request.
+ */
+export function streamChat(
+  request: ChatRequest,
+  callbacks: ChatStreamCallbacks
+): AbortController {
+  const controller = new AbortController();
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const csrfToken = getCsrfToken();
+  if (csrfToken) {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+
+  fetch("/api/query/chat", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(request),
+    signal: controller.signal,
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        const text = await response.text();
+        callbacks.onError(`HTTP ${response.status}: ${text}`);
+        return;
+      }
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let receivedComplete = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const { events, remaining } = parseSSEEvents(buffer);
+        buffer = remaining;
+
+        for (const event of events) {
+          try {
+            const parsed = JSON.parse(event.data);
+
+            if (event.type === "token") {
+              callbacks.onToken(parsed as ChatTokenEvent);
+            } else if (event.type === "complete") {
+              receivedComplete = true;
+              callbacks.onComplete(parsed as ChatCompleteEvent);
+            } else if (event.type === "error") {
+              callbacks.onError(parsed.detail || "Unknown error");
+            } else if (event.type === "tool_start") {
+              callbacks.onToolStart?.(parsed as ChatToolStartEvent);
+            } else if (event.type === "tool_result") {
+              callbacks.onToolResult?.(parsed as QueryResult);
+            } else if (event.type === "tool_error") {
+              callbacks.onToolError?.(parsed as ChatToolErrorEvent);
+            } else if (event.type === "status") {
+              callbacks.onStatus?.(parsed as StatusEvent);
+            }
+          } catch {
+            callbacks.onError(`Failed to parse event: ${event.data}`);
+          }
+        }
+      }
+
+      // Flush remaining buffer after stream ends
+      if (buffer.trim()) {
+        const { events } = parseSSEEvents(buffer + "\n\n");
+        for (const event of events) {
+          try {
+            const parsed = JSON.parse(event.data);
+            if (event.type === "complete") {
+              receivedComplete = true;
+              callbacks.onComplete(parsed as ChatCompleteEvent);
+            } else if (event.type === "error") {
+              callbacks.onError(parsed.detail || "Unknown error");
+            } else if (event.type === "token") {
+              callbacks.onToken(parsed as ChatTokenEvent);
+            } else if (event.type === "tool_result") {
+              callbacks.onToolResult?.(parsed as QueryResult);
+            }
+          } catch {
+            // Ignore unparseable trailing data
+          }
+        }
+      }
+
+      // If stream ended without a complete event, signal error
+      if (!receivedComplete) {
+        callbacks.onError("Stream ended without completing");
+      }
+    })
+    .catch((err: Error) => {
+      if (err.name !== "AbortError") {
+        callbacks.onError(err.message);
+      }
+    });
+
+  return controller;
 }

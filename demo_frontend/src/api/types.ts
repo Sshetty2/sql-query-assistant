@@ -13,6 +13,7 @@ export interface QueryRequest {
   sort_order?: SortOrder;
   result_limit?: number;
   time_filter?: TimeFilter;
+  chat_session_id?: string;
 }
 
 export interface PatchRequest {
@@ -30,6 +31,7 @@ export interface StatusEvent {
   node_message?: string;
   node_logs?: string;
   log_level?: string;
+  node_metadata?: Record<string, unknown>;
 }
 
 export interface QueryResult {
@@ -56,6 +58,72 @@ export interface QueryResult {
   executed_plan: Record<string, unknown> | null;
   filtered_schema: Record<string, unknown>[] | null;
   total_records_available: number | null;
+  data_summary: DataSummary | null;
+  query_narrative: string | null;
+}
+
+// Data summary types
+
+export interface ColumnSummary {
+  type: "numeric" | "text" | "datetime" | "boolean" | "null";
+  null_count: number;
+  distinct_count: number;
+  min?: number | string | null;
+  max?: number | string | null;
+  avg?: number | null;
+  median?: number | null;
+  sum?: number | null;
+  min_length?: number | null;
+  max_length?: number | null;
+  avg_length?: number | null;
+  top_values?: { value: string; count: number }[];
+  range_days?: number | null;
+}
+
+export interface DataSummary {
+  row_count: number;
+  total_records_available: number | null;
+  column_count: number;
+  columns: Record<string, ColumnSummary>;
+}
+
+// Chat types
+
+export interface ChatMessage {
+  role: "user" | "assistant" | "tool_start" | "tool_result" | "tool_error" | "data_summary";
+  content: string;
+  resultId?: string; // Links to a stored QueryResult in localStorage
+  failedQuery?: string; // The query that failed (for retry)
+  dataSummary?: DataSummary; // Inline data summary stats (for data_summary and tool_result)
+  query?: string; // SQL query text (for data_summary messages)
+}
+
+export interface ChatRequest {
+  thread_id: string;
+  query_id: string;
+  message: string;
+  session_id?: string;
+}
+
+export interface ChatTokenEvent {
+  content: string;
+}
+
+export interface ChatToolStartEvent {
+  tool: string;
+  input: { query: string };
+}
+
+export interface ChatToolErrorEvent {
+  detail: string;
+  query: string;
+}
+
+export interface ChatCompleteEvent {
+  content: string;
+  suggest_new_query: boolean;
+  suggested_query: string | null;
+  tool_calls_remaining: number;
 }
 
 export interface ModificationOptions {

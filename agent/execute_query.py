@@ -359,6 +359,14 @@ def execute_query(state: State):
         executed_plan = state.get("planner_output")
         executed_query = final_query
 
+        emit_node_status("execute_query", "completed", metadata={
+            "row_count": len(data),
+            "column_count": len(columns),
+            "total_records_available": total_count,
+            "limit_applied": should_apply_limit,
+            "columns": columns[:10],
+        })
+
         return {
             **state,
             "messages": [AIMessage(content="Query Successfully Executed")],

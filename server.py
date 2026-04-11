@@ -93,6 +93,8 @@ def build_query_response(state: dict, metadata: dict = None) -> dict:
         "executed_plan": state.get("executed_plan"),
         "filtered_schema": state.get("filtered_schema"),
         "total_records_available": state.get("total_records_available"),
+        "data_summary": state.get("data_summary"),
+        "query_narrative": state.get("query_narrative"),
     }
 
 
@@ -139,6 +141,12 @@ class QueryRequest(BaseModel):
         ],
     )
 
+    chat_session_id: Optional[str] = Field(
+        default=None,
+        title="Chat Session ID",
+        description="Frontend session ID for conversation continuity. Generated per browser session.",
+    )
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -163,6 +171,9 @@ class PatchRequest(BaseModel):
     )
     filtered_schema: List[Dict[str, Any]] = Field(
         description="The filtered schema from the original query result"
+    )
+    chat_session_id: Optional[str] = Field(
+        default=None, description="Frontend session ID for conversation continuity"
     )
 
 
@@ -228,6 +239,12 @@ class QueryResponse(BaseModel):
     total_records_available: Optional[int] = Field(
         default=None, description="Total records available before LIMIT"
     )
+    data_summary: Optional[Dict[str, Any]] = Field(
+        default=None, description="Deterministic statistics computed from query results"
+    )
+    query_narrative: Optional[str] = Field(
+        default=None, description="AI-generated narrative summary of query results"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +274,7 @@ async def process_query(request: QueryRequest) -> QueryResponse:
             sort_order=request.sort_order,
             result_limit=request.result_limit,
             time_filter=request.time_filter,
+            chat_session_id=request.chat_session_id,
         )
 
         state = output["state"]
@@ -290,11 +308,16 @@ async def stream_query(request: QueryRequest):
                 result_limit=request.result_limit,
                 time_filter=request.time_filter,
                 stream_updates=True,
+                chat_session_id=request.chat_session_id,
             )
 
             for update in stream:
                 if update.get("type") == "complete":
                     state = update["state"]
+                    logger.info(
+                        f"[stream] complete: chat_session_id={state.get('chat_session_id')!r}, "
+                        f"query_narrative={'YES' if state.get('query_narrative') else 'NO'}"
+                    )
                     response_data = build_query_response(state, update)
                     yield f"event: complete\ndata: {json.dumps(response_data, default=str)}\n\n"
                 else:
@@ -306,6 +329,7 @@ async def stream_query(request: QueryRequest):
                         "node_message": update.get("node_message"),
                         "node_logs": update.get("node_logs"),
                         "log_level": update.get("log_level"),
+                        "node_metadata": update.get("node_metadata"),
                     }
                     yield f"event: status\ndata: {json.dumps(event_data)}\n\n"
 
@@ -345,6 +369,7 @@ async def patch_query(request: PatchRequest):
                 filtered_schema=request.filtered_schema,
                 thread_id=request.thread_id,
                 stream_updates=True,
+                chat_session_id=request.chat_session_id,
             )
 
             for update in stream:
@@ -360,6 +385,7 @@ async def patch_query(request: PatchRequest):
                         "node_message": update.get("node_message"),
                         "node_logs": update.get("node_logs"),
                         "log_level": update.get("log_level"),
+                        "node_metadata": update.get("node_metadata"),
                     }
                     yield f"event: status\ndata: {json.dumps(event_data)}\n\n"
 
@@ -377,6 +403,184 @@ async def patch_query(request: PatchRequest):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Chat endpoint — conversational data assistant
+# ---------------------------------------------------------------------------
+
+class ChatRequest(BaseModel):
+    """Request model for chatting about query results."""
+
+    thread_id: str = Field(description="Thread ID from the original query")
+    query_id: str = Field(description="Query ID for the specific result set")
+    message: str = Field(description="User's chat message about the results")
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Frontend session ID for conversation memory. Falls back to thread_id:query_id if not provided.",
+    )
+
+
+class ChatResetRequest(BaseModel):
+    """Request model for resetting chat conversation memory."""
+
+    session_id: str = Field(description="Session ID to clear from memory")
+
+
+@app.post(
+    "/query/chat",
+    summary="Chat About Query Results via SSE",
+    description="""
+    Send a message about existing query results and receive a streamed LLM response.
+    The chat agent can invoke tools (e.g., run_query) to fetch new data when needed.
+
+    Event types:
+    - `token`: A chunk of the response text {"content": "..."}
+    - `tool_start`: Agent is executing a tool {"tool": "run_query", "input": {"query": "..."}}
+    - `tool_result`: New query results from tool execution (full QueryResult shape)
+    - `complete`: Final response with metadata {"content": "...", "tool_calls_remaining": N, ...}
+    - `error`: Error details {"detail": "..."}
+    """,
+)
+async def chat_query(request: ChatRequest):
+    """Chat about query results via Server-Sent Events (agentic loop)."""
+    from agent.chat_agent import (
+        prepare_data_context,
+        stream_chat_agentic,
+    )
+    from agent.generate_data_summary import compute_data_summary
+    from utils.thread_manager import get_query_state
+
+    def event_generator():
+        try:
+            # Load query state from thread storage
+            state = get_query_state(request.thread_id, request.query_id)
+            if not state:
+                error_data = json.dumps({"detail": "Query not found for the given thread_id and query_id"})
+                yield f"event: error\ndata: {error_data}\n\n"
+                return
+
+            result_json = state.get("result", "")
+            data_summary = state.get("data_summary")
+            sql_query = state.get("query", "")
+            user_question = state.get("user_question", "")
+
+            if not result_json:
+                error_data = json.dumps({"detail": "No results found for this query"})
+                yield f"event: error\ndata: {error_data}\n\n"
+                return
+
+            # Compute summary on the fly if missing (backward compatibility)
+            if not data_summary:
+                total_records = state.get("total_records_available")
+                data_summary = compute_data_summary(result_json, total_records)
+
+            # Build context for the agentic loop
+            session_id = request.session_id or f"{request.thread_id}:{request.query_id}"
+            context = prepare_data_context(
+                result_json, data_summary, sql_query, user_question,
+                filtered_schema=state.get("filtered_schema"),
+                planner_output=state.get("planner_output"),
+            )
+
+            # Stream events from the agentic loop
+            for event in stream_chat_agentic(
+                session_id=session_id,
+                message=request.message,
+                data_context=context,
+                thread_id=request.thread_id,
+                query_id=request.query_id,
+            ):
+                event_type = event.get("type", "")
+                logger.info(f"[chat-sse] Emitting event: {event_type}")
+
+                if event_type == "token":
+                    content_preview = event["content"][:80] if event["content"] else "(empty)"
+                    logger.info(f"[chat-sse] token: {content_preview!r}...")
+                    token_data = json.dumps({"content": event["content"]})
+                    yield f"event: token\ndata: {token_data}\n\n"
+
+                elif event_type == "tool_start":
+                    logger.info(f"[chat-sse] tool_start: {event['tool']}({event['input']})")
+                    tool_data = json.dumps({
+                        "tool": event["tool"],
+                        "input": event["input"],
+                    })
+                    yield f"event: tool_start\ndata: {tool_data}\n\n"
+
+                elif event_type == "tool_result":
+                    ds = (event.get("result") or {}).get("data_summary")
+                    row_count = ds.get("row_count", "?") if ds else "?"
+                    logger.info(f"[chat-sse] tool_result: {row_count} rows")
+                    result_data = json.dumps(
+                        event["result"], default=str
+                    )
+                    yield f"event: tool_result\ndata: {result_data}\n\n"
+
+                elif event_type == "complete":
+                    content_len = len(event.get("content", ""))
+                    remaining = event.get("tool_calls_remaining", 0)
+                    logger.info(f"[chat-sse] complete: {content_len} chars, {remaining} tool calls remaining")
+                    complete_data = json.dumps({
+                        "content": event.get("content", ""),
+                        "suggest_new_query": event.get("suggest_new_query", False),
+                        "suggested_query": event.get("suggested_query"),
+                        "tool_calls_remaining": event.get("tool_calls_remaining", 0),
+                    })
+                    yield f"event: complete\ndata: {complete_data}\n\n"
+
+                elif event_type == "status":
+                    event_data = {
+                        "type": "status",
+                        "node_name": event.get("node_name"),
+                        "node_status": event.get("node_status"),
+                        "node_message": event.get("node_message"),
+                        "node_metadata": event.get("node_metadata"),
+                    }
+                    yield f"event: status\ndata: {json.dumps(event_data)}\n\n"
+
+                elif event_type == "tool_error":
+                    logger.warning(f"[chat-sse] tool_error: {event.get('detail', '?')}")
+                    tool_err_data = json.dumps({
+                        "detail": event.get("detail", "Unknown error"),
+                        "query": event.get("query", ""),
+                    })
+                    yield f"event: tool_error\ndata: {tool_err_data}\n\n"
+
+                elif event_type == "error":
+                    logger.error(f"[chat-sse] error: {event.get('detail', '?')}")
+                    error_data = json.dumps({"detail": event.get("detail", "Unknown error")})
+                    yield f"event: error\ndata: {error_data}\n\n"
+
+            logger.info("[chat-sse] Event generator finished")
+
+        except Exception as e:
+            logger.error(f"Chat stream error: {str(e)}", exc_info=True)
+            error_data = json.dumps({"detail": str(e)})
+            yield f"event: error\ndata: {error_data}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post(
+    "/query/chat/reset",
+    summary="Reset Chat Conversation",
+    description="Clear the in-memory conversation history for a given session.",
+)
+async def reset_chat(request: ChatResetRequest):
+    """Clear chat session memory."""
+    from agent.chat_agent import clear_chat_session
+
+    clear_chat_session(request.session_id)
+    return {"status": "ok", "session_id": request.session_id}
 
 
 @app.get("/", summary="Health Check", description="Returns the API status.")

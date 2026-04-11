@@ -5,7 +5,8 @@ from langgraph.config import get_stream_writer
 
 
 def emit_node_status(
-    node_name: str, status: str = "running", message: Optional[str] = None
+    node_name: str, status: str = "running", message: Optional[str] = None,
+    metadata: Optional[dict] = None
 ):
     """
     Emit a status update for the current workflow node.
@@ -14,16 +15,18 @@ def emit_node_status(
         node_name: Name of the current node
         status: Status of the node ("running", "completed", "error")
         message: Optional custom message
+        metadata: Optional dict with step-level details (e.g. table counts, SQL preview)
     """
     try:
         writer = get_stream_writer()
-        writer(
-            {
-                "node_name": node_name,
-                "node_status": status,
-                "node_message": message,
-            }
-        )
+        payload = {
+            "node_name": node_name,
+            "node_status": status,
+            "node_message": message,
+        }
+        if metadata is not None:
+            payload["node_metadata"] = metadata
+        writer(payload)
     except Exception:
         # Stream writer not available (non-streaming mode), silently continue
         pass

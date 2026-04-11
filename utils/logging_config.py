@@ -18,6 +18,25 @@ _configured_processes = set()
 _info_color_cycle = None
 
 
+class SafeTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHandler):
+    """TimedRotatingFileHandler that handles Windows file locking gracefully.
+
+    On Windows, log rotation can fail with PermissionError when another process
+    has the log file open. This subclass catches the error and continues
+    logging to the current file, scheduling rotation for the next interval.
+    """
+
+    def doRollover(self):
+        try:
+            super().doRollover()
+        except PermissionError:
+            # Rotation failed due to Windows file lock.
+            # Ensure we have an open stream and schedule the next rollover.
+            if not self.stream or self.stream.closed:
+                self.stream = self._open()
+            self.rolloverAt = self.computeRollover(int(time.time()))
+
+
 class CustomJsonFormatter(jsonlogger.JsonFormatter):
     """Custom JSON formatter with additional fields"""
 
@@ -108,7 +127,7 @@ def configure_logging(process_name: str = "app", console_output: bool = True) ->
     )
 
     # File handler for main log
-    app_handler = logging.handlers.TimedRotatingFileHandler(
+    app_handler = SafeTimedRotatingFileHandler(
         str(log_file),
         when="midnight",
         interval=1,
@@ -120,7 +139,7 @@ def configure_logging(process_name: str = "app", console_output: bool = True) ->
     logger.addHandler(app_handler)
 
     # File handler for errors
-    error_handler = logging.handlers.TimedRotatingFileHandler(
+    error_handler = SafeTimedRotatingFileHandler(
         str(log_dir / f"{process_name}_error.log"),
         when="midnight",
         interval=1,

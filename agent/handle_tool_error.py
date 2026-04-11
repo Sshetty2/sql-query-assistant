@@ -379,7 +379,11 @@ def handle_tool_error(state) -> dict:
         array_key="corrections",
     )
 
-    emit_node_status("handle_tool_error", "completed")
+    emit_node_status("handle_tool_error", "completed", metadata={
+        "error_preview": error_message[:200] if error_message else "",
+        "iteration": error_iteration + 1,
+        "max_iterations": max_error_corrections,
+    })
 
     return {
         **state,

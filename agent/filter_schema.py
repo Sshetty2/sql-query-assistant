@@ -995,7 +995,12 @@ def filter_schema(state: State, vector_store=None):
         },
     )
 
-    emit_node_status("filter_schema", "completed")
+    emit_node_status("filter_schema", "completed", metadata={
+        "total_tables_in_db": len(full_schema),
+        "candidates_found": len(fk_expanded_candidates),
+        "final_table_count": len(filtered_schema_with_fks),
+        "selected_tables": final_table_names,
+    })
 
     return {
         **state,

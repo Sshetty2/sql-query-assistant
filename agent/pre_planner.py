@@ -1177,6 +1177,13 @@ def create_preplan_strategy(state: State):
         if previous_strategy:
             updated_history.append(previous_strategy)
 
+        emit_node_status("pre_planner", "completed", metadata={
+            "strategy_preview": strategy[:500] if strategy else "",
+            "complexity_tier": complexity,
+            "has_feedback": has_feedback,
+            "feedback_type": feedback_type,
+        })
+
         return {
             **state,
             "pre_plan_strategy": strategy,

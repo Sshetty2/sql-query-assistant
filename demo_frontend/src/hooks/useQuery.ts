@@ -29,10 +29,17 @@ export function useQuery() {
         setStatus("complete");
       },
       onError: (err) => {
+        console.error("[useQuery] onError:", err);
         setError(err);
         setStatus("error");
       },
     });
+  }, []);
+
+  /** Update the displayed result without running a new query (e.g., from tool results). */
+  const updateResult = useCallback((newResult: QueryResult) => {
+    setResult(newResult);
+    setStatus("complete");
   }, []);
 
   const cancel = useCallback(() => {
@@ -48,5 +55,5 @@ export function useQuery() {
     setError(null);
   }, []);
 
-  return { status, steps, result, error, execute, cancel, reset };
+  return { status, steps, result, error, execute, updateResult, cancel, reset, setSteps };
 }

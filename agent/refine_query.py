@@ -302,7 +302,10 @@ def refine_query(state: State) -> Dict[str, Any]:
         array_key="refinements",
     )
 
-    emit_node_status("refine_query", "completed")
+    emit_node_status("refine_query", "completed", metadata={
+        "iteration": refinement_iteration + 1,
+        "max_iterations": max_refinements,
+    })
 
     return {
         **state,

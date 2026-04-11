@@ -762,6 +762,11 @@ def plan_audit(state: State):
     if not all_issues:
         # No issues found - plan is valid (may have fixes applied)
         logger.info("Plan audit passed - no issues detected")
+        emit_node_status("plan_audit", "completed", metadata={
+            "audit_passed": True,
+            "issues_found": 0,
+            "fixes_applied": len(column_fixes),
+        })
         return {
             **state,
             "messages": [AIMessage(content="Plan audit passed")],
@@ -778,6 +783,13 @@ def plan_audit(state: State):
             f"Plan audit found {len(critical_issues)} CRITICAL issues - terminating execution",
             extra={"critical_issues": critical_issues},
         )
+
+        emit_node_status("plan_audit", "completed", metadata={
+            "audit_passed": False,
+            "issues_found": len(all_issues),
+            "fixes_applied": len(column_fixes),
+            "issues_preview": critical_issues[:3],
+        })
 
         # Format critical issues for user
         critical_msg = "\n".join([f"• {issue}" for issue in critical_issues])
@@ -845,7 +857,12 @@ def plan_audit(state: State):
         f"Plan audit found {len(non_critical_issues)} non-critical issues "
         f"but continuing to execution"
     )
-    emit_node_status("plan_audit", "completed")
+    emit_node_status("plan_audit", "completed", metadata={
+        "audit_passed": False,
+        "issues_found": len(all_issues),
+        "fixes_applied": len(column_fixes),
+        "issues_preview": all_issues[:3],
+    })
 
     return {
         **state,

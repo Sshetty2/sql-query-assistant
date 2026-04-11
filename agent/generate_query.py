@@ -19,7 +19,6 @@ logger = get_logger()
 def get_database_context():
     """Get database-specific context."""
     is_test_db = os.getenv("USE_TEST_DB", "").lower() == "true"
-    emit_node_status("generate_query", "completed")
 
     return {
         "type": "SQLite" if is_test_db else "SQL Server",
@@ -1977,6 +1976,12 @@ def generate_query(state: State):
             "SQL query generation completed",
             extra={"query_length": len(query), "database_type": db_context["type"]},
         )
+
+        emit_node_status("generate_query", "completed", metadata={
+            "sql_preview": query[:300] if query else "",
+            "sql_length": len(query) if query else 0,
+            "dialect": db_context.get("dialect", "unknown"),
+        })
 
         return {
             **state,

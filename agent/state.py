@@ -102,3 +102,10 @@ class State(TypedDict):
     parent_query_id: Optional[
         str
     ]  # ID of query that was patched (for lineage tracking)
+
+    # Data summary (deterministic statistics computed after successful query)
+    data_summary: Optional[dict[str, Any]]  # Column-level stats from query results
+
+    # Chat / narrative fields
+    query_narrative: Optional[str]  # AI-generated narrative explaining query results
+    chat_session_id: Optional[str]  # Frontend-provided session ID for conversation continuity

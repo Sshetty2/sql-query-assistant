@@ -76,6 +76,9 @@ def _create_base_state(
         "patch_history": [],
         "executed_plan": None,
         "modification_options": None,
+        "data_summary": None,
+        "query_narrative": None,
+        "chat_session_id": None,
     }
 
 
@@ -90,6 +93,7 @@ def query_database(
     executed_plan: Optional[Dict[str, Any]] = None,
     filtered_schema: Optional[list] = None,
     stream_updates: bool = False,
+    chat_session_id: Optional[str] = None,
 ):
     """Run the query workflow for a given question.
 
@@ -182,6 +186,10 @@ def query_database(
                 "planner_output": executed_plan,  # Set as current plan for regeneration
             }
         )
+
+    # Set chat session ID for narrative generation
+    if chat_session_id:
+        initial_state["chat_session_id"] = chat_session_id
 
     # Execute workflow with guaranteed connection cleanup
     try:

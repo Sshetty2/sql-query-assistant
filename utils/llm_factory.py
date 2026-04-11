@@ -175,6 +175,7 @@ def get_model_for_stage(stage: str) -> str:
             "filtering": "LOCAL_MODEL_FILTERING",
             "error_correction": "LOCAL_MODEL_ERROR_CORRECTION",
             "refinement": "LOCAL_MODEL_REFINEMENT",
+            "chat": "LOCAL_MODEL_CHAT",
         }
     else:
         env_var_map = {
@@ -183,6 +184,7 @@ def get_model_for_stage(stage: str) -> str:
             "filtering": "REMOTE_MODEL_FILTERING",
             "error_correction": "REMOTE_MODEL_ERROR_CORRECTION",
             "refinement": "REMOTE_MODEL_REFINEMENT",
+            "chat": "REMOTE_MODEL_CHAT",
         }
 
     # Get stage-specific model

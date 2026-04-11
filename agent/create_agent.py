@@ -20,6 +20,8 @@ from agent.handle_tool_error import handle_tool_error
 from agent.refine_query import refine_query
 from agent.transform_plan import transform_plan_node
 from agent.generate_modification_options import generate_modification_options_node
+from agent.generate_data_summary import generate_data_summary_node
+from agent.chat_agent import generate_query_narrative_node
 
 # DISABLED: Conversational router commented out for now
 # from agent.conversational_router import conversational_router
@@ -221,7 +223,7 @@ def route_from_execute_query(
     state: State,
 ) -> Literal[
     "transform_plan",
-    "generate_modification_options",
+    "generate_data_summary",
     "handle_error",
     "refine_query",
     "cleanup",
@@ -274,9 +276,9 @@ def route_from_execute_query(
     if none_result and refinement_iteration < env_refine_count:
         return "refine_query"
 
-    # Success - generate modification options before cleanup
-    logger.info("Query executed successfully, routing to generate_modification_options")
-    return "generate_modification_options"
+    # Success - compute data summary, then generate modification options before cleanup
+    logger.info("Query executed successfully, routing to generate_data_summary")
+    return "generate_data_summary"
 
 
 def should_continue(state: State) -> Literal["handle_error", "refine_query", "cleanup"]:
@@ -361,6 +363,8 @@ def create_sql_agent():
     workflow.add_node(
         "generate_modification_options", generate_modification_options_node
     )
+    workflow.add_node("generate_data_summary", generate_data_summary_node)
+    workflow.add_node("generate_query_narrative", generate_query_narrative_node)
 
     # Conditional routing from START
     workflow.add_conditional_edges(START, route_from_start)
@@ -394,6 +398,8 @@ def create_sql_agent():
     workflow.add_edge(
         "transform_plan", "generate_query"
     )  # Patched plan → regenerate SQL
+    workflow.add_edge("generate_data_summary", "generate_query_narrative")  # Summary → narrative
+    workflow.add_edge("generate_query_narrative", "generate_modification_options")  # Narrative → options
     workflow.add_edge("generate_modification_options", "cleanup")  # Success → cleanup
 
     # Cleanup
