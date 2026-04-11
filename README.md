@@ -389,6 +389,7 @@ For deeper dives into specific topics:
 
 - **[WORKFLOW_DIAGRAM.md](WORKFLOW_DIAGRAM.md)** — complete workflow diagrams with routing logic
 - **[JOIN_SYNTHESIZER.md](JOIN_SYNTHESIZER.md)** — deterministic SQL generation architecture
+- **[CHAT_ARCHITECTURE.md](CHAT_ARCHITECTURE.md)** — conversational data assistant (agentic loop, tool calling, session management)
 - **[domain_specific_guidance/README.md](domain_specific_guidance/README.md)** — domain configuration guide
 - **[fk_inferencing_agent/README.md](fk_inferencing_agent/README.md)** — FK inference CLI tool
 - **[CLAUDE.md](CLAUDE.md)** — comprehensive development guide (architecture, patterns, debugging)

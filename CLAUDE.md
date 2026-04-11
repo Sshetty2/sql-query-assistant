@@ -86,6 +86,10 @@ Required environment variables (see `.env` file):
 - `FK_INFERENCE_CONFIDENCE_THRESHOLD` - Minimum confidence score for inferred FKs (default: `0.6`, range: 0.0-1.0)
 - `FK_INFERENCE_TOP_K` - Number of candidate tables to consider per ID column (default: `3`)
 
+### Chat Configuration
+- `MAX_CHAT_TOOL_CALLS` - Maximum tool invocations per chat session (default: `3`)
+- `REMOTE_MODEL_CHAT` / `LOCAL_MODEL_CHAT` - LLM model for chat and narrative (falls back to strategy model)
+
 ## Development Commands
 
 ### Running the Applications
@@ -273,6 +277,11 @@ The `State` TypedDict (in `agent/state.py`) tracks:
 - `refined_reasoning` - Explanations for refinements
 - `corrected_plans` - Plans corrected during error handling
 - `refined_plans` - Plans refined for empty results
+- **Chat and data summary fields:**
+  - `chat_session_id` - Frontend session ID (triggers narrative generation when set)
+  - `data_summary` - Deterministic column-level statistics from `generate_data_summary`
+  - `query_narrative` - AI-generated narrative summary of results
+  - `filtered_schema` - Schema subset used for this query (also used as chat context)
 
 ### Key Components
 
@@ -445,6 +454,34 @@ Domain-specific guidance helps the system understand your database schema and te
 
 See `domain_specific_guidance/README.md` for detailed configuration instructions.
 
+### Conversational Data Assistant (Chat)
+
+After a query completes, the system generates a narrative summary and seeds a chat conversation. Users can ask follow-up questions in the side panel. The chat agent answers from data context (summary statistics, schema, query plan) or autonomously invokes a `run_query` tool to fetch new data.
+
+**Key Components:**
+- **`agent/chat_agent.py`** — Agentic loop (`stream_chat_agentic`): binds tools → invokes LLM → detects tool calls → executes `query_database()` → yields SSE events → loops until text response
+- **`agent/chat_tools.py`** — Single `@tool` definition (`run_query`) for LLM schema generation; actual execution in the agentic loop
+- **`agent/generate_data_summary.py`** — Deterministic column-level statistics (no LLM): numeric (min/max/avg/median/sum), text (top values), datetime (range)
+- **`server.py`** — `POST /query/chat` (SSE streaming), `POST /query/chat/reset` (clear session)
+
+**Memory Model:**
+- Backend: In-process `InMemoryChatMessageHistory` per session (ephemeral — lost on restart)
+- Frontend: `localStorage` persistence via `useConversations` hook (survives browser refresh)
+- Tool budget: `MAX_CHAT_TOOL_CALLS` (default: 3) per session, then tools are unbound
+
+**Data Flow:**
+1. Main query completes → `generate_data_summary` → `generate_query_narrative` (seeds chat)
+2. User sends message → `POST /query/chat` → loads query state from `thread_states.json` → builds data context → agentic loop
+3. If LLM calls `run_query` → full pipeline executes → status events stream to frontend → result updates main panel → LLM summarizes
+
+**Frontend Integration:**
+- `useChat` hook manages messages, streaming content, and tool status
+- `useConversations` persists conversations to localStorage (messages + result IDs)
+- `useResultStore` caches `QueryResult` objects for click-to-view from chat messages
+- `ChatPanel` renders message types: user, assistant, tool_start, tool_result, tool_error, data_summary
+
+See **[CHAT_ARCHITECTURE.md](CHAT_ARCHITECTURE.md)** for the full architecture reference.
+
 ## Code Organization
 
 ```
@@ -466,6 +503,11 @@ agent/
 │
 ├── Conversational Routing
 ├── conversational_router.py     # Route follow-up queries (update/rewrite)
+│
+├── Chat & Data Analysis
+├── chat_agent.py                # Agentic chat loop with tool calling + narrative generation
+├── chat_tools.py                # Tool definitions for chat agent (run_query)
+├── generate_data_summary.py     # Deterministic column-level statistics (no LLM)
 │
 ├── SQL Generation & Execution
 ├── generate_query.py            # Deterministic join synthesizer (SQLGlot)
@@ -489,7 +531,9 @@ database/
 utils/
 ├── llm_factory.py               # LLM provider abstraction (OpenAI/Anthropic/Ollama switcher)
 ├── logger.py                    # Structured logging configuration
-└── logging_config.py            # Log formatting and handlers
+├── logging_config.py            # Log formatting and handlers
+├── stream_utils.py              # SSE emission utilities (emit_node_status)
+└── thread_manager.py            # Thread/query state persistence (thread_states.json)
 
 domain_specific_guidance/
 ├── README.md                    # Configuration guide
@@ -500,6 +544,23 @@ domain_specific_guidance/
 
 scripts/
 └── compare_fk_inference.py      # Test FK inference against ground truth
+
+demo_frontend/src/
+├── api/
+│   ├── client.ts                # SSE streaming client (streamQuery, streamChat, streamPatch)
+│   └── types.ts                 # TypeScript types matching FastAPI models
+├── hooks/
+│   ├── useQuery.ts              # Main query execution state (steps, result, status)
+│   ├── useChat.ts               # Chat state management (agentic loop callbacks)
+│   ├── useConversations.ts      # Multi-conversation localStorage persistence
+│   └── useResultStore.ts        # QueryResult localStorage cache
+├── components/
+│   ├── ChatPanel.tsx            # Chat side panel UI
+│   ├── WorkflowProgress.tsx     # Workflow timeline with step metadata
+│   ├── QueryInput.tsx           # Natural language query input
+│   ├── SqlViewer.tsx            # SQL display with syntax highlighting
+│   └── ResultsTable.tsx         # Data table with sorting/pagination
+└── App.tsx                      # Top-level wiring (chat ↔ query ↔ results)
 
 tests/
 └── unit/
@@ -657,6 +718,7 @@ pytest tests/unit/test_openai_schema_validation.py -v
 - **[README.md](README.md)**: Comprehensive project overview, installation, and usage guide
 - **[WORKFLOW_DIAGRAM.md](WORKFLOW_DIAGRAM.md)**: Visual workflow diagrams and architecture explanation
 - **[JOIN_SYNTHESIZER.md](JOIN_SYNTHESIZER.md)**: Detailed SQL generation architecture and join synthesis
+- **[CHAT_ARCHITECTURE.md](CHAT_ARCHITECTURE.md)**: Conversational data assistant — agentic loop, tool calling, session management, frontend integration
 
 ### Specialized Topics
 - **[domain_specific_guidance/README.md](domain_specific_guidance/README.md)**: Configuration guide for domain-specific customization
@@ -667,7 +729,7 @@ pytest tests/unit/test_openai_schema_validation.py -v
 🔹 **Schema Filtering**: Vector search reduces context from full schema to top-k relevant tables
 🔹 **Planner Complexity Tiers**: Three levels optimized for different model sizes (93% token reduction for minimal)
 🔹 **Plan Auditing**: Automatic validation and fixing of common planner mistakes (catches 80-90% of errors)
-🔹 **Conversational Flow**: Stateful query refinement through follow-up questions
+🔹 **Conversational Data Assistant**: Agentic chat loop with `run_query` tool calling, data context injection, and narrative generation
 🔹 **SQL Server Safety**: Automatic identifier quoting prevents reserved keyword errors
 🔹 **LLM Provider Abstraction**: Seamless switching between OpenAI, Anthropic, and Ollama
 
