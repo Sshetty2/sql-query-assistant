@@ -14,6 +14,21 @@ export interface QueryRequest {
   result_limit?: number;
   time_filter?: TimeFilter;
   chat_session_id?: string;
+  db_id?: string;
+}
+
+export interface DemoDatabase {
+  id: string;
+  name: string;
+  description: string;
+  file: string;
+}
+
+export interface SchemaTable {
+  table_name: string;
+  columns: { column_name: string; data_type: string; is_nullable: boolean }[];
+  foreign_keys?: { foreign_key: string; primary_key_table: string; primary_key_column: string }[];
+  metadata?: { primary_key?: string };
 }
 
 export interface PatchRequest {

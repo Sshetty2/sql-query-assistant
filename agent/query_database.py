@@ -20,6 +20,7 @@ def _create_base_state(
     sort_order: str,
     result_limit: int,
     time_filter: str,
+    db_id: str = None,
 ) -> Dict[str, Any]:
     """Create base state dictionary with default values.
 
@@ -29,6 +30,7 @@ def _create_base_state(
         sort_order: Sort order preference
         result_limit: Result limit
         time_filter: Time filter preference
+        db_id: Optional demo database ID
 
     Returns:
         Base state dictionary
@@ -79,6 +81,7 @@ def _create_base_state(
         "data_summary": None,
         "query_narrative": None,
         "chat_session_id": None,
+        "db_id": db_id,
     }
 
 
@@ -94,6 +97,7 @@ def query_database(
     filtered_schema: Optional[list] = None,
     stream_updates: bool = False,
     chat_session_id: Optional[str] = None,
+    db_id: Optional[str] = None,
 ):
     """Run the query workflow for a given question.
 
@@ -126,7 +130,7 @@ def query_database(
         # New conversation - create new thread
         thread_id = create_thread(question)
         initial_state = _create_base_state(
-            thread_id, question, sort_order, result_limit, time_filter
+            thread_id, question, sort_order, result_limit, time_filter, db_id=db_id
         )
 
         # Override schema fields if previous_state provided
@@ -148,7 +152,7 @@ def query_database(
             user_questions = previous_state.get("user_questions", []) + [question]
 
             initial_state = _create_base_state(
-                thread_id, question, sort_order, result_limit, time_filter
+                thread_id, question, sort_order, result_limit, time_filter, db_id=db_id
             )
             # Override with continuation-specific values
             initial_state.update(
@@ -165,7 +169,7 @@ def query_database(
         else:
             # No previous state found, treat as new thread
             initial_state = _create_base_state(
-                thread_id, question, sort_order, result_limit, time_filter
+                thread_id, question, sort_order, result_limit, time_filter, db_id=db_id
             )
 
     # Add patch-specific fields if patching is requested

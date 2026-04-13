@@ -1,0 +1,5 @@
+[
+  {"id": "demo_db_1", "name": "DEMO_DB_1", "description": "Music store \u2014 artists, albums, tracks, invoices", "file": "demo_db_1.db"},
+  {"id": "demo_db_2", "name": "DEMO_DB_2", "description": "Retail \u2014 orders, products, customers, suppliers", "file": "demo_db_2.db"},
+  {"id": "demo_db_3", "name": "DEMO_DB_3", "description": "Movie rentals \u2014 films, actors, customers, payments", "file": "demo_db_3.db"}
+]

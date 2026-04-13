@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
@@ -147,6 +148,12 @@ class QueryRequest(BaseModel):
         description="Frontend session ID for conversation continuity. Generated per browser session.",
     )
 
+    db_id: Optional[str] = Field(
+        default=None,
+        title="Database ID",
+        description="Demo database identifier (e.g. 'demo_db_1', 'demo_db_2'). Only used when USE_TEST_DB=true.",
+    )
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -275,6 +282,7 @@ async def process_query(request: QueryRequest) -> QueryResponse:
             result_limit=request.result_limit,
             time_filter=request.time_filter,
             chat_session_id=request.chat_session_id,
+            db_id=request.db_id,
         )
 
         state = output["state"]
@@ -309,6 +317,7 @@ async def stream_query(request: QueryRequest):
                 time_filter=request.time_filter,
                 stream_updates=True,
                 chat_session_id=request.chat_session_id,
+                db_id=request.db_id,
             )
 
             for update in stream:
@@ -581,6 +590,54 @@ async def reset_chat(request: ChatResetRequest):
 
     clear_chat_session(request.session_id)
     return {"status": "ok", "session_id": request.session_id}
+
+
+# ---------------------------------------------------------------------------
+# Database registry endpoints (multi-DB demo mode)
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/databases",
+    summary="List Demo Databases",
+    description="Returns the list of available demo databases. Empty list if USE_TEST_DB is false.",
+)
+async def list_databases():
+    """Return available demo databases from the registry."""
+    if os.getenv("USE_TEST_DB", "").lower() != "true":
+        return []
+
+    registry_path = os.path.join(
+        os.path.dirname(__file__), "databases", "registry.json"
+    )
+    if not os.path.exists(registry_path):
+        return []
+
+    with open(registry_path, "r") as f:
+        return json.load(f)
+
+
+@app.get(
+    "/databases/{db_id}/schema",
+    summary="Get Database Schema",
+    description="Introspect and return the full schema for a demo database.",
+)
+async def get_database_schema(db_id: str):
+    """Return introspected schema for a specific demo database."""
+    from database.connection import get_demo_db_path
+    from database.introspection import introspect_schema
+
+    try:
+        db_path = get_demo_db_path(db_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    try:
+        schema = introspect_schema(conn)
+        return schema
+    finally:
+        conn.close()
 
 
 @app.get("/", summary="Health Check", description="Returns the API status.")

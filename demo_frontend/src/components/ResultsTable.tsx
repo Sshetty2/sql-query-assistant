@@ -53,7 +53,7 @@ export function ResultsTable({ data, totalRecords }: ResultsTableProps) {
             </TableHeader>
             <TableBody>
               {data.map((row, i) => (
-                <TableRow key={i}>
+                <TableRow key={i} className="even:bg-muted/30">
                   {columns.map((col) => (
                     <TableCell key={col} className="whitespace-nowrap">
                       {row[col] == null ? (

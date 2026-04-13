@@ -3,11 +3,14 @@ import { useQuery } from "@/hooks/useQuery";
 import { useChat } from "@/hooks/useChat";
 import { useResultStore } from "@/hooks/useResultStore";
 import { useConversations } from "@/hooks/useConversations";
+import { useDatabase } from "@/hooks/useDatabase";
 import { QueryInput } from "@/components/QueryInput";
 import { WorkflowProgress } from "@/components/WorkflowProgress";
 import { SqlViewer } from "@/components/SqlViewer";
 import { ResultsTable } from "@/components/ResultsTable";
 import { ChatPanel } from "@/components/ChatPanel";
+import { DatabaseSelector } from "@/components/DatabaseSelector";
+import { SchemaERD } from "@/components/SchemaERD";
 import { Card, CardContent } from "@/components/ui/card";
 import type { QueryResult, StatusEvent } from "@/api/types";
 
@@ -15,6 +18,7 @@ function App() {
   const resultStore = useResultStore();
   const convs = useConversations(resultStore.removeMany);
   const { status, steps, result, error, execute, updateResult, setSteps } = useQuery();
+  const db = useDatabase();
   const lastNarrativeRef = useRef<string | null>(null);
 
   // Track whether a result was set by a tool call (vs main query pipeline)
@@ -143,7 +147,11 @@ function App() {
       const sessionId = getSessionId();
       // Show user prompt in the chat timeline
       chat.appendUserMessage(query);
-      execute({ prompt: query, chat_session_id: sessionId });
+      execute({
+        prompt: query,
+        chat_session_id: sessionId,
+        ...(db.activeDbId ? { db_id: db.activeDbId } : {}),
+      });
       // Auto-name the conversation from the first query.
       // Use sessionId (not convs.activeId) because React state may not have
       // flushed yet when getSessionId() just created a new conversation.
@@ -215,20 +223,40 @@ function App() {
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Main content */}
       <div className="flex-1 min-w-0 overflow-y-auto">
-        <div className="mx-auto max-w-6xl px-4 py-8">
-          <header className="mb-8">
-            <h1 className="text-3xl font-bold tracking-tight">
-              SQL Query Assistant
-            </h1>
-            <p className="mt-1 text-muted-foreground">
-              Ask questions about your data in plain English
-            </p>
+        <div className="mx-auto max-w-7xl px-2 py-8">
+          <header className="mb-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
+                  SQL Query Assistant
+                </h1>
+                <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
+                  An LLM-powered workflow for complex multi-table queries — joins, aggregations, and
+                  filters across large schemas. Designed to be embedded as a RAG tool for conversational agents.
+                </p>
+              </div>
+              {db.databases.length > 0 && (
+                <DatabaseSelector
+                  databases={db.databases}
+                  activeDbId={db.activeDbId}
+                  onSelect={db.setActiveDbId}
+                />
+              )}
+            </div>
           </header>
 
           <div className="space-y-6">
+            {db.databases.length > 0 && db.schema.length > 0 && (
+              <SchemaERD
+                schema={db.schema}
+                dbName={db.databases.find((d) => d.id === db.activeDbId)?.name ?? ""}
+              />
+            )}
+
             <QueryInput
               onSubmit={(prompt) => handleNewQuery(prompt)}
               disabled={status === "streaming"}
+              activeDbId={db.activeDbId}
             />
 
             {steps.length > 0 && (

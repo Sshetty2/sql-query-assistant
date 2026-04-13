@@ -8,6 +8,8 @@ import type {
   ChatToolStartEvent,
   ChatToolErrorEvent,
   ChatCompleteEvent,
+  DemoDatabase,
+  SchemaTable,
 } from "./types";
 
 // All API calls go through the /api proxy on the same origin.
@@ -183,6 +185,41 @@ export function streamPatch(
   callbacks: StreamCallbacks
 ): AbortController {
   return streamSSE("/api/query/patch", request, callbacks);
+}
+
+// ---------------------------------------------------------------------------
+// Database registry
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch the list of available demo databases.
+ * Returns an empty array when the backend is in SQL Server mode.
+ */
+export async function fetchDatabases(): Promise<DemoDatabase[]> {
+  const headers: Record<string, string> = {};
+  const csrfToken = getCsrfToken();
+  if (csrfToken) {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+
+  const res = await fetch("/api/databases", { headers });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+/**
+ * Fetch the introspected schema for a specific demo database.
+ */
+export async function fetchDatabaseSchema(dbId: string): Promise<SchemaTable[]> {
+  const headers: Record<string, string> = {};
+  const csrfToken = getCsrfToken();
+  if (csrfToken) {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+
+  const res = await fetch(`/api/databases/${dbId}/schema`, { headers });
+  if (!res.ok) throw new Error(`Failed to fetch schema: ${res.status}`);
+  return res.json();
 }
 
 // ---------------------------------------------------------------------------

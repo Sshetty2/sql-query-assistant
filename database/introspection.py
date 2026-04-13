@@ -42,12 +42,14 @@ def clean_data_type(data_type_str: str) -> str:
     return cleaned.strip()
 
 
-def get_engine_from_connection(connection):
+def get_engine_from_connection(connection, db_path: str = None):
     """
     Create SQLAlchemy engine from existing connection.
 
     Args:
         connection: pyodbc.Connection or sqlite3.Connection
+        db_path: Optional explicit path to SQLite database file.
+                 When provided, overrides the default sample-db.db path.
 
     Returns:
         SQLAlchemy Engine instance
@@ -55,11 +57,22 @@ def get_engine_from_connection(connection):
     use_test_db = os.getenv("USE_TEST_DB", "").lower() == "true"
 
     if use_test_db:
-        # SQLite test database
-        sample_db_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "sample-db.db"
-        )
-        return create_engine(f"sqlite:///{sample_db_path}")
+        # SQLite test database — use explicit path if provided, else detect from connection
+        if not db_path:
+            # Try to extract the database path from the sqlite3 connection
+            import sqlite3
+            if isinstance(connection, sqlite3.Connection):
+                try:
+                    row = connection.execute("PRAGMA database_list").fetchone()
+                    if row and row[2]:
+                        db_path = row[2]
+                except Exception:
+                    pass
+            if not db_path:
+                db_path = os.path.join(
+                    os.path.dirname(os.path.dirname(__file__)), "sample-db.db"
+                )
+        return create_engine(f"sqlite:///{db_path}")
     else:
         # SQL Server
         connection_params = [

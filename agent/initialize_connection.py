@@ -27,7 +27,7 @@ def initialize_connection(state: State):
     log_and_stream(logger, "initialize_connection", "Creating database connection")
 
     try:
-        db_connection = get_pyodbc_connection()
+        db_connection = get_pyodbc_connection(db_id=state.get("db_id"))
 
         log_and_stream(
             logger,
