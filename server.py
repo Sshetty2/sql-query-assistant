@@ -1,6 +1,8 @@
 import json
 import os
+import re
 import threading
+import time as _time
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -35,19 +37,34 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 # Workflow cancellation registry
 # ---------------------------------------------------------------------------
-# Maps page_session_id -> threading.Event (set = cancelled)
-_active_sessions: dict[str, threading.Event] = {}
+# Maps page_session_id -> (threading.Event, created_at_monotonic)
+MAX_ACTIVE_SESSIONS = 200
+_SESSION_STALE_SECONDS = 600  # 10 minutes
+
+_active_sessions: dict[str, tuple[threading.Event, float]] = {}
 _sessions_lock = threading.Lock()
 
 
 def register_session(session_id: str) -> threading.Event:
     """Register a workflow for cancellation tracking. Returns a cancel event."""
     cancel_event = threading.Event()
+    now = _time.monotonic()
     with _sessions_lock:
+        # Evict stale sessions (older than 10 minutes)
+        stale_cutoff = now - _SESSION_STALE_SECONDS
+        stale_keys = [k for k, (_, t) in _active_sessions.items() if t < stale_cutoff]
+        for k in stale_keys:
+            evt, _ = _active_sessions.pop(k)
+            evt.set()
+        # Evict oldest if still at capacity
+        if len(_active_sessions) >= MAX_ACTIVE_SESSIONS:
+            oldest_key = min(_active_sessions, key=lambda k: _active_sessions[k][1])
+            evt, _ = _active_sessions.pop(oldest_key)
+            evt.set()
         old = _active_sessions.get(session_id)
         if old:
-            old.set()  # Cancel previous request in same session
-        _active_sessions[session_id] = cancel_event
+            old[0].set()  # Cancel previous request in same session
+        _active_sessions[session_id] = (cancel_event, now)
     logger.info(
         f"Registered session {session_id[:8]}... (active: {len(_active_sessions)})"
     )
@@ -57,9 +74,9 @@ def register_session(session_id: str) -> threading.Event:
 def cancel_session(session_id: str) -> bool:
     """Cancel a running workflow by session ID. Returns True if found."""
     with _sessions_lock:
-        event = _active_sessions.pop(session_id, None)
-    if event:
-        event.set()
+        entry = _active_sessions.pop(session_id, None)
+    if entry:
+        entry[0].set()
         return True
     return False
 
@@ -68,6 +85,17 @@ def unregister_session(session_id: str):
     """Remove session from registry (normal completion)."""
     with _sessions_lock:
         _active_sessions.pop(session_id, None)
+
+
+# Expected format: 64-char hex string (crypto.randomBytes(32).toString("hex"))
+_PAGE_SESSION_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _validate_page_session(raw: str | None) -> str | None:
+    """Return the page session ID if it matches expected format, else None."""
+    if raw and _PAGE_SESSION_RE.match(raw):
+        return raw
+    return None
 
 
 def parse_query_result(result):
@@ -144,6 +172,7 @@ class QueryRequest(BaseModel):
 
     prompt: str = Field(
         ...,  # Required
+        max_length=10000,
         title="Query Prompt",
         description="Natural language query to be converted into SQL.",
         examples=[
@@ -326,7 +355,8 @@ async def process_query(request: QueryRequest) -> QueryResponse:
         return build_query_response(state, output)
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Query error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @app.post(
@@ -344,7 +374,7 @@ async def process_query(request: QueryRequest) -> QueryResponse:
 )
 async def stream_query(request: QueryRequest, raw_request: Request):
     """Stream query execution progress via Server-Sent Events."""
-    page_session = raw_request.headers.get("x-page-session")
+    page_session = _validate_page_session(raw_request.headers.get("x-page-session"))
     logger.info(
         f"[stream] x-page-session header: {page_session[:8] + '...' if page_session else 'MISSING'}"
     )
@@ -384,7 +414,7 @@ async def stream_query(request: QueryRequest, raw_request: Request):
 
         except Exception as e:
             logger.error(f"Stream error: {str(e)}", exc_info=True)
-            error_data = json.dumps({"type": "error", "detail": str(e)})
+            error_data = json.dumps({"type": "error", "detail": "Query failed. Please try rephrasing your question."})
             yield f"event: error\ndata: {error_data}\n\n"
         finally:
             if page_session:
@@ -411,7 +441,7 @@ async def stream_query(request: QueryRequest, raw_request: Request):
 )
 async def patch_query(request: PatchRequest, raw_request: Request):
     """Apply a plan patch and stream re-execution via SSE."""
-    page_session = raw_request.headers.get("x-page-session")
+    page_session = _validate_page_session(raw_request.headers.get("x-page-session"))
 
     def event_generator():
         cancel_event = register_session(page_session) if page_session else None
@@ -447,7 +477,7 @@ async def patch_query(request: PatchRequest, raw_request: Request):
 
         except Exception as e:
             logger.error(f"Patch stream error: {str(e)}", exc_info=True)
-            error_data = json.dumps({"type": "error", "detail": str(e)})
+            error_data = json.dumps({"type": "error", "detail": "Patch failed. Please try again."})
             yield f"event: error\ndata: {error_data}\n\n"
         finally:
             if page_session:
@@ -635,7 +665,7 @@ async def chat_query(request: ChatRequest):
 
         except Exception as e:
             logger.error(f"Chat stream error: {str(e)}", exc_info=True)
-            error_data = json.dumps({"detail": str(e)})
+            error_data = json.dumps({"detail": "Chat request failed. Please try again."})
             yield f"event: error\ndata: {error_data}\n\n"
 
     return StreamingResponse(

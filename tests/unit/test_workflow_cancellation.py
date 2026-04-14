@@ -53,6 +53,11 @@ class TestRegisterSession:
         register_session("session-1")
         with _sessions_lock:
             assert "session-1" in _active_sessions
+            # Value should be (event, timestamp) tuple
+            entry = _active_sessions["session-1"]
+            assert isinstance(entry, tuple) and len(entry) == 2
+            assert isinstance(entry[0], threading.Event)
+            assert isinstance(entry[1], float)
 
     def test_register_same_session_cancels_previous(self):
         """Registering the same session ID again sets the old event (cancels it)."""
@@ -65,7 +70,7 @@ class TestRegisterSession:
         assert not second_event.is_set()
         # Registry should hold the new event
         with _sessions_lock:
-            assert _active_sessions["session-1"] is second_event
+            assert _active_sessions["session-1"][0] is second_event
 
     def test_register_different_sessions_independent(self):
         event_a = register_session("session-a")
@@ -86,7 +91,7 @@ class TestRegisterSession:
         assert ev2.is_set()
         assert not ev3.is_set()
         with _sessions_lock:
-            assert _active_sessions["s"] is ev3
+            assert _active_sessions["s"][0] is ev3
 
 
 # ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@
     "dompurify": "^3.4.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
+    "helmet": "^8.1.0",
     "http-proxy-middleware": "^3.0.5",
     "lucide-react": "^1.8.0",
     "mermaid": "^11.14.0",

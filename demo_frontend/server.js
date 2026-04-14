@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import express from "express";
+import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import path from "path";
@@ -20,12 +21,35 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 const API_URL = process.env.API_URL || "http://localhost:8000";
 
+// Trust the first proxy (Railway / reverse proxy) for correct IP detection
+app.set("trust proxy", 1);
+
+// Security headers (X-Content-Type-Options, X-Frame-Options, HSTS, Referrer-Policy, etc.)
+// CSP is relaxed to allow inline scripts (CSRF token injection) and eval (mermaid/katex).
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "blob:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'", "data:"],
+      },
+    },
+  })
+);
+
+// Limit request body size to prevent memory exhaustion
+app.use(express.json({ limit: "1mb" }));
+
 // ---------------------------------------------------------------------------
 // CSRF token management
 // ---------------------------------------------------------------------------
 
-// In-memory token store with expiry (tokens valid for 24 hours)
-const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+// In-memory token store with expiry (tokens valid for 2 hours)
+const TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
 const csrfTokens = new Map();
 
 function generateCsrfToken() {
@@ -35,8 +59,21 @@ function generateCsrfToken() {
 }
 
 function isValidCsrfToken(token) {
-  if (!token || !csrfTokens.has(token)) return false;
-  const expiry = csrfTokens.get(token);
+  if (!token || typeof token !== "string") return false;
+  // Constant-time comparison to prevent timing side-channel attacks
+  let found = false;
+  let expiry = 0;
+  for (const [stored, exp] of csrfTokens) {
+    if (
+      stored.length === token.length &&
+      crypto.timingSafeEqual(Buffer.from(stored), Buffer.from(token))
+    ) {
+      found = true;
+      expiry = exp;
+      break;
+    }
+  }
+  if (!found) return false;
   if (Date.now() > expiry) {
     csrfTokens.delete(token);
     return false;
@@ -124,7 +161,7 @@ app.get("/{*splat}", (_req, res) => {
   // Inject the token as a script tag before </head>
   const html = indexHtmlTemplate.replace(
     "</head>",
-    `<script>window.__CSRF_TOKEN__="${token}";</script>\n  </head>`
+    `<script>Object.defineProperty(window,"__CSRF_TOKEN__",{value:"${token}",configurable:false,enumerable:false,writable:false});</script>\n  </head>`
   );
   res.setHeader("Content-Type", "text/html");
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");

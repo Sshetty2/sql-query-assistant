@@ -10,6 +10,7 @@ the current result set.
 
 import json
 import os
+import threading
 from typing import Generator, Optional
 
 from langchain_core.chat_history import InMemoryChatMessageHistory
@@ -40,6 +41,7 @@ logger = get_logger()
 
 # In-memory conversation store: session_id -> InMemoryChatMessageHistory
 _chat_sessions: dict[str, InMemoryChatMessageHistory] = {}
+_chat_lock = threading.Lock()
 
 # Tool call budget tracking: session_id -> count of tool calls used
 _tool_call_counts: dict[str, int] = {}
@@ -339,9 +341,10 @@ def _get_session_history(session_id: str) -> InMemoryChatMessageHistory:
 
     Used as the history_factory for RunnableWithMessageHistory.
     """
-    if session_id not in _chat_sessions:
-        _chat_sessions[session_id] = InMemoryChatMessageHistory()
-    return _chat_sessions[session_id]
+    with _chat_lock:
+        if session_id not in _chat_sessions:
+            _chat_sessions[session_id] = InMemoryChatMessageHistory()
+        return _chat_sessions[session_id]
 
 
 def get_chat_chain(data_context: str) -> RunnableWithMessageHistory:
@@ -413,12 +416,13 @@ def clear_chat_session(session_id: str) -> None:
     Args:
         session_id: The session identifier to clear.
     """
-    if session_id in _chat_sessions:
-        del _chat_sessions[session_id]
-        logger.debug(f"Cleared chat session: {session_id}")
-    if session_id in _tool_call_counts:
-        del _tool_call_counts[session_id]
-        logger.debug(f"Cleared tool call count for session: {session_id}")
+    with _chat_lock:
+        if session_id in _chat_sessions:
+            del _chat_sessions[session_id]
+            logger.debug(f"Cleared chat session: {session_id}")
+        if session_id in _tool_call_counts:
+            del _tool_call_counts[session_id]
+            logger.debug(f"Cleared tool call count for session: {session_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -428,7 +432,8 @@ def clear_chat_session(session_id: str) -> None:
 
 def _get_tool_calls_remaining(session_id: str) -> int:
     """Return how many tool calls this session has left."""
-    used = _tool_call_counts.get(session_id, 0)
+    with _chat_lock:
+        used = _tool_call_counts.get(session_id, 0)
     return max(0, MAX_TOOL_CALLS - used)
 
 
@@ -611,9 +616,10 @@ def stream_chat_agentic(
                     }
 
                     # Increment tool call counter
-                    _tool_call_counts[session_id] = (
-                        _tool_call_counts.get(session_id, 0) + 1
-                    )
+                    with _chat_lock:
+                        _tool_call_counts[session_id] = (
+                            _tool_call_counts.get(session_id, 0) + 1
+                        )
                     current_data_context = prepare_data_context(
                         result_json=new_result_json,
                         data_summary=new_summary or {},
@@ -685,9 +691,10 @@ def stream_chat_agentic(
                         "query": query_text,
                     }
                     # Still increment to prevent infinite retries
-                    _tool_call_counts[session_id] = (
-                        _tool_call_counts.get(session_id, 0) + 1
-                    )
+                    with _chat_lock:
+                        _tool_call_counts[session_id] = (
+                            _tool_call_counts.get(session_id, 0) + 1
+                        )
 
                 # Append assistant tool call + tool result to messages for next iteration
                 messages.append(response)

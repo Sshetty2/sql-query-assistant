@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import Markdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
 import {
   Send,
   ChevronDown,
@@ -521,7 +522,7 @@ export function ChatPanel({
                 }`}
               >
                 {msg.role === "assistant" ? (
-                  <Markdown>{msg.content}</Markdown>
+                  <Markdown rehypePlugins={[rehypeSanitize]}>{msg.content}</Markdown>
                 ) : (
                   msg.content
                 )}
@@ -534,7 +535,7 @@ export function ChatPanel({
         {streamingContent && (
           <div className="flex justify-start">
             <div className="max-w-[85%] rounded-lg bg-muted px-3 py-2 text-sm text-foreground chat-markdown">
-              <Markdown>{streamingContent}</Markdown>
+              <Markdown rehypePlugins={[rehypeSanitize]}>{streamingContent}</Markdown>
               <span className="inline-block w-1.5 h-4 bg-foreground/50 animate-pulse ml-0.5 align-text-bottom" />
             </div>
           </div>

@@ -34,6 +34,9 @@ def get_demo_db_path(db_id: str) -> str:
     for entry in registry:
         if entry["id"] == db_id:
             db_path = os.path.join(_databases_dir, entry["file"])
+            # Prevent path traversal — ensure resolved path stays within databases dir
+            if not os.path.realpath(db_path).startswith(os.path.realpath(_databases_dir)):
+                raise ValueError(f"Invalid database path for {db_id}")
             if not os.path.exists(db_path):
                 raise ValueError(f"Database file not found: {db_path}")
             return db_path

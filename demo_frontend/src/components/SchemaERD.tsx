@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import DOMPurify from "dompurify";
 import mermaid from "mermaid";
 import svgPanZoom from "svg-pan-zoom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -110,7 +111,7 @@ export function SchemaERD({ schema, dbName }: SchemaERDProps) {
       .then(({ svg }) => {
         if (cancelled || !container) return;
 
-        container.innerHTML = svg;
+        container.innerHTML = DOMPurify.sanitize(svg);
         setError(null);
 
         const svgEl = container.querySelector("svg");
