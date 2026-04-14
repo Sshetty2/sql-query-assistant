@@ -9,7 +9,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Literal, List, Any, Dict
 from dotenv import load_dotenv
-from agent.query_database import query_database
 from utils.logger import get_logger
 
 load_dotenv()
@@ -341,6 +340,8 @@ class QueryResponse(BaseModel):
 )
 async def process_query(request: QueryRequest) -> QueryResponse:
     """Process a natural language query and return both the SQL query and results."""
+    from agent.query_database import query_database
+
     try:
         output = query_database(
             request.prompt,
@@ -380,6 +381,8 @@ async def stream_query(request: QueryRequest, raw_request: Request):
     )
 
     def event_generator():
+        from agent.query_database import query_database
+
         cancel_event = register_session(page_session) if page_session else None
         try:
             stream = query_database(
@@ -444,6 +447,8 @@ async def patch_query(request: PatchRequest, raw_request: Request):
     page_session = _validate_page_session(raw_request.headers.get("x-page-session"))
 
     def event_generator():
+        from agent.query_database import query_database
+
         cancel_event = register_session(page_session) if page_session else None
         try:
             stream = query_database(
