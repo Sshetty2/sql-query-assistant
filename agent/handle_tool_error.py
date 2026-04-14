@@ -3,7 +3,7 @@
 import os
 import json
 from dotenv import load_dotenv
-from textwrap import dedent
+from textwrap import dedent, indent
 from langchain_core.messages import AIMessage
 from models.history import ErrorCorrectionHistory
 from utils.llm_factory import get_chat_llm, get_model_for_stage
@@ -117,6 +117,11 @@ def generate_revised_strategy(
     ]
     tables_list = "\n".join([f"- {table}" for table in available_tables])
 
+    # Pre-indent multi-line content to match dedent template (8 spaces)
+    tables_list_ind = indent(tables_list, "        ")
+    schema_text_ind = indent(schema_text, "        ")
+    original_strategy_ind = indent(original_strategy, "        ")
+
     prompt = dedent(
         f"""
         # Fix SQL Error - Generate Corrected Strategy
@@ -148,11 +153,12 @@ def generate_revised_strategy(
         2. Write out its ACTUAL columns (copy from schema)
         3. Check Foreign Keys section for join relationships
 
-        **Available Tables:** {tables_list}
+        **Available Tables:**
+{tables_list_ind}
 
         **Database Schema:**
         ```{schema_format}
-        {schema_text}
+{schema_text_ind}
         ```
 
         ### STEP 3: Construct Valid Joins
@@ -186,7 +192,7 @@ def generate_revised_strategy(
         Use the same sections as this previous strategy:
 
         ```
-        {original_strategy}
+{original_strategy_ind}
         ```
     """  # noqa: E501
     ).strip()
@@ -224,15 +230,19 @@ def generate_revised_strategy(
                 ["- " + t.get("table_name") for t in schema if t.get("table_name")]
             )
 
+            # Pre-indent multi-line lists to match dedent template (16 spaces)
+            inv_ind = indent(invalid_tables_list, "                ")
+            avail_ind = indent(available_tables_list, "                ")
+
             warning = dedent(
                 f"""
 
                 ⚠️ **VALIDATION ERROR DETECTED** ⚠️
                 The revised strategy references tables that DO NOT EXIST in the schema:
-                {invalid_tables_list}
+{inv_ind}
 
                 Available tables in schema:
-                {available_tables_list}
+{avail_ind}
 
                 **ACTION REQUIRED:** Remove or replace non-existent tables before proceeding.
             """
@@ -256,9 +266,11 @@ def generate_revised_strategy(
         logger.error(f"Error generating revised strategy: {str(e)}", exc_info=True)
 
         # Fallback: Return original strategy with error note
+        # Pre-indent multi-line strategy to match dedent template (12 spaces)
+        orig_strategy_ind = indent(original_strategy, "            ")
         error_note = dedent(
             f"""
-            {original_strategy}
+{orig_strategy_ind}
 
             ---
 

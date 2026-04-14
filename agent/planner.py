@@ -4,7 +4,7 @@ import os
 import json
 import re
 from datetime import datetime
-from textwrap import dedent
+from textwrap import dedent, indent
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from langchain_core.exceptions import OutputParserException
@@ -1603,12 +1603,14 @@ def plan_query(state: State):
                 # Add validation feedback to messages if this is a retry
                 current_messages = messages.copy()
                 if validation_feedback and retry_attempt > 0:
+                    # Pre-indent multi-line feedback to match dedent template (28 spaces)
+                    feedback_ind = indent(validation_feedback, "                            ")
                     feedback_message = HumanMessage(
                         content=dedent(
                             f"""
                             VALIDATION ERROR - Please fix the following issue in your response:
 
-                            {validation_feedback}
+{feedback_ind}
 
                             IMPORTANT: Ensure that ALL tables referenced in join_edges are also included in the selections array.
                             If you need to join to a table, you MUST add it to selections first.

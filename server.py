@@ -48,7 +48,9 @@ def register_session(session_id: str) -> threading.Event:
         if old:
             old.set()  # Cancel previous request in same session
         _active_sessions[session_id] = cancel_event
-    logger.info(f"Registered session {session_id[:8]}... (active: {len(_active_sessions)})")
+    logger.info(
+        f"Registered session {session_id[:8]}... (active: {len(_active_sessions)})"
+    )
     return cancel_event
 
 
@@ -98,13 +100,9 @@ def build_query_response(state: dict, metadata: dict = None) -> dict:
     Returns:
         Dict matching the QueryResponse schema.
     """
-    message_contents = [
-        msg.content for msg in state.get("messages", [])
-    ]
+    message_contents = [msg.content for msg in state.get("messages", [])]
     parsed_result = parse_query_result(state.get("result"))
-    tables_used = [
-        table["table_name"] for table in state.get("schema", [])
-    ]
+    tables_used = [table["table_name"] for table in state.get("schema", [])]
 
     return {
         "messages": message_contents,
@@ -139,6 +137,7 @@ def build_query_response(state: dict, metadata: dict = None) -> dict:
 # ---------------------------------------------------------------------------
 # Request / Response models
 # ---------------------------------------------------------------------------
+
 
 class QueryRequest(BaseModel):
     """Represents a natural language query request for SQL generation."""
@@ -295,6 +294,7 @@ class QueryResponse(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.post(
     "/query",
     response_model=QueryResponse,
@@ -345,7 +345,9 @@ async def process_query(request: QueryRequest) -> QueryResponse:
 async def stream_query(request: QueryRequest, raw_request: Request):
     """Stream query execution progress via Server-Sent Events."""
     page_session = raw_request.headers.get("x-page-session")
-    logger.info(f"[stream] x-page-session header: {page_session[:8] + '...' if page_session else 'MISSING'}")
+    logger.info(
+        f"[stream] x-page-session header: {page_session[:8] + '...' if page_session else 'MISSING'}"
+    )
 
     def event_generator():
         cancel_event = register_session(page_session) if page_session else None
@@ -365,10 +367,6 @@ async def stream_query(request: QueryRequest, raw_request: Request):
             for update in stream:
                 if update.get("type") == "complete":
                     state = update["state"]
-                    logger.info(
-                        f"[stream] complete: chat_session_id={state.get('chat_session_id')!r}, "
-                        f"query_narrative={'YES' if state.get('query_narrative') else 'NO'}"
-                    )
                     response_data = build_query_response(state, update)
                     yield f"event: complete\ndata: {json.dumps(response_data, default=str)}\n\n"
                 else:
@@ -470,6 +468,7 @@ async def patch_query(request: PatchRequest, raw_request: Request):
 # Chat endpoint — conversational data assistant
 # ---------------------------------------------------------------------------
 
+
 class ChatRequest(BaseModel):
     """Request model for chatting about query results."""
 
@@ -517,7 +516,9 @@ async def chat_query(request: ChatRequest):
             # Load query state from thread storage
             state = get_query_state(request.thread_id, request.query_id)
             if not state:
-                error_data = json.dumps({"detail": "Query not found for the given thread_id and query_id"})
+                error_data = json.dumps(
+                    {"detail": "Query not found for the given thread_id and query_id"}
+                )
                 yield f"event: error\ndata: {error_data}\n\n"
                 return
 
@@ -539,7 +540,10 @@ async def chat_query(request: ChatRequest):
             # Build context for the agentic loop
             session_id = request.session_id or f"{request.thread_id}:{request.query_id}"
             context = prepare_data_context(
-                result_json, data_summary, sql_query, user_question,
+                result_json,
+                data_summary,
+                sql_query,
+                user_question,
                 filtered_schema=state.get("filtered_schema"),
                 planner_output=state.get("planner_output"),
             )
@@ -556,38 +560,48 @@ async def chat_query(request: ChatRequest):
                 logger.info(f"[chat-sse] Emitting event: {event_type}")
 
                 if event_type == "token":
-                    content_preview = event["content"][:80] if event["content"] else "(empty)"
+                    content_preview = (
+                        event["content"][:80] if event["content"] else "(empty)"
+                    )
                     logger.info(f"[chat-sse] token: {content_preview!r}...")
                     token_data = json.dumps({"content": event["content"]})
                     yield f"event: token\ndata: {token_data}\n\n"
 
                 elif event_type == "tool_start":
-                    logger.info(f"[chat-sse] tool_start: {event['tool']}({event['input']})")
-                    tool_data = json.dumps({
-                        "tool": event["tool"],
-                        "input": event["input"],
-                    })
+                    logger.info(
+                        f"[chat-sse] tool_start: {event['tool']}({event['input']})"
+                    )
+                    tool_data = json.dumps(
+                        {
+                            "tool": event["tool"],
+                            "input": event["input"],
+                        }
+                    )
                     yield f"event: tool_start\ndata: {tool_data}\n\n"
 
                 elif event_type == "tool_result":
                     ds = (event.get("result") or {}).get("data_summary")
                     row_count = ds.get("row_count", "?") if ds else "?"
                     logger.info(f"[chat-sse] tool_result: {row_count} rows")
-                    result_data = json.dumps(
-                        event["result"], default=str
-                    )
+                    result_data = json.dumps(event["result"], default=str)
                     yield f"event: tool_result\ndata: {result_data}\n\n"
 
                 elif event_type == "complete":
                     content_len = len(event.get("content", ""))
                     remaining = event.get("tool_calls_remaining", 0)
-                    logger.info(f"[chat-sse] complete: {content_len} chars, {remaining} tool calls remaining")
-                    complete_data = json.dumps({
-                        "content": event.get("content", ""),
-                        "suggest_new_query": event.get("suggest_new_query", False),
-                        "suggested_query": event.get("suggested_query"),
-                        "tool_calls_remaining": event.get("tool_calls_remaining", 0),
-                    })
+                    logger.info(
+                        f"[chat-sse] complete: {content_len} chars, {remaining} tool calls remaining"
+                    )
+                    complete_data = json.dumps(
+                        {
+                            "content": event.get("content", ""),
+                            "suggest_new_query": event.get("suggest_new_query", False),
+                            "suggested_query": event.get("suggested_query"),
+                            "tool_calls_remaining": event.get(
+                                "tool_calls_remaining", 0
+                            ),
+                        }
+                    )
                     yield f"event: complete\ndata: {complete_data}\n\n"
 
                 elif event_type == "status":
@@ -602,15 +616,19 @@ async def chat_query(request: ChatRequest):
 
                 elif event_type == "tool_error":
                     logger.warning(f"[chat-sse] tool_error: {event.get('detail', '?')}")
-                    tool_err_data = json.dumps({
-                        "detail": event.get("detail", "Unknown error"),
-                        "query": event.get("query", ""),
-                    })
+                    tool_err_data = json.dumps(
+                        {
+                            "detail": event.get("detail", "Unknown error"),
+                            "query": event.get("query", ""),
+                        }
+                    )
                     yield f"event: tool_error\ndata: {tool_err_data}\n\n"
 
                 elif event_type == "error":
                     logger.error(f"[chat-sse] error: {event.get('detail', '?')}")
-                    error_data = json.dumps({"detail": event.get("detail", "Unknown error")})
+                    error_data = json.dumps(
+                        {"detail": event.get("detail", "Unknown error")}
+                    )
                     yield f"event: error\ndata: {error_data}\n\n"
 
             logger.info("[chat-sse] Event generator finished")
@@ -648,8 +666,10 @@ async def reset_chat(request: ChatResetRequest):
 # Workflow cancellation
 # ---------------------------------------------------------------------------
 
+
 class CancelRequest(BaseModel):
     """Request model for cancelling a running workflow."""
+
     session_id: str = Field(description="Page session ID to cancel")
 
 
@@ -667,6 +687,7 @@ async def cancel_running(request: CancelRequest):
 # ---------------------------------------------------------------------------
 # Database registry endpoints (multi-DB demo mode)
 # ---------------------------------------------------------------------------
+
 
 @app.get(
     "/databases",
@@ -704,6 +725,7 @@ async def get_database_schema(db_id: str):
         raise HTTPException(status_code=404, detail=str(e))
 
     import sqlite3
+
     conn = sqlite3.connect(db_path)
     try:
         schema = introspect_schema(conn)

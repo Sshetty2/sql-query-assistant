@@ -2,7 +2,7 @@
 
 import os
 import json
-from textwrap import dedent
+from textwrap import dedent, indent
 from dotenv import load_dotenv
 
 from langchain_openai import OpenAIEmbeddings
@@ -716,6 +716,8 @@ def filter_schema(state: State, vector_store=None):
     domain_guidance = load_domain_guidance()
     domain_guidance_section = ""
     if domain_guidance:
+        # Pre-indent multi-line file content to match dedent template (12 spaces)
+        guidance_indented = indent(domain_guidance, "            ")
         domain_guidance_section = dedent(
             f"""
 
@@ -724,13 +726,15 @@ def filter_schema(state: State, vector_store=None):
             The following domain-specific guidance will help you understand the database structure,
             terminology, and common query patterns for this domain:
 
-            {domain_guidance}
+{guidance_indented}
 
             ---
             """
         ).strip()
 
     # Construct the system message (context about the problem)
+    # Pre-indent domain_guidance_section to match dedent template (8 spaces)
+    dgs_indented = indent(domain_guidance_section, "        ") if domain_guidance_section else ""
     system_message = dedent(
         f"""
         # Schema Filtering Assistant
@@ -746,7 +750,7 @@ def filter_schema(state: State, vector_store=None):
 
         1. **Determine which tables are actually needed** for this specific query
         2. **Select only the relevant columns** from each table
-        {domain_guidance_section}
+{dgs_indented}
 
         ## Guidelines for Column Selection
 
@@ -776,6 +780,12 @@ def filter_schema(state: State, vector_store=None):
     ).strip()
 
     # Construct the user message (the actual query and data)
+    # Pre-indent multi-line content to match dedent template (8 spaces)
+    table_list = "\n".join(
+        f"### {i+1}. {summary}" for i, summary in enumerate(table_summaries)
+    )
+    table_list_indented = indent(table_list, "        ")
+
     user_message = dedent(
         f"""
         ## User's Question
@@ -784,7 +794,7 @@ def filter_schema(state: State, vector_store=None):
 
         ## Candidate Tables
 
-        {chr(10).join(f"### {i+1}. {summary}" for i, summary in enumerate(table_summaries))}
+{table_list_indented}
 
         ---
 

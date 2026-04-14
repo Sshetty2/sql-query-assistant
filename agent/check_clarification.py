@@ -1,7 +1,7 @@
 """Check if planner needs clarification and generate query suggestions."""
 
 import os
-from textwrap import dedent
+from textwrap import dedent, indent
 from typing import Dict, Any
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -89,6 +89,9 @@ def check_clarification(state: State) -> Dict[str, Any]:
         ambiguities_formatted = "No specific ambiguities provided"
 
     # Create prompt for generating suggestions
+    # Pre-indent multi-line content to match dedent template (8 spaces)
+    ambiguities_ind = indent(ambiguities_formatted, "        ")
+
     prompt = dedent(
         f"""
         # Clarification Assistant
@@ -113,7 +116,7 @@ def check_clarification(state: State) -> Dict[str, Any]:
         **Intent Summary:** {intent_summary if intent_summary else 'N/A'}
 
         **Ambiguities Identified:**
-        {ambiguities_formatted}
+{ambiguities_ind}
 
         ---
 

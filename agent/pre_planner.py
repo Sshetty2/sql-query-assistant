@@ -232,7 +232,11 @@ def _create_minimal_preplan_prompt(**format_params):
         # DOMAIN GUIDANCE
 
         {domain_guidance}
+        """
+    ).strip()
 
+    user_message = dedent(
+        """
         # DATABASE SCHEMA
 
         {schema}
@@ -240,11 +244,7 @@ def _create_minimal_preplan_prompt(**format_params):
         # PARAMETERS
 
         {parameters}
-        """
-    ).strip()
 
-    user_message = dedent(
-        """
         # USER QUERY
 
         {user_query}
@@ -507,7 +507,11 @@ def _create_standard_preplan_prompt(**format_params):
         # DOMAIN GUIDANCE
 
         {domain_guidance}
+        """
+    ).strip()
 
+    user_message = dedent(
+        """
         # DATABASE SCHEMA
 
         {schema}
@@ -515,11 +519,7 @@ def _create_standard_preplan_prompt(**format_params):
         # PARAMETERS
 
         {parameters}
-        """
-    ).strip()
 
-    user_message = dedent(
-        """
         # USER QUERY
 
         {user_query}
@@ -912,7 +912,11 @@ def _create_full_preplan_prompt(**format_params):
         # DOMAIN GUIDANCE
 
         {domain_guidance}
+        """
+    ).strip()
 
+    user_message = dedent(
+        """
         # DATABASE SCHEMA
 
         {schema}
@@ -920,11 +924,7 @@ def _create_full_preplan_prompt(**format_params):
         # PARAMETERS
 
         {parameters}
-        """
-    ).strip()
 
-    user_message = dedent(
-        """
         # USER QUERY
 
         {user_query}
