@@ -111,7 +111,10 @@ export function SchemaERD({ schema, dbName }: SchemaERDProps) {
       .then(({ svg }) => {
         if (cancelled || !container) return;
 
-        container.innerHTML = DOMPurify.sanitize(svg);
+        container.innerHTML = DOMPurify.sanitize(svg, {
+          USE_PROFILES: { svg: true, svgFilters: true },
+          ADD_TAGS: ["foreignObject"],
+        });
         setError(null);
 
         const svgEl = container.querySelector("svg");

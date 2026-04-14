@@ -41,8 +41,16 @@ app.use(
   })
 );
 
-// Limit request body size to prevent memory exhaustion
-app.use(express.json({ limit: "1mb" }));
+// Limit request body size to prevent memory exhaustion.
+// We check Content-Length rather than parsing the body, because the proxy
+// needs the raw stream intact to forward to the backend.
+app.use((req, res, next) => {
+  const len = parseInt(req.headers["content-length"] || "0", 10);
+  if (len > 1_048_576) {
+    return res.status(413).json({ error: "Request body too large." });
+  }
+  next();
+});
 
 // ---------------------------------------------------------------------------
 // CSRF token management
