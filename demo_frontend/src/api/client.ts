@@ -157,7 +157,7 @@ function streamSSE(
   url: string,
   body: unknown,
   callbacks: StreamCallbacks,
-  { connectionTimeoutMs = 30_000, idleTimeoutMs = 60_000 } = {},
+  { connectionTimeoutMs = 30_000, idleTimeoutMs = 300_000 } = {},
 ): AbortController {
   const controller = new AbortController();
   let connectionTimer: ReturnType<typeof setTimeout> | undefined;
@@ -371,7 +371,7 @@ export function streamChat(
   const controller = new AbortController();
   // Chat can involve tool execution, so use longer timeouts
   const connectionTimeoutMs = 45_000;
-  const idleTimeoutMs = 90_000;
+  const idleTimeoutMs = 300_000;
   let connectionTimer: ReturnType<typeof setTimeout> | undefined;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
 

@@ -15,9 +15,13 @@ export function useDatabase() {
     fetchDatabases()
       .then((dbs) => {
         setDatabases(dbs);
-        setConnectionError(null);
         if (dbs.length > 0) {
+          setConnectionError(null);
           setActiveDbId(dbs[0].id);
+        } else {
+          setConnectionError(
+            "No databases available. Ensure USE_TEST_DB=true is set on the backend."
+          );
         }
       })
       .catch((err) => {
