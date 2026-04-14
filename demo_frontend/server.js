@@ -117,6 +117,7 @@ const apiLimiter = rateLimit({
 function csrfValidation(req, res, next) {
   const token = req.headers["x-csrf-token"];
   if (!isValidCsrfToken(token)) {
+    console.warn(`[csrf] Rejected ${req.method} ${req.originalUrl} — token ${token ? "invalid/expired" : "missing"}`);
     return res.status(403).json({ error: "Invalid or missing CSRF token." });
   }
   next();
@@ -136,15 +137,26 @@ app.use(
     timeout: 600000,       // 10 min — outgoing proxy request timeout (ms)
     proxyTimeout: 600000,  // 10 min — incoming proxy response timeout (ms)
     // SSE: disable buffering so events stream through immediately
-    onProxyReq: (proxyReq) => {
+    onProxyReq: (proxyReq, req) => {
       proxyReq.removeHeader("x-csrf-token");
       proxyReq.setHeader("X-Accel-Buffering", "no");
+      console.log(`[proxy] ${req.method} ${req.originalUrl} -> ${API_URL}${req.originalUrl.replace(/^\/api/, "")}`);
     },
-    onProxyRes: (proxyRes) => {
+    onProxyRes: (proxyRes, req) => {
+      console.log(`[proxy] ${req.method} ${req.originalUrl} <- ${proxyRes.statusCode}`);
       // Ensure no buffering/compression breaks SSE
       if (proxyRes.headers["content-type"]?.includes("text/event-stream")) {
         proxyRes.headers["cache-control"] = "no-cache";
         proxyRes.headers["connection"] = "keep-alive";
+      }
+    },
+    onError: (err, req, res) => {
+      console.error(`[proxy] ERROR ${req.method} ${req.originalUrl}: ${err.code || err.message}`);
+      if (!res.headersSent) {
+        res.status(502).json({
+          error: "Backend API unreachable",
+          detail: `Could not connect to ${API_URL} — ${err.code || err.message}`,
+        });
       }
     },
   })
@@ -179,4 +191,9 @@ app.get("/{*splat}", (_req, res) => {
 app.listen(PORT, () => {
   console.log(`Frontend server listening on port ${PORT}`);
   console.log(`Proxying /api/* to ${API_URL}`);
+
+  // Startup connectivity check — verify the backend is reachable
+  fetch(`${API_URL}/`)
+    .then((res) => console.log(`[startup] Backend health check: ${res.status} ${res.statusText}`))
+    .catch((err) => console.error(`[startup] Backend UNREACHABLE at ${API_URL}: ${err.code || err.message}`));
 });
