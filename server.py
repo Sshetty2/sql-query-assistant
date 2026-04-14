@@ -597,20 +597,15 @@ async def chat_query(request: ChatRequest):
                 db_id=request.db_id,
             ):
                 event_type = event.get("type", "")
-                logger.info(f"[chat-sse] Emitting event: {event_type}")
+                logger.debug(f"[chat-sse] Emitting event: {event_type}")
 
                 if event_type == "token":
-                    content_preview = (
-                        event["content"][:80] if event["content"] else "(empty)"
-                    )
-                    logger.info(f"[chat-sse] token: {content_preview!r}...")
+                    logger.debug(f"[chat-sse] token chunk ({len(event.get('content', ''))} chars)")
                     token_data = json.dumps({"content": event["content"]})
                     yield f"event: token\ndata: {token_data}\n\n"
 
                 elif event_type == "tool_start":
-                    logger.info(
-                        f"[chat-sse] tool_start: {event['tool']}({event['input']})"
-                    )
+                    logger.debug(f"[chat-sse] tool_start: {event['tool']}")
                     tool_data = json.dumps(
                         {
                             "tool": event["tool"],
@@ -620,18 +615,12 @@ async def chat_query(request: ChatRequest):
                     yield f"event: tool_start\ndata: {tool_data}\n\n"
 
                 elif event_type == "tool_result":
-                    ds = (event.get("result") or {}).get("data_summary")
-                    row_count = ds.get("row_count", "?") if ds else "?"
-                    logger.info(f"[chat-sse] tool_result: {row_count} rows")
+                    logger.debug("[chat-sse] tool_result received")
                     result_data = json.dumps(event["result"], default=str)
                     yield f"event: tool_result\ndata: {result_data}\n\n"
 
                 elif event_type == "complete":
-                    content_len = len(event.get("content", ""))
-                    remaining = event.get("tool_calls_remaining", 0)
-                    logger.info(
-                        f"[chat-sse] complete: {content_len} chars, {remaining} tool calls remaining"
-                    )
+                    logger.debug("[chat-sse] complete")
                     complete_data = json.dumps(
                         {
                             "content": event.get("content", ""),
@@ -645,10 +634,7 @@ async def chat_query(request: ChatRequest):
                     yield f"event: complete\ndata: {complete_data}\n\n"
 
                 elif event_type == "suggest_revision":
-                    logger.info(
-                        f"[chat-sse] suggest_revision: "
-                        f"{event.get('explanation', '?')[:80]}"
-                    )
+                    logger.debug("[chat-sse] suggest_revision")
                     suggest_data = json.dumps({
                         "revised_sql": event.get("revised_sql", ""),
                         "explanation": event.get("explanation", ""),
@@ -682,7 +668,7 @@ async def chat_query(request: ChatRequest):
                     )
                     yield f"event: error\ndata: {error_data}\n\n"
 
-            logger.info("[chat-sse] Event generator finished")
+            logger.debug("[chat-sse] Event generator finished")
 
         except Exception as e:
             logger.error(f"Chat stream error: {str(e)}", exc_info=True)

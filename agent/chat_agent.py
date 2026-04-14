@@ -536,7 +536,7 @@ def stream_chat_agentic(
             bound_llm = llm.bind_tools(SUGGEST_ONLY_TOOLS)
 
         # Call LLM (invoke, not stream, for reliable tool call detection)
-        logger.info(
+        logger.debug(
             f"[chat-agent] Loop iteration {_iteration}: "
             f"messages={len(messages)}, tools_bound={tools_remaining > 0}"
         )
@@ -549,7 +549,7 @@ def stream_chat_agentic(
 
         has_tool_calls = bool(getattr(response, "tool_calls", None))
         content_type = type(response.content).__name__ if hasattr(response, "content") else "N/A"
-        logger.info(
+        logger.debug(
             f"[chat-agent] Loop iteration {_iteration} complete: "
             f"tool_calls={has_tool_calls}, content_type={content_type}"
         )
@@ -562,8 +562,8 @@ def stream_chat_agentic(
             tool_args = tool_call.get("args", {})
             tool_call_id = tool_call.get("id", "")
 
-            logger.info(
-                f"[chat-agent] Tool call: {tool_name}({tool_args}) "
+            logger.debug(
+                f"[chat-agent] Tool call: {tool_name} "
                 f"[remaining={tools_remaining}]"
             )
 
@@ -571,9 +571,7 @@ def stream_chat_agentic(
                 revised_sql = tool_args.get("revised_sql", "")
                 explanation = tool_args.get("explanation", "")
 
-                logger.info(
-                    f"[chat-agent] suggest_revision: {explanation[:80]}..."
-                )
+                logger.debug("[chat-agent] suggest_revision emitted")
 
                 # Yield suggest_revision event to frontend
                 yield {
@@ -730,10 +728,7 @@ def stream_chat_agentic(
                             "above to answer the user's question."
                         )
 
-                    logger.info(
-                        f"[chat-agent] Tool result: {row_count} rows, "
-                        f"SQL: {sql_query[:80]}..."
-                    )
+                    logger.debug(f"[chat-agent] Tool result: {row_count} rows")
 
                 except Exception as e:
                     logger.error(f"Tool execution error: {e}", exc_info=True)
@@ -797,17 +792,11 @@ def stream_chat_agentic(
                 elif isinstance(block, str):
                     parts.append(block)
             content = "".join(parts)
-            logger.info(
-                f"[chat-agent] Normalised list content ({len(raw_content)} blocks) "
-                f"to string ({len(content)} chars)"
-            )
+            logger.debug(f"[chat-agent] Normalised list content to {len(content)} chars")
         else:
             content = raw_content
 
-        logger.info(
-            f"[chat-agent] Text response ready ({len(content)} chars), "
-            f"yielding token + complete events"
-        )
+        logger.debug(f"[chat-agent] Text response ready ({len(content)} chars)")
 
         # Save to history
         history.add_message(AIMessage(content=content))
@@ -821,7 +810,7 @@ def stream_chat_agentic(
             "suggested_query": None,
             "tool_calls_remaining": _get_tool_calls_remaining(session_id),
         }
-        logger.info("[chat-agent] Agentic loop finished, all events yielded")
+        logger.debug("[chat-agent] Agentic loop finished")
         return
 
     # Exhausted iterations without a text response — shouldn't happen
