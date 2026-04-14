@@ -18,7 +18,7 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
-from agent.chat_tools import CHAT_TOOLS
+from agent.chat_tools import CHAT_TOOLS, SUGGEST_ONLY_TOOLS
 from utils.llm_factory import get_chat_llm, get_model_for_stage
 from utils.logger import get_logger
 from utils.stream_utils import emit_node_status
@@ -47,7 +47,8 @@ _chat_lock = threading.Lock()
 _tool_call_counts: dict[str, int] = {}
 MAX_TOOL_CALLS = int(os.getenv("MAX_CHAT_TOOL_CALLS", "3"))
 
-CHAT_SYSTEM_PROMPT = """This is a SQL Query Assistant — a tool that converts natural language \
+_CHAT_COMMON_INTRO = """\
+This is a SQL Query Assistant — a tool that converts natural language \
 questions into SQL queries and runs them against a database. The user has just run a query \
 and is now exploring the results with follow-up questions.
 
@@ -71,39 +72,46 @@ A few guidelines:
 - Don't fabricate data — only reference what's in the summary or sample.
 - When citing specific values, quote them from the data provided.
 - Format your responses using Markdown: use **bold** for key numbers and terms, \
-bullet lists for multiple points, and short paragraphs. Keep it scannable.
-- If the user asks about data that isn't in the current result set \
-(e.g., a different table, time range, or a new question entirely), \
-please use the run_query tool to fetch what they need.
+bullet lists for multiple points, and short paragraphs. Keep it scannable."""
+
+CHAT_SYSTEM_PROMPT = _CHAT_COMMON_INTRO + """
+
+**Tool usage — act, don't ask:**
+When a user's message implies a query change or a new data request, \
+**use the appropriate tool immediately**. Do NOT ask "would you like me to…", \
+"should I run a query?", or "shall I revise the SQL?" — just do it. \
+The UI will prompt the user for confirmation where needed.
+- **suggest_revision**: Use when the user asks to **modify, tweak, or filter \
+the current query** (e.g., "add a WHERE clause", "sort by date", \
+"remove the LIMIT", "add a column", "change the join"). \
+Write the complete revised SQL and a short explanation of what changed. \
+The user will review it before execution.
+- **run_query**: Use when the user asks about **completely different data** \
+that requires a new query from scratch (different tables, different question).
+- When writing revised SQL, always produce a complete, executable query — \
+not a diff or fragment. Base it on the current SQL shown in the data context.
 
 ## Data Context:
 {data_context}"""
 
-CHAT_SYSTEM_PROMPT_NO_TOOLS = """This is a SQL Query Assistant — a tool that converts natural language \
-questions into SQL queries and runs them against a database. The user has just run a query \
-and is now exploring the results with follow-up questions.
+CHAT_SYSTEM_PROMPT_SUGGEST_ONLY = _CHAT_COMMON_INTRO + """
 
-Here's what you have to work with:
-- The original question and the SQL query that was executed
-- Database schema context (tables, columns, and relationships involved)
-- The query plan (how the system decided which tables and joins to use)
-- Statistical summary of all result columns (exact numbers — counts, averages, ranges, etc.)
-- A representative sample of the raw data
+**Tool usage — act, don't ask:**
+When the user's message implies a query change, **use the tool immediately**. \
+Do NOT ask "would you like me to…" or "shall I revise?" — just do it. \
+The UI will prompt the user for confirmation.
+- You can no longer run new queries, but you can still suggest revisions \
+to the current SQL query using the **suggest_revision** tool.
+- If the user asks to **modify, tweak, or filter the current query**, \
+use the **suggest_revision** tool with complete revised SQL and an explanation.
+- If the user asks about completely different data, let them know they should \
+run a new query from the main input.
 
-Please help the user understand their results:
-- Answer statistical questions using the summary data (counts, averages, distributions)
-- Identify patterns or trends visible in the data
-- Explain what the results show in plain language
-- Point out notable values like outliers, dominant categories, or date ranges
-- Use schema context to clarify what columns represent and how tables relate
-- Reference the query plan to explain why certain tables or joins were chosen
+## Data Context:
+{data_context}"""
 
-A few guidelines:
-- Be concise and direct. Use actual numbers from the summary when answering.
-- Don't fabricate data — only reference what's in the summary or sample.
-- When citing specific values, quote them from the data provided.
-- Format your responses using Markdown: use **bold** for key numbers and terms, \
-bullet lists for multiple points, and short paragraphs. Keep it scannable.
+CHAT_SYSTEM_PROMPT_NO_TOOLS = _CHAT_COMMON_INTRO + """
+
 - You don't have query tools available right now. \
 If the user asks about data that isn't in the current result set, \
 let them know what's missing and suggest they run a new query from the main input.
@@ -443,6 +451,7 @@ def stream_chat_agentic(
     data_context: str,
     thread_id: str,
     query_id: str,
+    db_id: str | None = None,
 ) -> Generator[dict, None, None]:
     """Agentic chat loop that can invoke tools (e.g., run_query).
 
@@ -459,6 +468,7 @@ def stream_chat_agentic(
         data_context: Pre-built context string from prepare_data_context.
         thread_id: Thread ID for query execution.
         query_id: Query ID for the current result set.
+        db_id: Optional demo database ID for query execution.
 
     Yields:
         Dicts with "type" key:
@@ -481,12 +491,11 @@ def stream_chat_agentic(
 
     # Build current data context into system prompt
     tools_remaining = _get_tool_calls_remaining(session_id)
-    has_tools = tools_remaining > 0
 
-    if has_tools:
+    if tools_remaining > 0:
         system_content = CHAT_SYSTEM_PROMPT.format(data_context=data_context)
     else:
-        system_content = CHAT_SYSTEM_PROMPT_NO_TOOLS.format(data_context=data_context)
+        system_content = CHAT_SYSTEM_PROMPT_SUGGEST_ONLY.format(data_context=data_context)
 
     # Assemble messages: system + history + new user message
     messages = [{"role": "system", "content": system_content}]
@@ -507,14 +516,15 @@ def stream_chat_agentic(
     current_data_context = data_context
 
     # Agentic loop — keep going until LLM returns text (no tool calls)
-    max_iterations = MAX_TOOL_CALLS + 1  # safety cap
+    # Extra headroom: suggest_revision calls don't count against budget
+    max_iterations = MAX_TOOL_CALLS + 3  # safety cap
     for _iteration in range(max_iterations):
-        # Bind tools if budget allows
+        # Bind tools: full set if budget allows, suggest_revision-only otherwise
         tools_remaining = _get_tool_calls_remaining(session_id)
         if tools_remaining > 0:
             bound_llm = llm.bind_tools(CHAT_TOOLS)
         else:
-            bound_llm = llm
+            bound_llm = llm.bind_tools(SUGGEST_ONLY_TOOLS)
 
         # Call LLM (invoke, not stream, for reliable tool call detection)
         logger.info(
@@ -537,7 +547,7 @@ def stream_chat_agentic(
 
         # Check if the LLM wants to call a tool
         tool_calls = getattr(response, "tool_calls", None)
-        if tool_calls and len(tool_calls) > 0 and tools_remaining > 0:
+        if tool_calls and len(tool_calls) > 0:
             tool_call = tool_calls[0]  # Handle one tool call at a time
             tool_name = tool_call.get("name", "")
             tool_args = tool_call.get("args", {})
@@ -545,10 +555,46 @@ def stream_chat_agentic(
 
             logger.info(
                 f"[chat-agent] Tool call: {tool_name}({tool_args}) "
-                f"[remaining={tools_remaining - 1}]"
+                f"[remaining={tools_remaining}]"
             )
 
-            if tool_name == "run_query":
+            if tool_name == "suggest_revision":
+                revised_sql = tool_args.get("revised_sql", "")
+                explanation = tool_args.get("explanation", "")
+
+                logger.info(
+                    f"[chat-agent] suggest_revision: {explanation[:80]}..."
+                )
+
+                # Yield suggest_revision event to frontend
+                yield {
+                    "type": "suggest_revision",
+                    "revised_sql": revised_sql,
+                    "explanation": explanation,
+                }
+
+                # Do NOT increment tool call counter (lightweight, no DB call)
+
+                # Build a ToolMessage to inform the LLM the suggestion was shown
+                tool_result_text = (
+                    "The revised SQL has been shown to the user for review. "
+                    "They will decide whether to execute it. "
+                    "Provide a brief summary of the changes you proposed."
+                )
+
+                # Append to messages for next iteration
+                messages.append(response)
+                messages.append(
+                    ToolMessage(
+                        content=tool_result_text,
+                        tool_call_id=tool_call_id,
+                    )
+                )
+
+                # Continue loop — LLM will summarize the suggestion
+                continue
+
+            elif tool_name == "run_query" and tools_remaining > 0:
                 query_text = tool_args.get("query", "")
 
                 # Yield tool_start event
@@ -572,6 +618,7 @@ def stream_chat_agentic(
                         query_text,
                         stream_updates=True,
                         chat_session_id=None,
+                        db_id=db_id,
                     ):
                         if update.get("type") == "complete":
                             output = update
@@ -717,7 +764,7 @@ def stream_chat_agentic(
                 else:
                     messages[0] = {
                         "role": "system",
-                        "content": CHAT_SYSTEM_PROMPT_NO_TOOLS.format(
+                        "content": CHAT_SYSTEM_PROMPT_SUGGEST_ONLY.format(
                             data_context=current_data_context
                         ),
                     }

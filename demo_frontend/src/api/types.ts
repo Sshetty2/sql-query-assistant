@@ -117,12 +117,13 @@ export interface DataSummary {
 // Chat types
 
 export interface ChatMessage {
-  role: "user" | "assistant" | "tool_start" | "tool_result" | "tool_error" | "data_summary";
+  role: "user" | "assistant" | "tool_start" | "tool_result" | "tool_error" | "data_summary" | "suggest_revision";
   content: string;
   resultId?: string; // Links to a stored QueryResult in localStorage
   failedQuery?: string; // The query that failed (for retry)
   dataSummary?: DataSummary; // Inline data summary stats (for data_summary and tool_result)
   query?: string; // SQL query text (for data_summary messages)
+  revisedSql?: string; // Proposed SQL revision (for suggest_revision messages)
 }
 
 export interface ChatRequest {
@@ -130,6 +131,7 @@ export interface ChatRequest {
   query_id: string;
   message: string;
   session_id?: string;
+  db_id?: string;
 }
 
 export interface ChatTokenEvent {
@@ -151,6 +153,18 @@ export interface ChatCompleteEvent {
   suggest_new_query: boolean;
   suggested_query: string | null;
   tool_calls_remaining: number;
+}
+
+export interface ChatSuggestRevisionEvent {
+  revised_sql: string;
+  explanation: string;
+}
+
+export interface ExecuteSQLRequest {
+  sql: string;
+  thread_id: string;
+  query_id: string;
+  db_id?: string;
 }
 
 export interface ModificationOptions {

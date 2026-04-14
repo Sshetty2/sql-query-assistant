@@ -2,7 +2,8 @@
 
 Defines tools that the chat agent can invoke during conversation,
 enabling it to re-run queries when the user's question cannot be
-answered from the current result set.
+answered from the current result set, or to suggest SQL revisions
+for the user to review before execution.
 """
 
 from langchain_core.tools import tool
@@ -25,4 +26,23 @@ def run_query(query: str) -> str:
     pass
 
 
-CHAT_TOOLS = [run_query]
+@tool
+def suggest_revision(revised_sql: str, explanation: str) -> str:
+    """Suggest a revised SQL query for the user to review before execution.
+
+    Use this when the user asks to modify, tweak, or improve the current
+    SQL query — e.g., add/remove columns, change filters, adjust sorting,
+    or fix an issue. The revised SQL will be shown to the user for approval
+    before it is executed. Do NOT use run_query for query modifications.
+
+    Args:
+        revised_sql: The complete revised SQL query (ready to execute as-is)
+        explanation: Brief explanation of what changed and why
+    """
+    # Execution is handled by the agentic loop in chat_agent.py,
+    # not by this function body.
+    pass
+
+
+CHAT_TOOLS = [run_query, suggest_revision]
+SUGGEST_ONLY_TOOLS = [suggest_revision]

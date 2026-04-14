@@ -509,6 +509,10 @@ class ChatRequest(BaseModel):
         default=None,
         description="Frontend session ID for conversation memory. Falls back to thread_id:query_id if not provided.",
     )
+    db_id: Optional[str] = Field(
+        default=None,
+        description="Demo database ID. When set, the chat agent's run_query tool uses this database.",
+    )
 
 
 class ChatResetRequest(BaseModel):
@@ -585,6 +589,7 @@ async def chat_query(request: ChatRequest):
                 data_context=context,
                 thread_id=request.thread_id,
                 query_id=request.query_id,
+                db_id=request.db_id,
             ):
                 event_type = event.get("type", "")
                 logger.info(f"[chat-sse] Emitting event: {event_type}")
@@ -633,6 +638,17 @@ async def chat_query(request: ChatRequest):
                         }
                     )
                     yield f"event: complete\ndata: {complete_data}\n\n"
+
+                elif event_type == "suggest_revision":
+                    logger.info(
+                        f"[chat-sse] suggest_revision: "
+                        f"{event.get('explanation', '?')[:80]}"
+                    )
+                    suggest_data = json.dumps({
+                        "revised_sql": event.get("revised_sql", ""),
+                        "explanation": event.get("explanation", ""),
+                    })
+                    yield f"event: suggest_revision\ndata: {suggest_data}\n\n"
 
                 elif event_type == "status":
                     event_data = {
@@ -690,6 +706,178 @@ async def reset_chat(request: ChatResetRequest):
 
     clear_chat_session(request.session_id)
     return {"status": "ok", "session_id": request.session_id}
+
+
+# ---------------------------------------------------------------------------
+# Execute raw SQL (for approved chat revisions)
+# ---------------------------------------------------------------------------
+
+
+class ExecuteSQLRequest(BaseModel):
+    """Request model for executing raw SQL directly."""
+
+    sql: str = Field(
+        ...,
+        max_length=50000,
+        description="The SQL query to execute directly",
+    )
+    thread_id: str = Field(description="Thread ID for state persistence")
+    query_id: str = Field(description="Query ID for the current context")
+    db_id: Optional[str] = Field(
+        default=None,
+        description="Demo database identifier",
+    )
+
+
+def _validate_select_only(sql: str) -> None:
+    """Raise ValueError if the SQL is not a read-only SELECT statement."""
+    import sqlglot
+    import sqlglot.expressions as exp
+
+    try:
+        statements = sqlglot.parse(sql)
+        for stmt in statements:
+            if stmt is None:
+                continue
+            if not isinstance(stmt, exp.Select):
+                raise ValueError(
+                    f"Only SELECT statements are allowed. "
+                    f"Got: {type(stmt).__name__}"
+                )
+    except sqlglot.errors.ParseError:
+        raise ValueError("Could not validate SQL statement")
+
+
+@app.post(
+    "/query/execute-sql",
+    summary="Execute Raw SQL via SSE",
+    description="""
+    Execute a raw SQL query directly against the database and stream results.
+    Used for approved SQL revisions from the chat agent.
+    Only SELECT statements are allowed.
+
+    Event types:
+    - `status`: Execution progress
+    - `complete`: Full QueryResult
+    - `error`: Error details
+    """,
+)
+async def execute_sql(request: ExecuteSQLRequest):
+    """Execute raw SQL and stream results via SSE."""
+
+    def event_generator():
+        try:
+            from database.connection import get_pyodbc_connection
+            from agent.generate_data_summary import compute_data_summary
+            from agent.execute_query import json_serial
+            from utils.thread_manager import get_query_state, save_query_state
+
+            # Validate: SELECT only
+            _validate_select_only(request.sql)
+
+            # Emit status: executing
+            status_data = json.dumps({
+                "type": "status",
+                "node_name": "execute_sql",
+                "node_status": "running",
+                "node_message": "Executing SQL query",
+            })
+            yield f"event: status\ndata: {status_data}\n\n"
+
+            # Open database connection and execute
+            conn = get_pyodbc_connection(request.db_id)
+            try:
+                cursor = conn.cursor()
+                cursor.execute(request.sql)
+                columns = [col[0] for col in cursor.description]
+                results = cursor.fetchall()
+                data = [dict(zip(columns, row)) for row in results]
+                total_count = len(data)
+                json_result = json.dumps(data, default=json_serial)
+                cursor.close()
+            finally:
+                conn.close()
+
+            # Compute data summary
+            data_summary = compute_data_summary(json_result, total_count)
+
+            # Load original state to preserve schema/plan context
+            original_state = (
+                get_query_state(request.thread_id, request.query_id) or {}
+            )
+
+            # Build minimal state for the response
+            state = {
+                "messages": [],
+                "user_question": original_state.get("user_question", ""),
+                "query": request.sql,
+                "result": json_result,
+                "sort_order": "Default",
+                "result_limit": 0,
+                "time_filter": "All Time",
+                "last_step": "execute_sql",
+                "error_iteration": 0,
+                "refinement_iteration": 0,
+                "correction_history": [],
+                "refinement_history": [],
+                "last_attempt_time": datetime.now().isoformat(),
+                "schema": original_state.get("schema", []),
+                "planner_output": original_state.get("planner_output"),
+                "executed_plan": original_state.get("executed_plan"),
+                "filtered_schema": original_state.get("filtered_schema"),
+                "needs_clarification": False,
+                "clarification_suggestions": [],
+                "modification_options": None,
+                "total_records_available": total_count,
+                "data_summary": data_summary,
+                "query_narrative": None,
+                "thread_id": request.thread_id,
+            }
+
+            # Save the new query state
+            new_query_id = save_query_state(
+                request.thread_id,
+                state["user_question"],
+                state,
+            )
+
+            # Build response
+            response_data = build_query_response(
+                state,
+                {"thread_id": request.thread_id, "query_id": new_query_id},
+            )
+
+            # Emit completed status
+            done_data = json.dumps({
+                "type": "status",
+                "node_name": "execute_sql",
+                "node_status": "completed",
+                "node_message": f"Query returned {total_count} rows",
+            })
+            yield f"event: status\ndata: {done_data}\n\n"
+
+            yield f"event: complete\ndata: {json.dumps(response_data, default=str)}\n\n"
+
+        except ValueError as ve:
+            logger.warning(f"Execute SQL validation error: {ve}")
+            error_data = json.dumps({"detail": str(ve)})
+            yield f"event: error\ndata: {error_data}\n\n"
+        except Exception as e:
+            logger.error(f"Execute SQL error: {str(e)}", exc_info=True)
+            error_data = json.dumps(
+                {"detail": f"SQL execution failed: {str(e)}"}
+            )
+            yield f"event: error\ndata: {error_data}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

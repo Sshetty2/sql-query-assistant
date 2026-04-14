@@ -4,6 +4,11 @@ import type { ChatMessage, ChatCompleteEvent, ChatToolErrorEvent, DataSummary, Q
 
 export type ChatStatus = "idle" | "streaming" | "tool_running" | "complete" | "error";
 
+export interface PendingRevision {
+  sql: string;
+  explanation: string;
+}
+
 interface UseChatOptions {
   /** Called when the agent executes a tool and gets new query results. */
   onToolResult?: (result: QueryResult) => void;
@@ -22,10 +27,11 @@ export function useChat(options: UseChatOptions = {}) {
   const [error, setError] = useState<string | null>(null);
   const [suggestedQuery, setSuggestedQuery] = useState<string | null>(null);
   const [toolCallsRemaining, setToolCallsRemaining] = useState<number | null>(null);
+  const [pendingRevision, setPendingRevision] = useState<PendingRevision | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
-    (threadId: string, queryId: string, message: string, sessionId?: string) => {
+    (threadId: string, queryId: string, message: string, sessionId?: string, dbId?: string) => {
       // Cancel any in-flight request
       controllerRef.current?.abort();
 
@@ -36,6 +42,7 @@ export function useChat(options: UseChatOptions = {}) {
       setStatus("streaming");
       setError(null);
       setSuggestedQuery(null);
+      setPendingRevision(null);
 
       controllerRef.current = streamChat(
         {
@@ -43,6 +50,7 @@ export function useChat(options: UseChatOptions = {}) {
           query_id: queryId,
           message,
           session_id: sessionId,
+          ...(dbId ? { db_id: dbId } : {}),
         },
         {
           onToken: (event) => {
@@ -99,6 +107,18 @@ export function useChat(options: UseChatOptions = {}) {
             setMessages((prev) => [...prev, toolErrMsg]);
             setStatus("streaming"); // LLM will explain the error next
           },
+          onSuggestRevision: (event) => {
+            const revisionMsg: ChatMessage = {
+              role: "suggest_revision",
+              content: event.explanation,
+              revisedSql: event.revised_sql,
+            };
+            setMessages((prev) => [...prev, revisionMsg]);
+            setPendingRevision({
+              sql: event.revised_sql,
+              explanation: event.explanation,
+            });
+          },
           onStatus: (event) => {
             options.onStatus?.(event);
           },
@@ -125,6 +145,11 @@ export function useChat(options: UseChatOptions = {}) {
     setMessages((prev) => [...prev, msg]);
   }, []);
 
+  /** Append an arbitrary message to the chat. */
+  const appendMessage = useCallback((msg: ChatMessage) => {
+    setMessages((prev) => [...prev, msg]);
+  }, []);
+
   /** Append an inline data summary message (e.g., when initial query completes). */
   const appendDataSummary = useCallback(
     (summary: DataSummary, resultId: string, sql: string) => {
@@ -140,6 +165,18 @@ export function useChat(options: UseChatOptions = {}) {
     []
   );
 
+  /** Accept the pending revision and return it. Clears pending state. */
+  const acceptRevision = useCallback((): PendingRevision | null => {
+    const revision = pendingRevision;
+    setPendingRevision(null);
+    return revision;
+  }, [pendingRevision]);
+
+  /** Dismiss the pending revision without executing. */
+  const dismissRevision = useCallback(() => {
+    setPendingRevision(null);
+  }, []);
+
   /** Clear local messages only (no server call). */
   const reset = useCallback(() => {
     controllerRef.current?.abort();
@@ -149,6 +186,7 @@ export function useChat(options: UseChatOptions = {}) {
     setError(null);
     setSuggestedQuery(null);
     setToolCallsRemaining(null);
+    setPendingRevision(null);
   }, []);
 
   /** Clear both local messages and server-side conversation memory. */
@@ -160,6 +198,7 @@ export function useChat(options: UseChatOptions = {}) {
     setError(null);
     setSuggestedQuery(null);
     setToolCallsRemaining(null);
+    setPendingRevision(null);
     resetChat(sessionId).catch(() => {
       // Best-effort: server memory will expire naturally
     });
@@ -172,6 +211,7 @@ export function useChat(options: UseChatOptions = {}) {
     setStatus("idle");
     setError(null);
     setSuggestedQuery(null);
+    setPendingRevision(null);
   }, []);
 
   return {
@@ -181,10 +221,14 @@ export function useChat(options: UseChatOptions = {}) {
     error,
     suggestedQuery,
     toolCallsRemaining,
+    pendingRevision,
     send,
     appendUserMessage,
     appendAssistantMessage,
+    appendMessage,
     appendDataSummary,
+    acceptRevision,
+    dismissRevision,
     reset,
     resetConversation,
     restoreMessages,

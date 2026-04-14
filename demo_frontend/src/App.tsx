@@ -12,7 +12,8 @@ import { ChatPanel } from "@/components/ChatPanel";
 import { DatabaseSelector } from "@/components/DatabaseSelector";
 import { SchemaERD } from "@/components/SchemaERD";
 import { Card, CardContent } from "@/components/ui/card";
-import type { QueryResult, StatusEvent } from "@/api/types";
+import { streamExecuteSQL } from "@/api/client";
+import type { ChatMessage, QueryResult, StatusEvent } from "@/api/types";
 
 function App() {
   const resultStore = useResultStore();
@@ -27,8 +28,9 @@ function App() {
   const chatOptions = useMemo(
     () => ({
       onToolStart: () => {
-        // Mark that steps should be cleared on the first status event
+        // Clear stale result and mark steps for clearing
         needsStepsClearRef.current = true;
+        resetQuery();
       },
       onToolResult: (toolResult: QueryResult) => {
         // Update main panel with new results
@@ -52,7 +54,7 @@ function App() {
         }
       },
     }),
-    [updateResult, resultStore, convs.activeId, convs.addResultId, setSteps]
+    [updateResult, resetQuery, resultStore, convs.activeId, convs.addResultId, setSteps]
   );
 
   const chat = useChat(chatOptions);
@@ -210,6 +212,81 @@ function App() {
     [resultStore, updateResult]
   );
 
+  const handleExecuteRevision = useCallback(() => {
+    const revision = chat.acceptRevision();
+    if (!revision || !result?.thread_id || !result?.query_id) return;
+
+    const { thread_id, query_id } = result;
+
+    // Clear old result while revision executes
+    resetQuery();
+
+    // Show progress
+    needsStepsClearRef.current = false;
+    setSteps([{
+      type: "status" as const,
+      node_name: "execute_sql",
+      node_status: "running" as const,
+      node_message: "Executing revised SQL",
+    }]);
+
+    streamExecuteSQL(
+      {
+        sql: revision.sql,
+        thread_id,
+        query_id,
+        ...(db.activeDbId ? { db_id: db.activeDbId } : {}),
+      },
+      {
+        onStatus: (event) => {
+          setSteps((prev) => [...prev, event]);
+        },
+        onComplete: (queryResult) => {
+          updateResult(queryResult);
+          // Store result for click-to-view
+          const rid = resultStore.store(queryResult);
+          if (convs.activeId) {
+            convs.addResultId(convs.activeId, rid);
+          }
+          // Add confirmation message in chat
+          const rowCount = queryResult.data_summary?.row_count ?? queryResult.result?.length ?? 0;
+          const colCount = queryResult.data_summary?.column_count ?? 0;
+          const toolResultMsg: ChatMessage = {
+            role: "tool_result",
+            content: `Revision executed: ${rowCount} rows, ${colCount} columns`,
+            resultId: rid,
+            dataSummary: queryResult.data_summary ?? undefined,
+            query: queryResult.query ?? undefined,
+          };
+          chat.appendMessage(toolResultMsg);
+
+          // Trigger agent response about the updated results
+          if (queryResult.thread_id && queryResult.query_id) {
+            chat.send(
+              queryResult.thread_id,
+              queryResult.query_id,
+              `Revised query executed: ${rowCount} rows, ${colCount} columns. Briefly summarize what changed.`,
+              convs.activeId ?? undefined,
+              db.activeDbId ?? undefined,
+            );
+          }
+        },
+        onError: (err) => {
+          const errorMsg: ChatMessage = {
+            role: "tool_error",
+            content: `Revision execution failed: ${err}`,
+            failedQuery: revision.sql,
+          };
+          chat.appendMessage(errorMsg);
+        },
+      }
+    );
+  }, [chat, result, db.activeDbId, resultStore, convs, updateResult, resetQuery, setSteps]);
+
+  const handleDismissRevision = useCallback(() => {
+    chat.dismissRevision();
+  }, [chat]);
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Main content */}
@@ -290,15 +367,19 @@ function App() {
           threadId={result?.thread_id ?? null}
           queryId={result?.query_id ?? null}
           sessionId={convs.activeId ?? ""}
+          dbId={db.activeDbId}
           messages={chat.messages}
           streamingContent={chat.streamingContent}
           status={chat.status}
           error={chat.error}
           suggestedQuery={chat.suggestedQuery}
+          pendingRevision={chat.pendingRevision}
           onSend={chat.send}
           onNewQuery={handleNewQuery}
           onReset={handleResetConversation}
           onResultClick={handleResultClick}
+          onExecuteRevision={handleExecuteRevision}
+          onDismissRevision={handleDismissRevision}
           conversations={convs.conversations}
           activeConversationId={convs.activeId}
           onNewConversation={handleNewConversation}

@@ -16,6 +16,8 @@ import {
   MessageSquare,
   AlertTriangle,
   RefreshCw,
+  Play,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +31,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ChatMessage, DataSummary } from "@/api/types";
-import type { ChatStatus } from "@/hooks/useChat";
+import type { ChatStatus, PendingRevision } from "@/hooks/useChat";
 import type { Conversation } from "@/hooks/useConversations";
 
 interface ChatPanelProps {
@@ -41,10 +43,14 @@ interface ChatPanelProps {
   status: ChatStatus;
   error: string | null;
   suggestedQuery: string | null;
-  onSend: (threadId: string, queryId: string, message: string, sessionId?: string) => void;
+  pendingRevision: PendingRevision | null;
+  dbId: string | null;
+  onSend: (threadId: string, queryId: string, message: string, sessionId?: string, dbId?: string) => void;
   onNewQuery: (query: string) => void;
   onReset: () => void;
   onResultClick?: (resultId: string) => void;
+  onExecuteRevision: () => void;
+  onDismissRevision: () => void;
   // Conversation props
   conversations: Conversation[];
   activeConversationId: string | null;
@@ -286,6 +292,71 @@ function ToolErrorMessage({
   );
 }
 
+function SuggestRevisionMessage({
+  sql,
+  explanation,
+  isPending,
+  onExecute,
+  onDismiss,
+}: {
+  sql: string;
+  explanation: string;
+  isPending: boolean;
+  onExecute: () => void;
+  onDismiss: () => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[85%] rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm">
+        <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
+          <Pencil className="size-3.5" />
+          <span className="font-medium text-xs">Suggested revision</span>
+        </div>
+        <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">{explanation}</p>
+
+        <button
+          className="mt-1.5 flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 hover:underline"
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+          {expanded ? "Hide SQL" : "Show SQL"}
+        </button>
+
+        {expanded && (
+          <div className="mt-1.5 rounded bg-amber-100 dark:bg-amber-900/40 px-2 py-1 text-[10px] font-mono text-amber-900 dark:text-amber-200 overflow-x-auto whitespace-pre-wrap">
+            {sql}
+          </div>
+        )}
+
+        {isPending && (
+          <div className="mt-2 flex gap-2">
+            <Button
+              size="sm"
+              variant="default"
+              className="h-6 text-xs px-2"
+              onClick={onExecute}
+            >
+              <Play className="size-3 mr-1" />
+              Execute
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-xs px-2"
+              onClick={onDismiss}
+            >
+              <X className="size-3 mr-1" />
+              Dismiss
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
@@ -301,15 +372,19 @@ export function ChatPanel({
   threadId,
   queryId,
   sessionId,
+  dbId,
   messages,
   streamingContent,
   status,
   error,
   suggestedQuery,
+  pendingRevision,
   onSend,
   onNewQuery,
   onReset,
   onResultClick,
+  onExecuteRevision,
+  onDismissRevision,
   conversations,
   activeConversationId,
   onNewConversation,
@@ -343,7 +418,7 @@ export function ChatPanel({
 
     if (threadId && queryId) {
       // Follow-up: use chat agent for context-aware conversation
-      onSend(threadId, queryId, trimmed, sessionId);
+      onSend(threadId, queryId, trimmed, sessionId, dbId ?? undefined);
     } else {
       // No query yet: execute as a new query via the main pipeline
       onNewQuery(trimmed);
@@ -520,6 +595,19 @@ export function ChatPanel({
                 failedQuery={msg.failedQuery}
                 onRetry={onNewQuery}
                 onReset={onReset}
+              />
+            );
+          }
+          if (msg.role === "suggest_revision" && msg.revisedSql) {
+            const isPending = !!(pendingRevision && pendingRevision.sql === msg.revisedSql);
+            return (
+              <SuggestRevisionMessage
+                key={i}
+                sql={msg.revisedSql}
+                explanation={msg.content}
+                isPending={isPending}
+                onExecute={onExecuteRevision}
+                onDismiss={onDismissRevision}
               />
             );
           }

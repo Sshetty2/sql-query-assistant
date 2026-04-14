@@ -1,6 +1,7 @@
 import type {
   QueryRequest,
   PatchRequest,
+  ExecuteSQLRequest,
   StatusEvent,
   QueryResult,
   ChatRequest,
@@ -8,6 +9,7 @@ import type {
   ChatToolStartEvent,
   ChatToolErrorEvent,
   ChatCompleteEvent,
+  ChatSuggestRevisionEvent,
   DemoDatabase,
   SchemaTable,
 } from "./types";
@@ -223,6 +225,18 @@ export function streamPatch(
   return streamSSE("/api/query/patch", request, callbacks);
 }
 
+/**
+ * Execute raw SQL directly and stream results via SSE.
+ * Used for approved SQL revisions from the chat agent.
+ * Returns an AbortController to cancel the request.
+ */
+export function streamExecuteSQL(
+  request: ExecuteSQLRequest,
+  callbacks: StreamCallbacks
+): AbortController {
+  return streamSSE("/api/query/execute-sql", request, callbacks);
+}
+
 // ---------------------------------------------------------------------------
 // Database registry
 // ---------------------------------------------------------------------------
@@ -273,6 +287,7 @@ interface ChatStreamCallbacks {
   onToolResult?: (result: QueryResult) => void;
   onToolError?: (event: ChatToolErrorEvent) => void;
   onStatus?: (event: StatusEvent) => void;
+  onSuggestRevision?: (event: ChatSuggestRevisionEvent) => void;
 }
 
 /**
@@ -334,6 +349,8 @@ export function streamChat(
               callbacks.onToolResult?.(parsed as QueryResult);
             } else if (event.type === "tool_error") {
               callbacks.onToolError?.(parsed as ChatToolErrorEvent);
+            } else if (event.type === "suggest_revision") {
+              callbacks.onSuggestRevision?.(parsed as ChatSuggestRevisionEvent);
             } else if (event.type === "status") {
               callbacks.onStatus?.(parsed as StatusEvent);
             }
@@ -358,6 +375,8 @@ export function streamChat(
               callbacks.onToken(parsed as ChatTokenEvent);
             } else if (event.type === "tool_result") {
               callbacks.onToolResult?.(parsed as QueryResult);
+            } else if (event.type === "suggest_revision") {
+              callbacks.onSuggestRevision?.(parsed as ChatSuggestRevisionEvent);
             }
           } catch {
             // Ignore unparseable trailing data
