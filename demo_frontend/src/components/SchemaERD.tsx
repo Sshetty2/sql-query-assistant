@@ -24,12 +24,12 @@ function ensureMermaidInit() {
     themeVariables: {
       darkMode: true,
       background: "transparent",
-      primaryColor: "#2d3352",
-      primaryTextColor: "#c5c9d6",
-      primaryBorderColor: "#424868",
-      lineColor: "#5b82d1",
-      secondaryColor: "#252a40",
-      tertiaryColor: "#1e2235",
+      primaryColor: "#363d5e",
+      primaryTextColor: "#d4d8e4",
+      primaryBorderColor: "#525a7a",
+      lineColor: "#6b92e1",
+      secondaryColor: "#2e3450",
+      tertiaryColor: "#262c42",
       fontFamily: "'Geist Variable', sans-serif",
       fontSize: "16px",
     },
@@ -187,7 +187,7 @@ export function SchemaERD({ schema, dbName }: SchemaERDProps) {
               className="relative rounded-md border border-border overflow-hidden"
               style={{
                 height: 400,
-                backgroundImage: "radial-gradient(circle, oklch(0.40 0.015 260) 1px, transparent 1px)",
+                backgroundImage: "radial-gradient(circle, oklch(0.44 0.015 260) 1px, transparent 1px)",
                 backgroundSize: "20px 20px",
               }}
             >

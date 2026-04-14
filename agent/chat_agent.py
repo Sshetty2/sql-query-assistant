@@ -4,7 +4,7 @@ Uses LangChain LCEL chains with in-memory conversation history to provide
 a chat interface for exploring and understanding query results.
 
 Supports an agentic loop where the LLM can invoke tools (e.g., run_query)
-to re-execute queries when the user's question cannot be answered from
+to re-execute queries when a follow-up question cannot be answered from
 the current result set.
 """
 
@@ -49,23 +49,26 @@ MAX_TOOL_CALLS = int(os.getenv("MAX_CHAT_TOOL_CALLS", "3"))
 
 _CHAT_COMMON_INTRO = """\
 This is a SQL Query Assistant — a tool that converts natural language \
-questions into SQL queries and runs them against a database. The user has just run a query \
-and is now exploring the results with follow-up questions.
+questions into SQL queries and runs them against a database. A query has just \
+been executed, and the results are now being explored through follow-up questions.
 
-Here's what you have to work with:
-- The original question and the SQL query that was executed
+The following context was produced by the system's automated workflow pipeline \
+(schema filtering, query planning, SQL generation, and execution):
+- The original question and the SQL query that was generated and executed
 - Database schema context (tables, columns, and relationships involved)
 - The query plan (how the system decided which tables and joins to use)
 - Statistical summary of all result columns (exact numbers — counts, averages, ranges, etc.)
 - A representative sample of the raw data
 
-Please help the user understand their results:
+Help explore and understand the results:
 - Answer statistical questions using the summary data (counts, averages, distributions)
 - Identify patterns or trends visible in the data
 - Explain what the results show in plain language
 - Point out notable values like outliers, dominant categories, or date ranges
 - Use schema context to clarify what columns represent and how tables relate
 - Reference the query plan to explain why certain tables or joins were chosen
+- When a question can't be fully answered from the current data, \
+proactively suggest a query revision that would provide the needed information
 
 A few guidelines:
 - Be concise and direct. Use actual numbers from the summary when answering.
@@ -77,16 +80,18 @@ bullet lists for multiple points, and short paragraphs. Keep it scannable."""
 CHAT_SYSTEM_PROMPT = _CHAT_COMMON_INTRO + """
 
 **Tool usage — act, don't ask:**
-When a user's message implies a query change or a new data request, \
+When a follow-up message implies a query change or a new data request, \
 **use the appropriate tool immediately**. Do NOT ask "would you like me to…", \
 "should I run a query?", or "shall I revise the SQL?" — just do it. \
-The UI will prompt the user for confirmation where needed.
-- **suggest_revision**: Use when the user asks to **modify, tweak, or filter \
-the current query** (e.g., "add a WHERE clause", "sort by date", \
-"remove the LIMIT", "add a column", "change the join"). \
+The UI will prompt for confirmation where needed.
+- **suggest_revision** (preferred for modifications): Use when asked to \
+**modify, tweak, or filter the current query** (e.g., "add a WHERE clause", \
+"sort by date", "remove the LIMIT", "add a column", "change the join"). \
 Write the complete revised SQL and a short explanation of what changed. \
-The user will review it before execution.
-- **run_query**: Use when the user asks about **completely different data** \
+The revision will be shown for review before execution. \
+**Prefer this tool whenever the current query can be adapted** rather than \
+running an entirely new query from scratch.
+- **run_query**: Use only when **completely different data** is needed \
 that requires a new query from scratch (different tables, different question).
 - When writing revised SQL, always produce a complete, executable query — \
 not a diff or fragment. Base it on the current SQL shown in the data context.
@@ -99,15 +104,15 @@ CREATE, ALTER, or any other data-modifying statement.
 CHAT_SYSTEM_PROMPT_SUGGEST_ONLY = _CHAT_COMMON_INTRO + """
 
 **Tool usage — act, don't ask:**
-When the user's message implies a query change, **use the tool immediately**. \
+When a follow-up message implies a query change, **use the tool immediately**. \
 Do NOT ask "would you like me to…" or "shall I revise?" — just do it. \
-The UI will prompt the user for confirmation.
+The UI will prompt for confirmation.
 - You can no longer run new queries, but you can still suggest revisions \
 to the current SQL query using the **suggest_revision** tool.
-- If the user asks to **modify, tweak, or filter the current query**, \
+- When asked to **modify, tweak, or filter the current query**, \
 use the **suggest_revision** tool with complete revised SQL and an explanation.
-- If the user asks about completely different data, let them know they should \
-run a new query from the main input.
+- If the question is about completely different data, suggest running a new \
+query from the main input.
 - **Only write SELECT queries.** Never produce INSERT, UPDATE, DELETE, DROP, \
 CREATE, ALTER, or any other data-modifying statement.
 
@@ -117,8 +122,8 @@ CREATE, ALTER, or any other data-modifying statement.
 CHAT_SYSTEM_PROMPT_NO_TOOLS = _CHAT_COMMON_INTRO + """
 
 - You don't have query tools available right now. \
-If the user asks about data that isn't in the current result set, \
-let them know what's missing and suggest they run a new query from the main input.
+If a question is about data that isn't in the current result set, \
+explain what's missing and suggest running a new query from the main input.
 
 ## Data Context:
 {data_context}"""
@@ -836,7 +841,7 @@ def stream_chat_agentic(
 
 NARRATIVE_USER_PROMPT = (
     "Please provide a brief summary of these query results in the context of "
-    "the user's original question. Highlight key findings, notable patterns, "
+    "the original question. Highlight key findings, notable patterns, "
     "and any important numbers. Keep it concise — 2-4 sentences."
 )
 
