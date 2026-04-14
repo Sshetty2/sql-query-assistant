@@ -729,25 +729,6 @@ class ExecuteSQLRequest(BaseModel):
     )
 
 
-def _validate_select_only(sql: str) -> None:
-    """Raise ValueError if the SQL is not a read-only SELECT statement."""
-    import sqlglot
-    import sqlglot.expressions as exp
-
-    try:
-        statements = sqlglot.parse(sql)
-        for stmt in statements:
-            if stmt is None:
-                continue
-            if not isinstance(stmt, exp.Select):
-                raise ValueError(
-                    f"Only SELECT statements are allowed. "
-                    f"Got: {type(stmt).__name__}"
-                )
-    except sqlglot.errors.ParseError:
-        raise ValueError("Could not validate SQL statement")
-
-
 @app.post(
     "/query/execute-sql",
     summary="Execute Raw SQL via SSE",
@@ -773,7 +754,8 @@ async def execute_sql(request: ExecuteSQLRequest):
             from utils.thread_manager import get_query_state, save_query_state
 
             # Validate: SELECT only
-            _validate_select_only(request.sql)
+            from utils.sql_safety import validate_select_only
+            validate_select_only(request.sql)
 
             # Emit status: executing
             status_data = json.dumps({

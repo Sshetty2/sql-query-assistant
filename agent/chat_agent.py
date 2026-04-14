@@ -90,6 +90,8 @@ The user will review it before execution.
 that requires a new query from scratch (different tables, different question).
 - When writing revised SQL, always produce a complete, executable query — \
 not a diff or fragment. Base it on the current SQL shown in the data context.
+- **Only write SELECT queries.** Never produce INSERT, UPDATE, DELETE, DROP, \
+CREATE, ALTER, or any other data-modifying statement.
 
 ## Data Context:
 {data_context}"""
@@ -106,6 +108,8 @@ to the current SQL query using the **suggest_revision** tool.
 use the **suggest_revision** tool with complete revised SQL and an explanation.
 - If the user asks about completely different data, let them know they should \
 run a new query from the main input.
+- **Only write SELECT queries.** Never produce INSERT, UPDATE, DELETE, DROP, \
+CREATE, ALTER, or any other data-modifying statement.
 
 ## Data Context:
 {data_context}"""

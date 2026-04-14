@@ -176,6 +176,11 @@ def execute_query(state: State):
         include_timestamp=True,
     )
 
+    # Safety gate: reject non-SELECT SQL before it reaches the database
+    from utils.sql_safety import validate_select_only
+
+    validate_select_only(query)
+
     cursor = None
     try:
         # Smart limit strategy: Execute without limit first to count total records
