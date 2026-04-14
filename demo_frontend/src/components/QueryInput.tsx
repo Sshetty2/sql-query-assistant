@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, type FormEvent } from "react";
+import { Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -13,6 +14,7 @@ import { SAMPLE_QUESTIONS, type QuestionCategory } from "@/data/sampleQuestions"
 interface QueryInputProps {
   onSubmit: (prompt: string) => void;
   disabled?: boolean;
+  onCancel?: () => void;
   activeDbId?: string | null;
 }
 
@@ -73,6 +75,7 @@ function QuestionBubble({
 export function QueryInput({
   onSubmit,
   disabled,
+  onCancel,
   activeDbId,
 }: QueryInputProps) {
   const [prompt, setPrompt] = useState("");
@@ -143,13 +146,33 @@ export function QueryInput({
           className="min-h-[60px] resize-none flex-1"
           rows={2}
         />
-        <Button
-          type="submit"
-          disabled={disabled || !prompt.trim()}
-          className="h-[60px] px-6"
-        >
-          {disabled ? "Running..." : "Query"}
-        </Button>
+        {disabled ? (
+          <div className="flex gap-2 items-end">
+            <Button type="button" disabled className="h-[60px] px-6">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Running...
+            </Button>
+            {onCancel && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onCancel}
+                className="h-[60px] px-4"
+              >
+                <X className="h-4 w-4" />
+                Cancel
+              </Button>
+            )}
+          </div>
+        ) : (
+          <Button
+            type="submit"
+            disabled={!prompt.trim()}
+            className="h-[60px] px-6"
+          >
+            Query
+          </Button>
+        )}
       </form>
 
       {categories.length > 0 && !disabled && (

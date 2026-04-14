@@ -46,6 +46,7 @@ export function useQuery() {
   const cancel = useCallback(() => {
     controllerRef.current?.abort();
     setStatus("idle");
+    setError(null);
   }, []);
 
   const reset = useCallback(() => {

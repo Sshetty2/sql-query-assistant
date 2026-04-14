@@ -12,13 +12,14 @@ import { ChatPanel } from "@/components/ChatPanel";
 import { DatabaseSelector } from "@/components/DatabaseSelector";
 import { SchemaERD } from "@/components/SchemaERD";
 import { Card, CardContent } from "@/components/ui/card";
+import { AlertCircle } from "lucide-react";
 import { streamExecuteSQL } from "@/api/client";
 import type { ChatMessage, QueryResult, StatusEvent } from "@/api/types";
 
 function App() {
   const resultStore = useResultStore();
   const convs = useConversations(resultStore.removeMany);
-  const { status, steps, result, error, execute, updateResult, setSteps, reset: resetQuery } = useQuery();
+  const { status, steps, result, error, execute, updateResult, setSteps, reset: resetQuery, cancel } = useQuery();
   const db = useDatabase();
 
   // Track whether steps need clearing for the next tool query
@@ -314,6 +315,15 @@ function App() {
           </header>
 
           <div className="space-y-6">
+            {db.connectionError && (
+              <Card className="border-destructive">
+                <CardContent className="py-4 flex items-center gap-3">
+                  <AlertCircle className="h-5 w-5 text-destructive flex-shrink-0" />
+                  <p className="text-sm text-destructive">{db.connectionError}</p>
+                </CardContent>
+              </Card>
+            )}
+
             {db.databases.length > 0 && db.schema.length > 0 && (
               <SchemaERD
                 schema={db.schema}
@@ -324,6 +334,7 @@ function App() {
             <QueryInput
               onSubmit={(prompt) => handleNewQuery(prompt)}
               disabled={status === "streaming"}
+              onCancel={cancel}
               activeDbId={db.activeDbId}
             />
 

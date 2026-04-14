@@ -112,20 +112,71 @@ function parseSSEEvents(
 }
 
 /**
- * Stream a POST-based SSE request.
+ * Map abort reasons and network errors to user-friendly messages.
+ */
+function handleStreamError(
+  err: Error,
+  controller: AbortController,
+  callbacks: { onError: (error: string) => void },
+) {
+  if (err.name === "AbortError") {
+    const reason = controller.signal.reason;
+    if (reason === "connection_timeout") {
+      callbacks.onError(
+        "Unable to reach the server. Please check that the backend is running and try again."
+      );
+    } else if (reason === "idle_timeout") {
+      callbacks.onError(
+        "The server stopped responding. The query may have timed out. Please try again."
+      );
+    }
+    // User-initiated cancel — no error shown
+    return;
+  }
+
+  // Normalize browser network errors
+  if (
+    err.message === "Failed to fetch" ||
+    err.message === "NetworkError when attempting to fetch resource." ||
+    err.message === "Load failed"
+  ) {
+    callbacks.onError(
+      "Unable to connect to the server. Please check that the backend is running."
+    );
+    return;
+  }
+
+  callbacks.onError(err.message);
+}
+
+/**
+ * Stream a POST-based SSE request with connection and idle timeouts.
  * Uses fetch + ReadableStream because EventSource only supports GET.
  */
 function streamSSE(
   url: string,
   body: unknown,
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  { connectionTimeoutMs = 30_000, idleTimeoutMs = 60_000 } = {},
 ): AbortController {
   const controller = new AbortController();
+  let connectionTimer: ReturnType<typeof setTimeout> | undefined;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const clearTimers = () => {
+    clearTimeout(connectionTimer);
+    clearTimeout(idleTimer);
+  };
 
   const headers: Record<string, string> = {
     ...getApiHeaders(),
     "Content-Type": "application/json",
   };
+
+  // Abort if the initial connection takes too long
+  connectionTimer = setTimeout(() => {
+    controller.abort("connection_timeout");
+  }, connectionTimeoutMs);
 
   fetch(url, {
     method: "POST",
@@ -134,6 +185,8 @@ function streamSSE(
     signal: controller.signal,
   })
     .then(async (response) => {
+      clearTimeout(connectionTimer);
+
       if (!response.ok) {
         const text = await response.text();
         callbacks.onError(`HTTP ${response.status}: ${text}`);
@@ -145,10 +198,21 @@ function streamSSE(
       let buffer = "";
       let receivedComplete = false;
 
+      // Rolling idle timeout — resets on every chunk
+      const resetIdleTimer = () => {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          controller.abort("idle_timeout");
+        }, idleTimeoutMs);
+      };
+
+      resetIdleTimer();
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
+        resetIdleTimer();
         buffer += decoder.decode(value, { stream: true });
         const { events, remaining } = parseSSEEvents(buffer);
         buffer = remaining;
@@ -171,6 +235,8 @@ function streamSSE(
         }
       }
 
+      clearTimeout(idleTimer);
+
       // Flush remaining buffer after stream ends
       if (buffer.trim()) {
         const { events } = parseSSEEvents(buffer + "\n\n");
@@ -191,13 +257,14 @@ function streamSSE(
 
       // If stream ended without a complete event, signal error
       if (!receivedComplete) {
-        callbacks.onError("Stream ended without completing");
+        callbacks.onError(
+          "The server closed the connection before the query completed. This may indicate a server error or timeout."
+        );
       }
     })
     .catch((err: Error) => {
-      if (err.name !== "AbortError") {
-        callbacks.onError(err.message);
-      }
+      clearTimers();
+      handleStreamError(err, controller, callbacks);
     });
 
   return controller;
@@ -247,7 +314,9 @@ export function streamExecuteSQL(
  */
 export async function fetchDatabases(): Promise<DemoDatabase[]> {
   const res = await fetch("/api/databases", { headers: getApiHeaders() });
-  if (!res.ok) return [];
+  if (!res.ok) {
+    throw new Error(`Server returned ${res.status}`);
+  }
   return res.json();
 }
 
@@ -300,11 +369,25 @@ export function streamChat(
   callbacks: ChatStreamCallbacks
 ): AbortController {
   const controller = new AbortController();
+  // Chat can involve tool execution, so use longer timeouts
+  const connectionTimeoutMs = 45_000;
+  const idleTimeoutMs = 90_000;
+  let connectionTimer: ReturnType<typeof setTimeout> | undefined;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const clearTimers = () => {
+    clearTimeout(connectionTimer);
+    clearTimeout(idleTimer);
+  };
 
   const headers: Record<string, string> = {
     ...getApiHeaders(),
     "Content-Type": "application/json",
   };
+
+  connectionTimer = setTimeout(() => {
+    controller.abort("connection_timeout");
+  }, connectionTimeoutMs);
 
   fetch("/api/query/chat", {
     method: "POST",
@@ -313,6 +396,8 @@ export function streamChat(
     signal: controller.signal,
   })
     .then(async (response) => {
+      clearTimeout(connectionTimer);
+
       if (!response.ok) {
         const text = await response.text();
         callbacks.onError(`HTTP ${response.status}: ${text}`);
@@ -324,10 +409,20 @@ export function streamChat(
       let buffer = "";
       let receivedComplete = false;
 
+      const resetIdleTimer = () => {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          controller.abort("idle_timeout");
+        }, idleTimeoutMs);
+      };
+
+      resetIdleTimer();
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
+        resetIdleTimer();
         buffer += decoder.decode(value, { stream: true });
         const { events, remaining } = parseSSEEvents(buffer);
         buffer = remaining;
@@ -360,6 +455,8 @@ export function streamChat(
         }
       }
 
+      clearTimeout(idleTimer);
+
       // Flush remaining buffer after stream ends
       if (buffer.trim()) {
         const { events } = parseSSEEvents(buffer + "\n\n");
@@ -386,13 +483,14 @@ export function streamChat(
 
       // If stream ended without a complete event, signal error
       if (!receivedComplete) {
-        callbacks.onError("Stream ended without completing");
+        callbacks.onError(
+          "The server closed the connection before the query completed. This may indicate a server error or timeout."
+        );
       }
     })
     .catch((err: Error) => {
-      if (err.name !== "AbortError") {
-        callbacks.onError(err.message);
-      }
+      clearTimers();
+      handleStreamError(err, controller, callbacks);
     });
 
   return controller;
