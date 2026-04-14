@@ -83,12 +83,15 @@ def generate_revised_strategy(
     correction_history: list[str],
     schema: list[dict],
     schema_markdown: str = None,
-) -> str:
+) -> tuple[str, dict | None]:
     """
     Generate a revised strategy directly from SQL execution error.
 
     Bypasses pre-planner and generates a corrected strategy that fixes the error.
     The revised strategy will be sent directly to planner for JSON conversion.
+
+    Returns:
+        Tuple of (revised_strategy, prompt_context_dict or None)
 
     Args:
         error_message: The SQL error message
@@ -99,8 +102,6 @@ def generate_revised_strategy(
         schema: The database schema (filtered/truncated) as list of dicts
         schema_markdown: The database schema formatted as markdown (easier to search)
 
-    Returns:
-        Revised strategy text (will be sent to planner)
     """
     # Use markdown schema if available (easier to search), otherwise JSON
     if schema_markdown:
@@ -245,7 +246,11 @@ def generate_revised_strategy(
                 extra={"tables": valid_tables},
             )
 
-        return revised_strategy
+        prompt_context = {
+            "messages": [{"role": "user", "content": prompt}],
+            "model": error_correction_model,
+        }
+        return revised_strategy, prompt_context
 
     except Exception as e:
         logger.error(f"Error generating revised strategy: {str(e)}", exc_info=True)
@@ -264,7 +269,7 @@ def generate_revised_strategy(
         """
         ).strip()
 
-        return error_note
+        return error_note, None
 
 
 def handle_tool_error(state) -> dict:
@@ -322,7 +327,7 @@ def handle_tool_error(state) -> dict:
     # Use markdown schema if available (easier for LLM to search)
     schema_markdown = state.get("schema_markdown", None)
 
-    revised_strategy = generate_revised_strategy(
+    revised_strategy, error_prompt_context = generate_revised_strategy(
         error_message=error_message,
         original_query=original_query,
         original_strategy=previous_strategy,
@@ -379,11 +384,14 @@ def handle_tool_error(state) -> dict:
         array_key="corrections",
     )
 
-    emit_node_status("handle_tool_error", "completed", metadata={
+    _metadata = {
         "error_preview": error_message[:200] if error_message else "",
         "iteration": error_iteration + 1,
         "max_iterations": max_error_corrections,
-    })
+    }
+    if error_prompt_context:
+        _metadata["prompt_context"] = error_prompt_context
+    emit_node_status("handle_tool_error", "completed", metadata=_metadata)
 
     return {
         **state,

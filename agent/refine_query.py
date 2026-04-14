@@ -38,23 +38,15 @@ def generate_refined_strategy(
     refined_plans: list[dict],
     schema: list[dict],
     schema_markdown: str = None,
-) -> str:
+) -> tuple[str, dict | None]:
     """
     Generate a refined strategy directly from empty query results.
 
     Bypasses pre-planner and generates a refined strategy that should return results.
     The refined strategy will be sent directly to planner for JSON conversion.
 
-    Args:
-        original_query: The SQL query that returned no results
-        original_strategy: The previous strategy text that returned no results
-        user_question: The original user question
-        refined_plans: List of previous refinement attempts
-        schema: The database schema (filtered/truncated) as list of dicts
-        schema_markdown: The database schema formatted as markdown (easier to search)
-
     Returns:
-        Refined strategy text (will be sent to planner)
+        Tuple of (refined_strategy, prompt_context_dict or None)
     """
     # Use markdown schema if available (easier to search), otherwise JSON
     if schema_markdown:
@@ -205,7 +197,11 @@ def generate_refined_strategy(
         # Extract text content from LangChain message
         refined_strategy = result.content if hasattr(result, "content") else str(result)
 
-        return refined_strategy.strip()
+        prompt_context = {
+            "messages": [{"role": "user", "content": prompt}],
+            "model": refinement_model,
+        }
+        return refined_strategy.strip(), prompt_context
 
     except Exception as e:
         logger.error(f"Error generating refined strategy: {str(e)}", exc_info=True)
@@ -216,7 +212,7 @@ def generate_refined_strategy(
 
 **REFINEMENT NOTE:**
 Failed to generate refined strategy due to: {str(e)[:100]}
-Query returned 0 rows. Consider broadening filters or checking table/column selections."""
+Query returned 0 rows. Consider broadening filters or checking table/column selections.""", None
 
 
 def refine_query(state: State) -> Dict[str, Any]:
@@ -266,7 +262,7 @@ def refine_query(state: State) -> Dict[str, Any]:
     # Use markdown schema if available (easier for LLM to search)
     schema_markdown = state.get("schema_markdown", None)
 
-    refined_strategy = generate_refined_strategy(
+    refined_strategy, refine_prompt_context = generate_refined_strategy(
         original_query=original_query,
         original_strategy=previous_strategy,
         user_question=user_question,
@@ -302,10 +298,13 @@ def refine_query(state: State) -> Dict[str, Any]:
         array_key="refinements",
     )
 
-    emit_node_status("refine_query", "completed", metadata={
+    _metadata = {
         "iteration": refinement_iteration + 1,
         "max_iterations": max_refinements,
-    })
+    }
+    if refine_prompt_context:
+        _metadata["prompt_context"] = refine_prompt_context
+    emit_node_status("refine_query", "completed", metadata=_metadata)
 
     return {
         **state,

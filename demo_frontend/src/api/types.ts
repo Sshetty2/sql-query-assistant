@@ -49,6 +49,18 @@ export interface StatusEvent {
   node_metadata?: Record<string, unknown>;
 }
 
+// Prompt observability types
+
+export interface PromptMessage {
+  role: "system" | "user";
+  content: string;
+}
+
+export interface PromptContext {
+  messages: PromptMessage[];
+  model: string;
+}
+
 export interface QueryResult {
   messages: string[];
   user_question: string;

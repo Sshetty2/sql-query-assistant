@@ -1872,6 +1872,13 @@ def plan_query(state: State):
             "has_aggregation": bool((plan_dict.get("group_by") or {}).get("aggregates")),
             "has_order_by": bool(plan_dict.get("order_by")),
             "limit": plan_dict.get("limit"),
+            "prompt_context": {
+                "messages": [
+                    {"role": "system", "content": system_content},
+                    {"role": "user", "content": user_content},
+                ],
+                "model": planning_model,
+            },
         })
 
         # Prepare return state

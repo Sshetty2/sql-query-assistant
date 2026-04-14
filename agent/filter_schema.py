@@ -25,6 +25,7 @@ def get_embedding_model():
     if is_using_ollama():
         # Use local HuggingFace embeddings for local LLM
         from langchain_huggingface import HuggingFaceEmbeddings
+
         embedding_model_name = os.getenv(
             "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
         )
@@ -330,7 +331,10 @@ def expand_with_foreign_keys(
                 if pk_table not in reverse_fk_lookup:
                     reverse_fk_lookup[pk_table] = []
                 reverse_fk_lookup[pk_table].append(
-                    {"referencing_table": table_name, "foreign_key": fk.get("foreign_key")}
+                    {
+                        "referencing_table": table_name,
+                        "foreign_key": fk.get("foreign_key"),
+                    }
                 )
 
     # Recursively expand FK relationships up to max_depth
@@ -486,10 +490,22 @@ def filter_schema(state: State, vector_store=None):
         # Filter complex metadata (Chroma only supports simple types)
         documents = filter_complex_metadata(documents)
 
+        # IMPORTANT: Delete any existing collection first to prevent stale data
+        # from previous queries (e.g. switching between demo databases).
+        # chromadb.Client() shares state within the same process, so
+        # get_or_create_collection would reuse old data and contaminate results.
+        import chromadb
+        _chroma_client = chromadb.Client()
+        try:
+            _chroma_client.delete_collection("schema_filtering")
+        except Exception:
+            pass  # Collection doesn't exist yet
+
         vector_store = Chroma.from_documents(
             documents=documents,
             embedding=embedding_model,
             collection_name="schema_filtering",
+            client=_chroma_client,
         )
 
         candidate_docs = vector_store.similarity_search(
@@ -594,13 +610,18 @@ def filter_schema(state: State, vector_store=None):
     if not foreign_keys_data:
         logger.info("No domain-specific FKs found, using introspected FKs from schema")
         foreign_keys_data = [
-            {"table_name": table["table_name"], "foreign_keys": table.get("foreign_keys", [])}
+            {
+                "table_name": table["table_name"],
+                "foreign_keys": table.get("foreign_keys", []),
+            }
             for table in full_schema
             if table.get("foreign_keys")
         ]
         logger.info(
             f"Extracted {len(foreign_keys_data)} tables with FKs from schema",
-            extra={"tables_with_fks": [item["table_name"] for item in foreign_keys_data]}
+            extra={
+                "tables_with_fks": [item["table_name"] for item in foreign_keys_data]
+            },
         )
 
     with log_execution_time(logger, "stage2_foreign_key_expansion"):
@@ -695,16 +716,19 @@ def filter_schema(state: State, vector_store=None):
     domain_guidance = load_domain_guidance()
     domain_guidance_section = ""
     if domain_guidance:
-        domain_guidance_section = f"""
-        ## Domain-Specific Guidance
+        domain_guidance_section = dedent(
+            f"""
 
-        The following domain-specific guidance will help you understand the database structure,
-        terminology, and common query patterns for this domain:
+            ## Domain-Specific Guidance
 
-        {domain_guidance}
+            The following domain-specific guidance will help you understand the database structure,
+            terminology, and common query patterns for this domain:
 
-        ---
-        """
+            {domain_guidance}
+
+            ---
+            """
+        ).strip()
 
     # Construct the system message (context about the problem)
     system_message = dedent(
@@ -715,15 +739,6 @@ def filter_schema(state: State, vector_store=None):
         To optimize performance and accuracy, we need to identify which database tables and columns
         are truly relevant to answering each user question.
 
-        ## The Problem We're Solving
-
-        Our database has many tables with hundreds of columns. Sending all this information to the
-        query planner overwhelms it with irrelevant context, leading to:
-        - Slower processing
-        - Higher API costs
-        - Increased chance of errors
-        - Difficulty focusing on what matters
-
         ## What We Need Help With
 
         We've already used vector similarity search to narrow down to candidate tables that might be
@@ -731,7 +746,6 @@ def filter_schema(state: State, vector_store=None):
 
         1. **Determine which tables are actually needed** for this specific query
         2. **Select only the relevant columns** from each table
-
         {domain_guidance_section}
 
         ## Guidelines for Column Selection
@@ -758,7 +772,7 @@ def filter_schema(state: State, vector_store=None):
         If a table shows: "Available columns: ID, ScanID, ComputerID, Name, Description"
         Then you can ONLY select from: ID, ScanID, ComputerID, Name, Description
         You CANNOT select: computer_id, scan_id, DeviceName, or any other columns not in the list.
-    """
+        """
     ).strip()
 
     # Construct the user message (the actual query and data)
@@ -786,7 +800,7 @@ def filter_schema(state: State, vector_store=None):
         3. **Reasoning** - Brief explanation of your decision
 
         Remember: Be liberal and include the table or column, but ONLY select from available columns.
-    """
+        """
     ).strip()
 
     with log_execution_time(logger, "stage2_llm_reasoning"):
@@ -995,12 +1009,23 @@ def filter_schema(state: State, vector_store=None):
         },
     )
 
-    emit_node_status("filter_schema", "completed", metadata={
-        "total_tables_in_db": len(full_schema),
-        "candidates_found": len(fk_expanded_candidates),
-        "final_table_count": len(filtered_schema_with_fks),
-        "selected_tables": final_table_names,
-    })
+    emit_node_status(
+        "filter_schema",
+        "completed",
+        metadata={
+            "total_tables_in_db": len(full_schema),
+            "candidates_found": len(fk_expanded_candidates),
+            "final_table_count": len(filtered_schema_with_fks),
+            "selected_tables": final_table_names,
+            "prompt_context": {
+                "messages": [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_message},
+                ],
+                "model": filtering_model,
+            },
+        },
+    )
 
     return {
         **state,

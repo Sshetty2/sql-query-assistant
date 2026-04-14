@@ -6,6 +6,14 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 
+// Suppress noisy DEP0060 from transitive proxy dependency on newer Node versions.
+const originalEmitWarning = process.emitWarning.bind(process);
+process.emitWarning = (warning, ...args) => {
+  const warningCode = args[1] ?? warning?.code;
+  if (warningCode === "DEP0060") return;
+  return originalEmitWarning(warning, ...args);
+};
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();

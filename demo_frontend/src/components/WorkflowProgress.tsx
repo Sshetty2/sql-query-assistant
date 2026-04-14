@@ -7,7 +7,8 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { ChevronDown, ChevronRight, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
-import type { StatusEvent } from "@/api/types";
+import type { StatusEvent, PromptContext } from "@/api/types";
+import { PromptViewer } from "@/components/PromptViewer";
 
 interface WorkflowProgressProps {
   steps: StatusEvent[];
@@ -266,7 +267,12 @@ interface TimelineStepProps {
 
 function TimelineStep({ step, isLast }: TimelineStepProps) {
   const meta = step.node_metadata;
-  const hasMetadata = meta && Object.keys(meta).length > 0;
+  const promptContext = meta?.prompt_context as PromptContext | undefined;
+  // Consider metadata present if there are keys other than prompt_context
+  const metaKeysWithoutPrompt = meta
+    ? Object.keys(meta).filter((k) => k !== "prompt_context")
+    : [];
+  const hasMetadata = metaKeysWithoutPrompt.length > 0;
   const [expanded, setExpanded] = useState(hasMetadata);
 
   // Auto-expand when metadata arrives (step starts as "running" with no metadata,
@@ -317,6 +323,9 @@ function TimelineStep({ step, isLast }: TimelineStepProps) {
               {step.node_message && step.node_status === "running" && (
                 <span className="text-xs text-muted-foreground mr-1">{step.node_message}</span>
               )}
+              {promptContext && (
+                <PromptViewer promptContext={promptContext} nodeName={getNodeLabel(step.node_name)} />
+              )}
               {expanded ? (
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
               ) : (
@@ -324,7 +333,7 @@ function TimelineStep({ step, isLast }: TimelineStepProps) {
               )}
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-1.5 pl-5">
-              <MetadataRenderer meta={meta} />
+              <MetadataRenderer meta={meta!} />
             </CollapsibleContent>
           </Collapsible>
         ) : (
@@ -333,6 +342,9 @@ function TimelineStep({ step, isLast }: TimelineStepProps) {
             <span className="text-sm font-medium">{getNodeLabel(step.node_name)}</span>
             {step.node_message && step.node_status === "running" && (
               <span className="text-xs text-muted-foreground">{step.node_message}</span>
+            )}
+            {promptContext && (
+              <PromptViewer promptContext={promptContext} nodeName={getNodeLabel(step.node_name)} />
             )}
           </div>
         )}

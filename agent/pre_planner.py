@@ -1182,6 +1182,13 @@ def create_preplan_strategy(state: State):
             "complexity_tier": complexity,
             "has_feedback": has_feedback,
             "feedback_type": feedback_type,
+            "prompt_context": {
+                "messages": [
+                    {"role": "system", "content": system_content},
+                    {"role": "user", "content": user_content},
+                ],
+                "model": strategy_model,
+            },
         })
 
         return {
