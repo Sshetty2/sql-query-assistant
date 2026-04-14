@@ -52,6 +52,7 @@ interface ChatPanelProps {
   onSwitchConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
   onRenameConversation: (id: string, name: string) => void;
+  onClearAllConversations: () => void;
 }
 
 function ColumnStats({ summary }: { summary: DataSummary }) {
@@ -315,6 +316,7 @@ export function ChatPanel({
   onSwitchConversation,
   onDeleteConversation,
   onRenameConversation,
+  onClearAllConversations,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -372,7 +374,7 @@ export function ChatPanel({
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2 min-w-0">
           <Sparkles className="size-4 text-primary flex-shrink-0" />
-          <h2 className="text-sm font-semibold truncate">Data Assistant</h2>
+          <h2 className="text-sm font-semibold truncate">Assistant</h2>
         </div>
 
         <div className="flex items-center gap-1">
@@ -445,6 +447,18 @@ export function ChatPanel({
                   </div>
                 </DropdownMenuItem>
               ))}
+              {conversations.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={onClearAllConversations}
+                  >
+                    <Trash2 className="size-3.5 mr-2" />
+                    Clear all conversations
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
 

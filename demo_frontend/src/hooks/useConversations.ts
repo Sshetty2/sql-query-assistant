@@ -139,6 +139,20 @@ export function useConversations(
     );
   }, []);
 
+  const clearAll = useCallback(() => {
+    // Collect all result IDs for cleanup
+    if (onRemoveResults) {
+      const allResultIds = conversations.flatMap((c) => c.resultIds);
+      if (allResultIds.length > 0) onRemoveResults(allResultIds);
+    }
+    // Best-effort server cleanup for all sessions
+    for (const conv of conversations) {
+      resetChat(conv.id).catch(() => {});
+    }
+    setConversations([]);
+    setActiveId(null);
+  }, [conversations, onRemoveResults]);
+
   return {
     conversations,
     active,
@@ -146,6 +160,7 @@ export function useConversations(
     create,
     switchTo,
     remove,
+    clearAll,
     rename,
     updateMessages,
     addResultId,

@@ -17,12 +17,9 @@ import type { QueryResult, StatusEvent } from "@/api/types";
 function App() {
   const resultStore = useResultStore();
   const convs = useConversations(resultStore.removeMany);
-  const { status, steps, result, error, execute, updateResult, setSteps } = useQuery();
+  const { status, steps, result, error, execute, updateResult, setSteps, reset: resetQuery } = useQuery();
   const db = useDatabase();
-  const lastNarrativeRef = useRef<string | null>(null);
 
-  // Track whether a result was set by a tool call (vs main query pipeline)
-  const isToolResultRef = useRef(false);
   // Track whether steps need clearing for the next tool query
   const needsStepsClearRef = useRef(false);
 
@@ -34,8 +31,6 @@ function App() {
         needsStepsClearRef.current = true;
       },
       onToolResult: (toolResult: QueryResult) => {
-        // Flag so the result useEffect skips (tool results are handled by useChat)
-        isToolResultRef.current = true;
         // Update main panel with new results
         updateResult(toolResult);
       },
@@ -93,6 +88,19 @@ function App() {
     };
   }, []);
 
+  // Auto-start a new conversation when the user switches databases
+  const prevDbIdRef = useRef(db.activeDbId);
+  useEffect(() => {
+    // Skip the initial mount — only react to actual user-driven switches
+    if (prevDbIdRef.current === db.activeDbId) return;
+    prevDbIdRef.current = db.activeDbId;
+    if (!db.activeDbId) return;
+    // Reset chat and left panel, start a fresh conversation for the new database
+    chat.reset();
+    resetQuery();
+    convs.create();
+  }, [db.activeDbId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Get active session ID (from active conversation, or create one)
   const getSessionId = useCallback(() => {
     if (convs.activeId) return convs.activeId;
@@ -100,40 +108,6 @@ function App() {
     const conv = convs.create();
     return conv.id;
   }, [convs]);
-
-  // When a new query result arrives from the MAIN pipeline, add inline data summary + narrative to chat.
-  // Tool results are handled separately by the useChat callbacks (onToolResult/storeResult).
-  const lastResultRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!result) return;
-    // Skip tool results — already handled by useChat.onToolResult
-    if (isToolResultRef.current) {
-      isToolResultRef.current = false;
-      return;
-    }
-    // Deduplicate: use query + row count as identity
-    const resultIdentity = `${result.query}::${result.data_summary?.row_count}`;
-    if (resultIdentity === lastResultRef.current) return;
-    lastResultRef.current = resultIdentity;
-
-    // Store result for click-to-view
-    const resultId = resultStore.store(result);
-    if (convs.activeId) {
-      convs.addResultId(convs.activeId, resultId);
-    }
-
-    // Add inline data summary message
-    if (result.data_summary) {
-      chat.appendDataSummary(result.data_summary, resultId, result.query);
-    }
-
-    // Add narrative as assistant message
-    const narrative = result.query_narrative;
-    if (narrative) {
-      lastNarrativeRef.current = narrative;
-      chat.appendAssistantMessage(narrative);
-    }
-  }, [result]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Persist messages to active conversation whenever they change
   useEffect(() => {
@@ -147,43 +121,55 @@ function App() {
       const sessionId = getSessionId();
       // Show user prompt in the chat timeline
       chat.appendUserMessage(query);
-      execute({
-        prompt: query,
-        chat_session_id: sessionId,
-        ...(db.activeDbId ? { db_id: db.activeDbId } : {}),
-      });
+      execute(
+        {
+          prompt: query,
+          chat_session_id: sessionId,
+          ...(db.activeDbId ? { db_id: db.activeDbId } : {}),
+        },
+        (queryResult) => {
+          // Store result for click-to-view
+          const resultId = resultStore.store(queryResult);
+          if (convs.activeId) {
+            convs.addResultId(convs.activeId, resultId);
+          }
+          // Add inline data summary + narrative to chat
+          if (queryResult.data_summary) {
+            chat.appendDataSummary(queryResult.data_summary, resultId, queryResult.query);
+          }
+          if (queryResult.query_narrative) {
+            chat.appendAssistantMessage(queryResult.query_narrative);
+          }
+        }
+      );
       // Auto-name the conversation from the first query.
       // Use sessionId (not convs.activeId) because React state may not have
       // flushed yet when getSessionId() just created a new conversation.
       convs.autoName(sessionId, query);
     },
-    [execute, getSessionId, convs, chat]
+    [execute, getSessionId, convs, chat, db.activeDbId, resultStore]
   );
 
   const handleResetConversation = useCallback(() => {
     const sessionId = convs.activeId ?? "";
     chat.resetConversation(sessionId);
-    lastNarrativeRef.current = null;
-    lastResultRef.current = null;
-    // Create a fresh conversation
+    resetQuery();
     convs.create();
-  }, [chat, convs]);
+  }, [chat, convs, resetQuery]);
 
   const handleNewConversation = useCallback(() => {
     chat.reset();
-    lastNarrativeRef.current = null;
-    lastResultRef.current = null;
+    resetQuery();
     convs.create();
-  }, [chat, convs]);
+  }, [chat, convs, resetQuery]);
 
   const handleSwitchConversation = useCallback(
     (id: string) => {
       convs.switchTo(id);
+      resetQuery();
       const conv = convs.conversations.find((c) => c.id === id);
       if (conv) {
         chat.restoreMessages(conv.messages);
-        lastNarrativeRef.current = null;
-        lastResultRef.current = null;
         // Restore the latest result from this conversation if available
         if (conv.resultIds.length > 0) {
           const latestId = conv.resultIds[conv.resultIds.length - 1];
@@ -194,7 +180,7 @@ function App() {
         }
       }
     },
-    [convs, chat, resultStore, updateResult]
+    [convs, chat, resultStore, updateResult, resetQuery]
   );
 
   const handleDeleteConversation = useCallback(
@@ -202,12 +188,17 @@ function App() {
       convs.remove(id);
       if (id === convs.activeId) {
         chat.reset();
-        lastNarrativeRef.current = null;
-        lastResultRef.current = null;
+        resetQuery();
       }
     },
-    [convs, chat]
+    [convs, chat, resetQuery]
   );
+
+  const handleClearAllConversations = useCallback(() => {
+    convs.clearAll();
+    chat.reset();
+    resetQuery();
+  }, [convs, chat, resetQuery]);
 
   const handleResultClick = useCallback(
     (resultId: string) => {
@@ -314,6 +305,7 @@ function App() {
           onSwitchConversation={handleSwitchConversation}
           onDeleteConversation={handleDeleteConversation}
           onRenameConversation={convs.rename}
+          onClearAllConversations={handleClearAllConversations}
         />
       </div>
     </div>

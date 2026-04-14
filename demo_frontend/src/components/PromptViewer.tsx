@@ -95,7 +95,7 @@ export function PromptViewer({ promptContext, nodeName }: PromptViewerProps) {
     <Dialog>
       <DialogTrigger asChild>
         <button
-          className="inline-flex items-center justify-center rounded p-0.5 text-muted-foreground/50 hover:text-foreground hover:bg-muted transition-colors"
+          className="inline-flex items-center justify-center rounded p-0.5 text-blue-400 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
           title="View LLM prompt"
           onClick={(e) => e.stopPropagation()}
         >

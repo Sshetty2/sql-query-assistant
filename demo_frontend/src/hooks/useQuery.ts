@@ -11,7 +11,7 @@ export function useQuery() {
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
-  const execute = useCallback((request: QueryRequest) => {
+  const execute = useCallback((request: QueryRequest, onComplete?: (result: QueryResult) => void) => {
     // Cancel any in-flight request
     controllerRef.current?.abort();
 
@@ -27,6 +27,7 @@ export function useQuery() {
       onComplete: (queryResult) => {
         setResult(queryResult);
         setStatus("complete");
+        onComplete?.(queryResult);
       },
       onError: (err) => {
         console.error("[useQuery] onError:", err);
