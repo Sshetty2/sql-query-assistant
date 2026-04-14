@@ -283,6 +283,140 @@ def test_complex_query():
     print("[PASS] Test passed!")
 
 
+def test_table_name_with_spaces():
+    """Test that table names with spaces are properly quoted."""
+    print("\n" + "=" * 80)
+    print("TEST 7: Table Name With Spaces")
+    print("=" * 80)
+
+    plan_dict = {
+        "selections": [
+            {
+                "table": "Order Details",
+                "alias": "Order Details",
+                "columns": [
+                    {"column": "UnitPrice", "role": "projection"},
+                    {"column": "Quantity", "role": "projection"},
+                ],
+                "filters": [],
+            }
+        ],
+        "join_edges": [],
+        "global_filters": [],
+    }
+
+    state = {"sort_order": "Default", "result_limit": 0, "time_filter": "All Time"}
+    db_context = get_database_context()
+
+    sql = build_sql_query(plan_dict, state, db_context)
+    print(f"\nGenerated SQL:\n{sql}\n")
+
+    # The table name should be quoted (double quotes in the intermediate AST,
+    # then dialect-specific delimiters in output via identify=True)
+    assert "Order Details" in sql or "Order Details" in sql.replace("[", "").replace("]", "").replace('"', "")
+    assert "UnitPrice" in sql
+    assert "Quantity" in sql
+    # Most importantly: no parse error was raised
+    print("[PASS] Test passed!")
+
+
+def test_aggregate_with_space_in_table():
+    """Test SUM() aggregate on a table whose name contains a space."""
+    print("\n" + "=" * 80)
+    print("TEST 8: Aggregate With Space In Table Name")
+    print("=" * 80)
+
+    plan_dict = {
+        "selections": [
+            {
+                "table": "Order Details",
+                "alias": "Order Details",
+                "columns": [
+                    {"column": "ProductID", "role": "projection"},
+                ],
+                "filters": [],
+            }
+        ],
+        "join_edges": [],
+        "global_filters": [],
+        "group_by": {
+            "group_by_columns": [
+                {"table": "Order Details", "column": "ProductID"},
+            ],
+            "aggregates": [
+                {
+                    "function": "SUM",
+                    "table": "Order Details",
+                    "column": "UnitPrice",
+                    "alias": "TotalPrice",
+                },
+            ],
+            "having_filters": [],
+        },
+    }
+
+    state = {"sort_order": "Default", "result_limit": 10, "time_filter": "All Time"}
+    db_context = get_database_context()
+
+    sql = build_sql_query(plan_dict, state, db_context)
+    print(f"\nGenerated SQL:\n{sql}\n")
+
+    assert "SUM" in sql
+    assert "TotalPrice" in sql
+    assert "GROUP BY" in sql
+    # No parse error was raised — this was the original crash scenario
+    print("[PASS] Test passed!")
+
+
+def test_join_with_space_in_table():
+    """Test JOIN where one table name contains a space."""
+    print("\n" + "=" * 80)
+    print("TEST 9: JOIN With Space In Table Name")
+    print("=" * 80)
+
+    plan_dict = {
+        "selections": [
+            {
+                "table": "Orders",
+                "alias": "Orders",
+                "columns": [
+                    {"column": "OrderID", "role": "projection"},
+                ],
+                "filters": [],
+            },
+            {
+                "table": "Order Details",
+                "alias": "Order Details",
+                "columns": [
+                    {"column": "UnitPrice", "role": "projection"},
+                ],
+                "filters": [],
+            },
+        ],
+        "join_edges": [
+            {
+                "from_table": "Orders",
+                "from_column": "OrderID",
+                "to_table": "Order Details",
+                "to_column": "OrderID",
+                "join_type": "inner",
+            }
+        ],
+        "global_filters": [],
+    }
+
+    state = {"sort_order": "Default", "result_limit": 0, "time_filter": "All Time"}
+    db_context = get_database_context()
+
+    sql = build_sql_query(plan_dict, state, db_context)
+    print(f"\nGenerated SQL:\n{sql}\n")
+
+    assert "JOIN" in sql
+    assert "OrderID" in sql
+    # No parse error on the space-containing table name
+    print("[PASS] Test passed!")
+
+
 def test_all():
     """Run all tests."""
     print("\n" + "=" * 80)
@@ -296,6 +430,9 @@ def test_all():
         test_in_operator,
         test_order_and_limit,
         test_complex_query,
+        test_table_name_with_spaces,
+        test_aggregate_with_space_in_table,
+        test_join_with_space_in_table,
     ]
 
     passed = 0

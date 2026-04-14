@@ -30,6 +30,45 @@ function getCsrfToken(): string | undefined {
   return window.__CSRF_TOKEN__;
 }
 
+/**
+ * Build standard headers for all API requests.
+ * Includes CSRF token (for Express validation) and page session ID
+ * (for backend workflow cancellation tracking).
+ */
+function getApiHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const token = getCsrfToken();
+  if (token) {
+    headers["X-CSRF-Token"] = token;
+    headers["X-Page-Session"] = token;
+  }
+  return headers;
+}
+
+// ---------------------------------------------------------------------------
+// Cancel stale backend workflows on page reload
+// ---------------------------------------------------------------------------
+// Each page load gets a unique CSRF token. If sessionStorage has a different
+// (old) token, a workflow from the previous page load may still be running.
+const PREV_SESSION_KEY = "page_session_id";
+const currentToken = getCsrfToken();
+
+if (currentToken) {
+  const prev = sessionStorage.getItem(PREV_SESSION_KEY);
+  if (prev && prev !== currentToken) {
+    // Fire-and-forget: cancel any running workflow from the old session
+    fetch("/api/cancel", {
+      method: "POST",
+      headers: {
+        ...getApiHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ session_id: prev }),
+    }).catch(() => {}); // Best-effort — ignore failures
+  }
+  sessionStorage.setItem(PREV_SESSION_KEY, currentToken);
+}
+
 interface StreamCallbacks {
   onStatus: (event: StatusEvent) => void;
   onComplete: (result: QueryResult) => void;
@@ -82,12 +121,9 @@ function streamSSE(
   const controller = new AbortController();
 
   const headers: Record<string, string> = {
+    ...getApiHeaders(),
     "Content-Type": "application/json",
   };
-  const csrfToken = getCsrfToken();
-  if (csrfToken) {
-    headers["X-CSRF-Token"] = csrfToken;
-  }
 
   fetch(url, {
     method: "POST",
@@ -196,13 +232,7 @@ export function streamPatch(
  * Returns an empty array when the backend is in SQL Server mode.
  */
 export async function fetchDatabases(): Promise<DemoDatabase[]> {
-  const headers: Record<string, string> = {};
-  const csrfToken = getCsrfToken();
-  if (csrfToken) {
-    headers["X-CSRF-Token"] = csrfToken;
-  }
-
-  const res = await fetch("/api/databases", { headers });
+  const res = await fetch("/api/databases", { headers: getApiHeaders() });
   if (!res.ok) return [];
   return res.json();
 }
@@ -211,13 +241,7 @@ export async function fetchDatabases(): Promise<DemoDatabase[]> {
  * Fetch the introspected schema for a specific demo database.
  */
 export async function fetchDatabaseSchema(dbId: string): Promise<SchemaTable[]> {
-  const headers: Record<string, string> = {};
-  const csrfToken = getCsrfToken();
-  if (csrfToken) {
-    headers["X-CSRF-Token"] = csrfToken;
-  }
-
-  const res = await fetch(`/api/databases/${dbId}/schema`, { headers });
+  const res = await fetch(`/api/databases/${dbId}/schema`, { headers: getApiHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch schema: ${res.status}`);
   return res.json();
 }
@@ -230,17 +254,9 @@ export async function fetchDatabaseSchema(dbId: string): Promise<SchemaTable[]> 
  * Reset the server-side chat conversation memory for a session.
  */
 export async function resetChat(sessionId: string): Promise<void> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  const csrfToken = getCsrfToken();
-  if (csrfToken) {
-    headers["X-CSRF-Token"] = csrfToken;
-  }
-
   await fetch("/api/query/chat/reset", {
     method: "POST",
-    headers,
+    headers: { ...getApiHeaders(), "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: sessionId }),
   });
 }
@@ -271,12 +287,9 @@ export function streamChat(
   const controller = new AbortController();
 
   const headers: Record<string, string> = {
+    ...getApiHeaders(),
     "Content-Type": "application/json",
   };
-  const csrfToken = getCsrfToken();
-  if (csrfToken) {
-    headers["X-CSRF-Token"] = csrfToken;
-  }
 
   fetch("/api/query/chat", {
     method: "POST",

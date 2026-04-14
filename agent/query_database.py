@@ -1,5 +1,8 @@
 """Entry point for query chain"""
 
+import os
+import threading
+import time
 from typing import Optional, Dict, Any
 from langchain_core.messages import HumanMessage
 from agent.create_agent import create_sql_agent
@@ -13,6 +16,8 @@ from utils.debug_utils import clear_debug_files
 
 logger = get_logger("query_database")
 
+WORKFLOW_TIMEOUT = int(os.getenv("WORKFLOW_TIMEOUT", "300"))
+
 
 def _create_base_state(
     thread_id: str,
@@ -21,6 +26,7 @@ def _create_base_state(
     result_limit: int,
     time_filter: str,
     db_id: str = None,
+    skip_modification_options: bool = False,
 ) -> Dict[str, Any]:
     """Create base state dictionary with default values.
 
@@ -31,6 +37,7 @@ def _create_base_state(
         result_limit: Result limit
         time_filter: Time filter preference
         db_id: Optional demo database ID
+        skip_modification_options: Skip generate_modification_options node
 
     Returns:
         Base state dictionary
@@ -82,6 +89,7 @@ def _create_base_state(
         "query_narrative": None,
         "chat_session_id": None,
         "db_id": db_id,
+        "skip_modification_options": skip_modification_options,
     }
 
 
@@ -98,6 +106,8 @@ def query_database(
     stream_updates: bool = False,
     chat_session_id: Optional[str] = None,
     db_id: Optional[str] = None,
+    cancel_event: Optional[threading.Event] = None,
+    skip_modification_options: bool = False,
 ):
     """Run the query workflow for a given question.
 
@@ -130,7 +140,8 @@ def query_database(
         # New conversation - create new thread
         thread_id = create_thread(question)
         initial_state = _create_base_state(
-            thread_id, question, sort_order, result_limit, time_filter, db_id=db_id
+            thread_id, question, sort_order, result_limit, time_filter,
+            db_id=db_id, skip_modification_options=skip_modification_options,
         )
 
         # Override schema fields if previous_state provided
@@ -152,7 +163,8 @@ def query_database(
             user_questions = previous_state.get("user_questions", []) + [question]
 
             initial_state = _create_base_state(
-                thread_id, question, sort_order, result_limit, time_filter, db_id=db_id
+                thread_id, question, sort_order, result_limit, time_filter,
+                db_id=db_id, skip_modification_options=skip_modification_options,
             )
             # Override with continuation-specific values
             initial_state.update(
@@ -169,7 +181,8 @@ def query_database(
         else:
             # No previous state found, treat as new thread
             initial_state = _create_base_state(
-                thread_id, question, sort_order, result_limit, time_filter, db_id=db_id
+                thread_id, question, sort_order, result_limit, time_filter,
+                db_id=db_id, skip_modification_options=skip_modification_options,
             )
 
     # Add patch-specific fields if patching is requested
@@ -202,11 +215,39 @@ def query_database(
             # - "custom": gets custom events emitted by nodes (status, logs)
             # - "values": gets the final state after workflow completes
             result = None
+            start_time = time.monotonic()
             for chunk in agent.stream(
                 initial_state,
                 config={"recursion_limit": 1000},
                 stream_mode=["custom", "values"],
             ):
+                # Check cancellation (client disconnected / page reloaded)
+                if cancel_event and cancel_event.is_set():
+                    logger.warning(
+                        "Workflow cancelled by client (page reload or navigation)"
+                    )
+                    yield {
+                        "type": "error",
+                        "node": "cancelled",
+                        "status": "cancelled",
+                        "message": "Workflow cancelled.",
+                    }
+                    break
+
+                # Safety-net: abort if the workflow has been running too long
+                elapsed = time.monotonic() - start_time
+                if elapsed > WORKFLOW_TIMEOUT:
+                    logger.error(
+                        f"Workflow exceeded {WORKFLOW_TIMEOUT}s timeout (elapsed: {elapsed:.1f}s)"
+                    )
+                    yield {
+                        "type": "error",
+                        "node": "workflow_timeout",
+                        "status": "error",
+                        "message": f"Workflow timed out after {WORKFLOW_TIMEOUT} seconds.",
+                    }
+                    break
+
                 # When using stream_mode=["custom", "values"], chunks are tuples:
                 # - ("custom", {...}) for custom events from nodes
                 # - ("values", {...}) for state updates
@@ -227,8 +268,16 @@ def query_database(
                     logger.warning(f"Unexpected chunk format: {chunk}")
                     result = chunk
 
-            # Validate and finalize result
+            # If cancelled or timed out, the loop broke early — no final state
             if result is None:
+                was_cancelled = cancel_event and cancel_event.is_set()
+                was_timed_out = (time.monotonic() - start_time) > WORKFLOW_TIMEOUT
+                if was_cancelled or was_timed_out:
+                    logger.info(
+                        "Workflow interrupted — skipping result finalization "
+                        f"(cancelled={was_cancelled}, timed_out={was_timed_out})"
+                    )
+                    return
                 raise RuntimeError("Workflow completed but no final state was produced")
         else:
             # Non-streaming mode: original invoke behavior

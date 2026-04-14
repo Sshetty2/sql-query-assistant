@@ -215,7 +215,7 @@ def get_chat_llm(model_name: str = None, temperature: float = 0.3, timeout: int 
                    If None, defaults to AI_MODEL from environment.
         temperature: Temperature for generation (0.0 = deterministic, 1.0 = creative).
                     Default is 0.3 for balanced determinism and variation.
-        timeout: Request timeout in seconds. If None, no timeout is set.
+        timeout: Request timeout in seconds. Defaults to LLM_TIMEOUT env var (120s).
 
     Returns:
         LLM instance (ChatOpenAI, ChatAnthropic, or ChatOllama) with identical API.
@@ -251,6 +251,10 @@ def get_chat_llm(model_name: str = None, temperature: float = 0.3, timeout: int 
         >>> llm = get_chat_llm(model_name="gpt-4o-mini", temperature=0.3)
         >>> # Automatically uses OpenAI with gpt-4o-mini
     """
+    # Default timeout from env var (120s) so every LLM call has a safety net
+    if timeout is None:
+        timeout = int(os.getenv("LLM_TIMEOUT", "120"))
+
     use_local = is_using_ollama()
 
     # Default to AI_MODEL from env if not provided

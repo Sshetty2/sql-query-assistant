@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import Markdown from "react-markdown";
 import {
   Send,
   ChevronDown,
@@ -376,7 +377,7 @@ export function ChatPanel({
         <div className="flex items-center gap-1">
           {/* Conversation dropdown */}
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <DropdownMenuTrigger>
               <Button variant="ghost" size="icon-xs" title="Conversations">
                 <MessageSquare className="size-3.5" />
               </Button>
@@ -513,13 +514,17 @@ export function ChatPanel({
               className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
+                className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
                   msg.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-foreground"
+                    ? "bg-primary text-primary-foreground whitespace-pre-wrap"
+                    : "bg-muted text-foreground chat-markdown"
                 }`}
               >
-                {msg.content}
+                {msg.role === "assistant" ? (
+                  <Markdown>{msg.content}</Markdown>
+                ) : (
+                  msg.content
+                )}
               </div>
             </div>
           );
@@ -528,8 +533,8 @@ export function ChatPanel({
         {/* Streaming content */}
         {streamingContent && (
           <div className="flex justify-start">
-            <div className="max-w-[85%] rounded-lg bg-muted px-3 py-2 text-sm text-foreground whitespace-pre-wrap">
-              {streamingContent}
+            <div className="max-w-[85%] rounded-lg bg-muted px-3 py-2 text-sm text-foreground chat-markdown">
+              <Markdown>{streamingContent}</Markdown>
               <span className="inline-block w-1.5 h-4 bg-foreground/50 animate-pulse ml-0.5 align-text-bottom" />
             </div>
           </div>

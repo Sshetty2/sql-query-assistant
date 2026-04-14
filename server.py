@@ -1,7 +1,8 @@
 import json
 import os
+import threading
 from datetime import datetime
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Literal, List, Any, Dict
@@ -29,6 +30,42 @@ app = FastAPI(
     version="2.0.0",
     contact={},
 )
+
+
+# ---------------------------------------------------------------------------
+# Workflow cancellation registry
+# ---------------------------------------------------------------------------
+# Maps page_session_id -> threading.Event (set = cancelled)
+_active_sessions: dict[str, threading.Event] = {}
+_sessions_lock = threading.Lock()
+
+
+def register_session(session_id: str) -> threading.Event:
+    """Register a workflow for cancellation tracking. Returns a cancel event."""
+    cancel_event = threading.Event()
+    with _sessions_lock:
+        old = _active_sessions.get(session_id)
+        if old:
+            old.set()  # Cancel previous request in same session
+        _active_sessions[session_id] = cancel_event
+    logger.info(f"Registered session {session_id[:8]}... (active: {len(_active_sessions)})")
+    return cancel_event
+
+
+def cancel_session(session_id: str) -> bool:
+    """Cancel a running workflow by session ID. Returns True if found."""
+    with _sessions_lock:
+        event = _active_sessions.pop(session_id, None)
+    if event:
+        event.set()
+        return True
+    return False
+
+
+def unregister_session(session_id: str):
+    """Remove session from registry (normal completion)."""
+    with _sessions_lock:
+        _active_sessions.pop(session_id, None)
 
 
 def parse_query_result(result):
@@ -305,10 +342,13 @@ async def process_query(request: QueryRequest) -> QueryResponse:
     - `error`: Error details if the workflow fails
     """,
 )
-async def stream_query(request: QueryRequest):
+async def stream_query(request: QueryRequest, raw_request: Request):
     """Stream query execution progress via Server-Sent Events."""
+    page_session = raw_request.headers.get("x-page-session")
+    logger.info(f"[stream] x-page-session header: {page_session[:8] + '...' if page_session else 'MISSING'}")
 
     def event_generator():
+        cancel_event = register_session(page_session) if page_session else None
         try:
             stream = query_database(
                 request.prompt,
@@ -318,6 +358,8 @@ async def stream_query(request: QueryRequest):
                 stream_updates=True,
                 chat_session_id=request.chat_session_id,
                 db_id=request.db_id,
+                cancel_event=cancel_event,
+                skip_modification_options=True,
             )
 
             for update in stream:
@@ -346,6 +388,9 @@ async def stream_query(request: QueryRequest):
             logger.error(f"Stream error: {str(e)}", exc_info=True)
             error_data = json.dumps({"type": "error", "detail": str(e)})
             yield f"event: error\ndata: {error_data}\n\n"
+        finally:
+            if page_session:
+                unregister_session(page_session)
 
     return StreamingResponse(
         event_generator(),
@@ -366,10 +411,12 @@ async def stream_query(request: QueryRequest):
     and stream the re-execution via Server-Sent Events.
     """,
 )
-async def patch_query(request: PatchRequest):
+async def patch_query(request: PatchRequest, raw_request: Request):
     """Apply a plan patch and stream re-execution via SSE."""
+    page_session = raw_request.headers.get("x-page-session")
 
     def event_generator():
+        cancel_event = register_session(page_session) if page_session else None
         try:
             stream = query_database(
                 request.user_question,
@@ -379,6 +426,8 @@ async def patch_query(request: PatchRequest):
                 thread_id=request.thread_id,
                 stream_updates=True,
                 chat_session_id=request.chat_session_id,
+                cancel_event=cancel_event,
+                skip_modification_options=True,
             )
 
             for update in stream:
@@ -402,6 +451,9 @@ async def patch_query(request: PatchRequest):
             logger.error(f"Patch stream error: {str(e)}", exc_info=True)
             error_data = json.dumps({"type": "error", "detail": str(e)})
             yield f"event: error\ndata: {error_data}\n\n"
+        finally:
+            if page_session:
+                unregister_session(page_session)
 
     return StreamingResponse(
         event_generator(),
@@ -590,6 +642,26 @@ async def reset_chat(request: ChatResetRequest):
 
     clear_chat_session(request.session_id)
     return {"status": "ok", "session_id": request.session_id}
+
+
+# ---------------------------------------------------------------------------
+# Workflow cancellation
+# ---------------------------------------------------------------------------
+
+class CancelRequest(BaseModel):
+    """Request model for cancelling a running workflow."""
+    session_id: str = Field(description="Page session ID to cancel")
+
+
+@app.post("/cancel", summary="Cancel Running Workflow")
+async def cancel_running(request: CancelRequest):
+    """Cancel any running workflow associated with the given page session."""
+    found = cancel_session(request.session_id)
+    logger.info(
+        f"Cancel request for session {request.session_id[:8]}...: "
+        f"{'found' if found else 'not found'}"
+    )
+    return {"status": "cancelled" if found else "not_found"}
 
 
 # ---------------------------------------------------------------------------

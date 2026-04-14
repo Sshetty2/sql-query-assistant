@@ -16,6 +16,26 @@ load_dotenv()
 logger = get_logger()
 
 
+def quote_identifier(name: str) -> str:
+    """Quote identifier with double quotes if it contains spaces or hyphens.
+
+    SQLGlot's string-interpolation path (used for JOINs, GROUP BY, ORDER BY,
+    subqueries, etc.) passes raw table.column strings through ``parse_one``.
+    If a table name contains a space (e.g. "Order Details"), the tokeniser
+    splits it into two separate identifiers and the parse fails.
+
+    Wrapping such names in double-quotes makes them a single quoted
+    identifier that SQLGlot handles correctly across all dialects (it will
+    re-quote to dialect-specific delimiters like ``[...]`` for T-SQL when
+    ``identify=True`` is set during final SQL emission).
+    """
+    if not name:
+        return name
+    if " " in name or "-" in name:
+        return f'"{name}"'
+    return name
+
+
 def get_database_context():
     """Get database-specific context."""
     is_test_db = os.getenv("USE_TEST_DB", "").lower() == "true"
@@ -1263,10 +1283,10 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                 seen_columns[column] += 1
                 # Use table name prefix for uniqueness
                 col_alias = f"{table}_{column}"
-                select_cols.append(f"{table}.{column} AS {col_alias}")
+                select_cols.append(f"{quote_identifier(table)}.{quote_identifier(column)} AS {col_alias}")
             else:
                 seen_columns[column] = 1
-                select_cols.append(f"{table}.{column}")
+                select_cols.append(f"{quote_identifier(table)}.{quote_identifier(column)}")
 
         # Add aggregates
         for agg in group_by_spec.get("aggregates", []):
@@ -1283,7 +1303,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                     select_cols.append(f"COUNT(DISTINCT {column}) AS {output_alias}")
                 else:
                     select_cols.append(
-                        f"COUNT(DISTINCT {table}.{column}) AS {output_alias}"
+                        f"COUNT(DISTINCT {quote_identifier(table)}.{quote_identifier(column)}) AS {output_alias}"
                     )
             else:
                 # Check if column is an expression (no table prefix needed)
@@ -1294,7 +1314,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                     select_cols.append(f"{function}({column}) AS {output_alias}")
                 else:
                     select_cols.append(
-                        f"{function}({table}.{column}) AS {output_alias}"
+                        f"{function}({quote_identifier(table)}.{quote_identifier(column)}) AS {output_alias}"
                     )
     else:
         # Regular projection columns
@@ -1331,10 +1351,10 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                     # Strip "tb_" prefix if present for cleaner aliases
                     table_prefix = table_name.replace("tb_", "").replace("Saas", "")
                     col_alias = f"{table_prefix}{col_name}"
-                    select_cols.append(f"{table_name}.{col_name} AS {col_alias}")
+                    select_cols.append(f"{quote_identifier(table_name)}.{quote_identifier(col_name)} AS {col_alias}")
                 else:
                     seen_columns[col_name] = 1
-                    select_cols.append(f"{table_name}.{col_name}")
+                    select_cols.append(f"{quote_identifier(table_name)}.{quote_identifier(col_name)}")
 
     # Add window functions
     for window_func in window_functions:
@@ -1348,7 +1368,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         for col_info in partition_by:
             table = col_info.get("table")
             column = col_info.get("column")
-            partition_cols.append(f"{table}.{column}")
+            partition_cols.append(f"{quote_identifier(table)}.{quote_identifier(column)}")
 
         # Build ORDER BY clause
         order_cols = []
@@ -1356,7 +1376,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
             table = order_col.get("table")
             column = order_col.get("column")
             direction = order_col.get("direction", "ASC")
-            order_cols.append(f"{table}.{column} {direction}")
+            order_cols.append(f"{quote_identifier(table)}.{quote_identifier(column)} {direction}")
 
         # Build OVER clause
         over_parts = []
@@ -1377,7 +1397,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
     table_name = first_table.get("table")
 
     # Start with SELECT ... FROM
-    query = select(*select_cols).from_(table_name)
+    query = select(*select_cols).from_(quote_identifier(table_name))
 
     # Add JOINs (no aliases - just use table names)
     # Track which tables have been added to the query
@@ -1442,11 +1462,11 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         elif to_table in tables_in_query and from_table not in tables_in_query:
             # Join from_table (to_table already exists)
             join_table_name = from_table
-            on_condition = f"{to_table}.{to_column} = {from_table}.{from_column}"
+            on_condition = f"{quote_identifier(to_table)}.{quote_identifier(to_column)} = {quote_identifier(from_table)}.{quote_identifier(from_column)}"
         elif from_table in tables_in_query and to_table not in tables_in_query:
             # Join to_table (from_table already exists)
             join_table_name = to_table
-            on_condition = f"{from_table}.{from_column} = {to_table}.{to_column}"
+            on_condition = f"{quote_identifier(from_table)}.{quote_identifier(from_column)} = {quote_identifier(to_table)}.{quote_identifier(to_column)}"
         else:
             # Neither table in query yet - this should rarely happen after reordering
             # Add from_table first so it's available for the ON condition
@@ -1455,21 +1475,22 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                 f"Adding {from_table} to ensure ON condition works."
             )
             join_table_name = from_table
-            on_condition = f"{from_table}.{from_column} = {to_table}.{to_column}"
+            on_condition = f"{quote_identifier(from_table)}.{quote_identifier(from_column)} = {quote_identifier(to_table)}.{quote_identifier(to_column)}"
             # Note: to_table will need to be added in a subsequent join
 
         # Track that this table is now in the query
         tables_in_query.add(join_table_name)
 
         # Add join based on type
+        quoted_join_table = quote_identifier(join_table_name)
         if join_type.lower() == "left":
-            query = query.join(join_table_name, on=on_condition, join_type="left")
+            query = query.join(quoted_join_table, on=on_condition, join_type="left")
         elif join_type.lower() == "right":
-            query = query.join(join_table_name, on=on_condition, join_type="right")
+            query = query.join(quoted_join_table, on=on_condition, join_type="right")
         elif join_type.lower() == "full":
-            query = query.join(join_table_name, on=on_condition, join_type="full")
+            query = query.join(quoted_join_table, on=on_condition, join_type="full")
         else:  # inner or default
-            query = query.join(join_table_name, on=on_condition)
+            query = query.join(quoted_join_table, on=on_condition)
 
     # Build WHERE conditions
     where_conditions = []
@@ -1520,16 +1541,16 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                 )
             )
 
-        subquery_str = f"SELECT {subquery_column} FROM {subquery_table}"
+        subquery_str = f"SELECT {quote_identifier(subquery_column)} FROM {quote_identifier(subquery_table)}"
         if subquery_where:
             subquery_str += f" WHERE {' AND '.join(subquery_where)}"
 
         # Add to WHERE conditions
         if op == "in":
-            where_conditions.append(f"{outer_table}.{outer_column} IN ({subquery_str})")
+            where_conditions.append(f"{quote_identifier(outer_table)}.{quote_identifier(outer_column)} IN ({subquery_str})")
         elif op == "not_in":
             where_conditions.append(
-                f"{outer_table}.{outer_column} NOT IN ({subquery_str})"
+                f"{quote_identifier(outer_table)}.{quote_identifier(outer_column)} NOT IN ({subquery_str})"
             )
 
     # Apply WHERE clause
@@ -1551,7 +1572,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
         for col_info in group_by_spec.get("group_by_columns", []):
             table = col_info.get("table")
             column = col_info.get("column")
-            group_by_cols.append(f"{table}.{column}")
+            group_by_cols.append(f"{quote_identifier(table)}.{quote_identifier(column)}")
 
         for col in group_by_cols:
             query = query.group_by(col)
@@ -1619,7 +1640,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                     continue
                 else:
                     # Simple column reference
-                    order_col = f"{table}.{column}"
+                    order_col = f"{quote_identifier(table)}.{quote_identifier(column)}"
 
             if direction == "DESC":
                 query = query.order_by(f"{order_col} DESC")
@@ -1652,7 +1673,7 @@ def build_sql_query(plan_dict: Dict, state: State, db_context: Dict) -> str:
                         break
 
             if first_col and first_table:
-                order_col = f"{first_table}.{first_col}"
+                order_col = f"{quote_identifier(first_table)}.{quote_identifier(first_col)}"
                 if sort_order.lower() == "descending":
                     query = query.order_by(f"{order_col} DESC")
                 else:
@@ -1722,7 +1743,7 @@ def format_filter_condition(
         col_ref = column
     else:
         # Simple column - prefix with table
-        col_ref = f"{table_alias}.{column}"
+        col_ref = f"{quote_identifier(table_alias)}.{quote_identifier(column)}"
 
     def escape_string(s):
         """Escape single quotes in SQL strings by doubling them."""
@@ -1907,7 +1928,7 @@ def build_time_filter_condition(
     if not days:
         return None
 
-    col_ref = f"{time_table}.{time_column}"
+    col_ref = f"{quote_identifier(time_table)}.{quote_identifier(time_column)}"
 
     if db_context["is_sqlite"]:
         return f"{col_ref} >= datetime('now', '-{days} days')"

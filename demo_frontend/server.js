@@ -79,11 +79,13 @@ app.use(
     target: API_URL,
     changeOrigin: true,
     pathRewrite: { "^/api": "" },
+    // SSE streams are long-lived; default ~120s timeouts kill them prematurely
+    timeout: 600000,       // 10 min — outgoing proxy request timeout (ms)
+    proxyTimeout: 600000,  // 10 min — incoming proxy response timeout (ms)
     // SSE: disable buffering so events stream through immediately
     onProxyReq: (proxyReq) => {
-      proxyReq.setHeader("X-Accel-Buffering", "no");
-      // Remove the CSRF header before forwarding — backend doesn't need it
       proxyReq.removeHeader("x-csrf-token");
+      proxyReq.setHeader("X-Accel-Buffering", "no");
     },
     onProxyRes: (proxyRes) => {
       // Ensure no buffering/compression breaks SSE
@@ -109,7 +111,7 @@ app.use(express.static(path.join(__dirname, "dist"), {
 }));
 
 // SPA fallback — inject a fresh CSRF token into every page load
-app.get("*", (_req, res) => {
+app.get("/{*splat}", (_req, res) => {
   const token = generateCsrfToken();
   // Inject the token as a script tag before </head>
   const html = indexHtmlTemplate.replace(

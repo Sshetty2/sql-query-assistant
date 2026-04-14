@@ -112,3 +112,6 @@ class State(TypedDict):
     # Chat / narrative fields
     query_narrative: Optional[str]  # AI-generated narrative explaining query results
     chat_session_id: Optional[str]  # Frontend-provided session ID for conversation continuity
+
+    # Workflow configuration
+    skip_modification_options: bool  # Skip generate_modification_options node (demo frontend)

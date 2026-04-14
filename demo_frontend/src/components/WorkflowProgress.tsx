@@ -78,7 +78,7 @@ function PrePlannerMetadata({ meta }: { meta: Record<string, unknown> }) {
   const preview = (meta.strategy_preview as string) || "";
   return (
     <div className="space-y-1">
-      {meta.has_feedback && (
+      {Boolean(meta.has_feedback) && (
         <Badge variant="outline" className="text-[10px]">
           Feedback: {meta.feedback_type as string}
         </Badge>
@@ -96,7 +96,7 @@ function PlannerMetadata({ meta }: { meta: Record<string, unknown> }) {
   const tables = (meta.tables as string[]) || [];
   return (
     <div className="space-y-1.5">
-      {meta.intent_summary && (
+      {typeof meta.intent_summary === "string" && meta.intent_summary.length > 0 && (
         <p className="text-xs font-medium">{meta.intent_summary as string}</p>
       )}
       <div className="flex flex-wrap gap-1.5">
@@ -109,10 +109,10 @@ function PlannerMetadata({ meta }: { meta: Record<string, unknown> }) {
         <Badge variant="outline" className="text-[10px]">
           {meta.filter_count as number} filters
         </Badge>
-        {meta.has_aggregation && (
+        {Boolean(meta.has_aggregation) && (
           <Badge variant="outline" className="text-[10px]">GROUP BY</Badge>
         )}
-        {meta.has_order_by && (
+        {Boolean(meta.has_order_by) && (
           <Badge variant="outline" className="text-[10px]">ORDER BY</Badge>
         )}
         {meta.limit != null && (
@@ -184,7 +184,7 @@ function ExecuteQueryMetadata({ meta }: { meta: Record<string, unknown> }) {
         <Badge variant="outline" className="text-[10px]">
           {meta.column_count as number} columns
         </Badge>
-        {meta.limit_applied && (
+        {Boolean(meta.limit_applied) && (
           <Badge variant="outline" className="text-[10px]">
             {meta.total_records_available as number} total available
           </Badge>

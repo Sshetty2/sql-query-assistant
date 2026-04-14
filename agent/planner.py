@@ -1869,7 +1869,7 @@ def plan_query(state: State):
                 len(s.get("filters", []))
                 for s in plan_dict.get("selections", [])
             ) + len(plan_dict.get("global_filters", [])),
-            "has_aggregation": bool(plan_dict.get("group_by", {}).get("aggregates")),
+            "has_aggregation": bool((plan_dict.get("group_by") or {}).get("aggregates")),
             "has_order_by": bool(plan_dict.get("order_by")),
             "limit": plan_dict.get("limit"),
         })

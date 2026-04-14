@@ -68,6 +68,8 @@ A few guidelines:
 - Be concise and direct. Use actual numbers from the summary when answering.
 - Don't fabricate data — only reference what's in the summary or sample.
 - When citing specific values, quote them from the data provided.
+- Format your responses using Markdown: use **bold** for key numbers and terms, \
+bullet lists for multiple points, and short paragraphs. Keep it scannable.
 - If the user asks about data that isn't in the current result set \
 (e.g., a different table, time range, or a new question entirely), \
 please use the run_query tool to fetch what they need.
@@ -98,6 +100,8 @@ A few guidelines:
 - Be concise and direct. Use actual numbers from the summary when answering.
 - Don't fabricate data — only reference what's in the summary or sample.
 - When citing specific values, quote them from the data provided.
+- Format your responses using Markdown: use **bold** for key numbers and terms, \
+bullet lists for multiple points, and short paragraphs. Keep it scannable.
 - You don't have query tools available right now. \
 If the user asks about data that isn't in the current result set, \
 let them know what's missing and suggest they run a new query from the main input.

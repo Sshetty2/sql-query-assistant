@@ -128,3 +128,72 @@
     @apply font-sans;
     }
 }
+
+/* Markdown inside chat bubbles — compact styling for small panel */
+.chat-markdown p {
+  margin: 0.25em 0;
+}
+.chat-markdown p:first-child {
+  margin-top: 0;
+}
+.chat-markdown p:last-child {
+  margin-bottom: 0;
+}
+.chat-markdown ul,
+.chat-markdown ol {
+  margin: 0.25em 0;
+  padding-left: 1.25em;
+}
+.chat-markdown li {
+  margin: 0.1em 0;
+}
+.chat-markdown strong {
+  font-weight: 600;
+}
+.chat-markdown code {
+  font-size: 0.85em;
+  padding: 0.1em 0.3em;
+  border-radius: 0.25em;
+  background: var(--accent);
+}
+.chat-markdown pre {
+  margin: 0.5em 0;
+  padding: 0.5em;
+  border-radius: 0.375em;
+  background: var(--accent);
+  overflow-x: auto;
+  font-size: 0.85em;
+}
+.chat-markdown pre code {
+  padding: 0;
+  background: none;
+}
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3 {
+  font-weight: 600;
+  margin: 0.5em 0 0.25em;
+}
+.chat-markdown h1 { font-size: 1.1em; }
+.chat-markdown h2 { font-size: 1.05em; }
+.chat-markdown h3 { font-size: 1em; }
+.chat-markdown blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 0.75em;
+  margin: 0.25em 0;
+  color: var(--muted-foreground);
+}
+.chat-markdown table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.9em;
+}
+.chat-markdown th,
+.chat-markdown td {
+  border: 1px solid var(--border);
+  padding: 0.25em 0.5em;
+}
+.chat-markdown th {
+  background: var(--accent);
+  font-weight: 600;
+}

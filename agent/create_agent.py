@@ -219,6 +219,20 @@ def route_from_refine_query(
     return "cleanup"
 
 
+def route_after_narrative(
+    state: State,
+) -> Literal["generate_modification_options", "cleanup"]:
+    """Route after generate_query_narrative.
+
+    - If skip_modification_options=True: skip directly to cleanup
+    - Otherwise: generate modification options for interactive UI
+    """
+    if state.get("skip_modification_options"):
+        logger.debug("Skipping generate_modification_options (flag set)")
+        return "cleanup"
+    return "generate_modification_options"
+
+
 def route_from_execute_query(
     state: State,
 ) -> Literal[
@@ -399,8 +413,8 @@ def create_sql_agent():
         "transform_plan", "generate_query"
     )  # Patched plan → regenerate SQL
     workflow.add_edge("generate_data_summary", "generate_query_narrative")  # Summary → narrative
-    workflow.add_edge("generate_query_narrative", "generate_modification_options")  # Narrative → options
-    workflow.add_edge("generate_modification_options", "cleanup")  # Success → cleanup
+    workflow.add_conditional_edges("generate_query_narrative", route_after_narrative)  # Narrative → options or cleanup
+    workflow.add_edge("generate_modification_options", "cleanup")  # Options → cleanup
 
     # Cleanup
     workflow.add_edge("cleanup", END)
