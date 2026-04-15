@@ -417,7 +417,7 @@ async def stream_query(request: QueryRequest, raw_request: Request):
 
         except Exception as e:
             logger.error(f"Stream error: {str(e)}", exc_info=True)
-            error_data = json.dumps({"type": "error", "detail": "Query failed. Please try rephrasing your question."})
+            error_data = json.dumps({"detail": str(e)})
             yield f"event: error\ndata: {error_data}\n\n"
         finally:
             if page_session:
@@ -482,7 +482,7 @@ async def patch_query(request: PatchRequest, raw_request: Request):
 
         except Exception as e:
             logger.error(f"Patch stream error: {str(e)}", exc_info=True)
-            error_data = json.dumps({"type": "error", "detail": "Patch failed. Please try again."})
+            error_data = json.dumps({"detail": str(e)})
             yield f"event: error\ndata: {error_data}\n\n"
         finally:
             if page_session:
@@ -672,7 +672,7 @@ async def chat_query(request: ChatRequest):
 
         except Exception as e:
             logger.error(f"Chat stream error: {str(e)}", exc_info=True)
-            error_data = json.dumps({"detail": "Chat request failed. Please try again."})
+            error_data = json.dumps({"detail": str(e)})
             yield f"event: error\ndata: {error_data}\n\n"
 
     return StreamingResponse(
