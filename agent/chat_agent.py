@@ -224,6 +224,7 @@ def prepare_data_context(
     max_sample_rows: int = 15,
     filtered_schema: list[dict] | None = None,
     planner_output: dict | None = None,
+    previous_sql: str | None = None,
 ) -> str:
     """Build a concise context string for the LLM from query results.
 
@@ -238,6 +239,7 @@ def prepare_data_context(
         max_sample_rows: Max rows to include in the sample.
         filtered_schema: Optional filtered schema (tables/columns/FKs used).
         planner_output: Optional planner output (query plan decisions).
+        previous_sql: Optional previous SQL query (before a revision was applied).
 
     Returns:
         Formatted context string for injection into the system prompt.
@@ -246,7 +248,11 @@ def prepare_data_context(
 
     # Original question and SQL
     parts.append(f"### Original Question\n{user_question}")
-    parts.append(f"### SQL Query\n```sql\n{sql_query}\n```")
+    if previous_sql:
+        parts.append(f"### Previous SQL Query (before revision)\n```sql\n{previous_sql}\n```")
+        parts.append(f"### Current SQL Query\n```sql\n{sql_query}\n```")
+    else:
+        parts.append(f"### SQL Query\n```sql\n{sql_query}\n```")
 
     # Schema context
     if filtered_schema:
@@ -831,7 +837,10 @@ def stream_chat_agentic(
 NARRATIVE_USER_PROMPT = (
     "Please provide a brief summary of these query results in the context of "
     "the original question. Highlight key findings, notable patterns, "
-    "and any important numbers. Keep it concise — 2-4 sentences."
+    "and any important numbers. Keep it concise — 2-4 sentences. "
+    "If you notice a data quality issue with the SQL (e.g., Cartesian products "
+    "from multi-table joins, missing filters, incorrect joins), use the "
+    "suggest_revision tool to propose a corrected query."
 )
 
 
@@ -843,20 +852,26 @@ def _get_chat_llm_for_narrative():
     return get_chat_llm(model_name=model_name, temperature=0.3)
 
 
-def generate_narrative(data_context: str, session_id: str) -> str:
+def generate_narrative(data_context: str, session_id: str) -> dict:
     """Generate a one-shot narrative summary of query results.
 
-    Calls the LLM once (non-streaming) and seeds the conversation history
-    so follow-up chat messages have context.
+    Calls the LLM once (non-streaming) with suggest_revision tool bound,
+    and seeds the conversation history so follow-up chat messages have context.
+
+    If the LLM spots a data quality issue, it may call suggest_revision
+    to propose a corrected query alongside the narrative.
 
     Args:
         data_context: Pre-built context string from prepare_data_context.
         session_id: Session ID for conversation continuity.
 
     Returns:
-        The narrative string.
+        Dict with keys:
+        - "narrative": The narrative summary string.
+        - "revision": Dict with "revised_sql" and "explanation", or None.
     """
     llm = _get_chat_llm_for_narrative()
+    bound_llm = llm.bind_tools(SUGGEST_ONLY_TOOLS)
 
     system_msg = CHAT_SYSTEM_PROMPT.format(data_context=data_context)
     messages = [
@@ -864,15 +879,52 @@ def generate_narrative(data_context: str, session_id: str) -> str:
         {"role": "user", "content": NARRATIVE_USER_PROMPT},
     ]
 
-    response = llm.invoke(messages)
-    narrative = response.content if hasattr(response, "content") else str(response)
+    response = bound_llm.invoke(messages)
+
+    # Check for tool calls (suggest_revision)
+    revision = None
+    tool_calls = getattr(response, "tool_calls", None)
+    if tool_calls:
+        for tc in tool_calls:
+            if tc.get("name") == "suggest_revision":
+                revision = {
+                    "revised_sql": tc["args"].get("revised_sql", ""),
+                    "explanation": tc["args"].get("explanation", ""),
+                }
+                break
+
+    # Extract narrative text from the response
+    narrative = ""
+    if hasattr(response, "content") and response.content:
+        if isinstance(response.content, str):
+            narrative = response.content
+        elif isinstance(response.content, list):
+            # Some providers return content as list of blocks
+            text_blocks = [
+                b["text"] for b in response.content
+                if isinstance(b, dict) and b.get("type") == "text"
+            ]
+            narrative = "\n".join(text_blocks)
+
+    # If LLM only called a tool with no text, ask for the narrative
+    if not narrative.strip() and tool_calls:
+        tool_call_id = tool_calls[0].get("id", "")
+        messages.append(response)
+        messages.append(
+            ToolMessage(
+                content="Revision suggestion noted. Now provide your brief summary of the results.",
+                tool_call_id=tool_call_id,
+            )
+        )
+        follow_up = llm.invoke(messages)
+        narrative = follow_up.content if hasattr(follow_up, "content") else str(follow_up)
 
     # Seed the conversation history so follow-up chat sees this exchange
     history = _get_session_history(session_id)
     history.add_message(HumanMessage(content=NARRATIVE_USER_PROMPT))
     history.add_message(AIMessage(content=narrative))
 
-    return narrative
+    return {"narrative": narrative, "revision": revision}
 
 
 def generate_query_narrative_node(state) -> dict:
@@ -918,15 +970,26 @@ def generate_query_narrative_node(state) -> dict:
         # Write full data context sent to LLM
         _write_debug("debug_chat_data_context.md", data_context)
 
-        narrative = generate_narrative(data_context, session_id)
+        narrative_result = generate_narrative(data_context, session_id)
+        narrative = narrative_result["narrative"]
+        revision = narrative_result.get("revision")
 
         # Write generated narrative
         _write_debug("debug_chat_narrative.md", narrative)
+        if revision:
+            _write_debug(
+                "debug_chat_narrative_revision.json",
+                json.dumps(revision, indent=2),
+            )
 
         emit_node_status(
             "generate_query_narrative", "completed", "AI summary generated"
         )
-        return {**state, "query_narrative": narrative}
+        return {
+            **state,
+            "query_narrative": narrative,
+            "narrative_revision": revision,
+        }
 
     except Exception as e:
         logger.error(f"Error generating narrative: {e}", exc_info=True)

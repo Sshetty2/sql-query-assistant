@@ -165,6 +165,13 @@ export function useChat(options: UseChatOptions = {}) {
     []
   );
 
+  /** Surface a revision suggestion externally (e.g., from narrative generation). */
+  const suggestRevision = useCallback((sql: string, explanation: string) => {
+    const msg: ChatMessage = { role: "suggest_revision", content: explanation, revisedSql: sql };
+    setMessages((prev) => [...prev, msg]);
+    setPendingRevision({ sql, explanation });
+  }, []);
+
   /** Accept the pending revision and return it. Clears pending state. */
   const acceptRevision = useCallback((): PendingRevision | null => {
     const revision = pendingRevision;
@@ -227,6 +234,7 @@ export function useChat(options: UseChatOptions = {}) {
     appendAssistantMessage,
     appendMessage,
     appendDataSummary,
+    suggestRevision,
     acceptRevision,
     dismissRevision,
     reset,

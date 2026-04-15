@@ -158,6 +158,7 @@ def build_query_response(state: dict, metadata: dict = None) -> dict:
         "total_records_available": state.get("total_records_available"),
         "data_summary": state.get("data_summary"),
         "query_narrative": state.get("query_narrative"),
+        "narrative_revision": state.get("narrative_revision"),
     }
 
 
@@ -585,6 +586,7 @@ async def chat_query(request: ChatRequest):
                 user_question,
                 filtered_schema=state.get("filtered_schema"),
                 planner_output=state.get("planner_output"),
+                previous_sql=state.get("previous_sql"),
             )
 
             # Stream events from the agentic loop
@@ -784,6 +786,7 @@ async def execute_sql(request: ExecuteSQLRequest):
                 "messages": [],
                 "user_question": original_state.get("user_question", ""),
                 "query": request.sql,
+                "previous_sql": original_state.get("query", ""),
                 "result": json_result,
                 "sort_order": "Default",
                 "result_limit": 0,

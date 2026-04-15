@@ -143,6 +143,11 @@ function App() {
           if (queryResult.query_narrative) {
             chat.appendAssistantMessage(queryResult.query_narrative);
           }
+          // Surface proactive revision suggestion from narrative generation
+          if (queryResult.narrative_revision) {
+            const rev = queryResult.narrative_revision;
+            chat.suggestRevision(rev.revised_sql, rev.explanation);
+          }
         }
       );
       // Auto-name the conversation from the first query.

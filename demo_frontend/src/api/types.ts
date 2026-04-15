@@ -87,6 +87,7 @@ export interface QueryResult {
   total_records_available: number | null;
   data_summary: DataSummary | null;
   query_narrative: string | null;
+  narrative_revision: { revised_sql: string; explanation: string } | null;
 }
 
 // Data summary types
