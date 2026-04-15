@@ -79,22 +79,30 @@ bullet lists for multiple points, and short paragraphs. Keep it scannable."""
 
 CHAT_SYSTEM_PROMPT = _CHAT_COMMON_INTRO + """
 
-**Tool usage — act, don't ask:**
-When a follow-up message implies a query change or a new data request, \
-**use the appropriate tool immediately**. Do NOT ask "would you like me to…", \
-"should I run a query?", or "shall I revise the SQL?" — just do it. \
-The UI will prompt for confirmation where needed.
-- **suggest_revision** (preferred for modifications): Use when asked to \
-**modify, tweak, or filter the current query** (e.g., "add a WHERE clause", \
-"sort by date", "remove the LIMIT", "add a column", "change the join"). \
-Write the complete revised SQL and a short explanation of what changed. \
-The revision will be shown for review before execution. \
-**Prefer this tool whenever the current query can be adapted** rather than \
-running an entirely new query from scratch.
+**How to respond:**
+You have two response modes. Choose the right one for every reply:
+
+1. **respond_with_revision** — use this whenever your response involves SQL. \
+This includes fixing data quality issues, adding/removing columns, changing \
+filters, adjusting sorting, correcting joins, or any other SQL improvement. \
+Bundle your explanation (message) and the revised SQL together in one call. \
+The user will see your message plus a reviewable SQL card with Execute/Dismiss \
+buttons. **Proactively use this if you notice the SQL could be improved** — \
+don't wait to be asked.
+2. **Plain text** — use for responses that don't involve SQL changes \
+(answering questions about the data, explaining patterns, etc.).
+
+**Additional tools:**
 - **run_query**: Use only when **completely different data** is needed \
 that requires a new query from scratch (different tables, different question).
+
+**Guidelines:**
+- Act, don't ask: Do NOT say "would you like me to…" or "shall I revise?" — \
+just respond with the appropriate mode.
 - When writing revised SQL, always produce a complete, executable query — \
 not a diff or fragment. Base it on the current SQL shown in the data context.
+- **Never write SQL in a plain text response.** If your response includes SQL, \
+you must use respond_with_revision.
 - **Only write SELECT queries.** Never produce INSERT, UPDATE, DELETE, DROP, \
 CREATE, ALTER, or any other data-modifying statement.
 
@@ -103,16 +111,26 @@ CREATE, ALTER, or any other data-modifying statement.
 
 CHAT_SYSTEM_PROMPT_SUGGEST_ONLY = _CHAT_COMMON_INTRO + """
 
-**Tool usage — act, don't ask:**
-When a follow-up message implies a query change, **use the tool immediately**. \
-Do NOT ask "would you like me to…" or "shall I revise?" — just do it. \
-The UI will prompt for confirmation.
-- You can no longer run new queries, but you can still suggest revisions \
-to the current SQL query using the **suggest_revision** tool.
-- When asked to **modify, tweak, or filter the current query**, \
-use the **suggest_revision** tool with complete revised SQL and an explanation.
-- If the question is about completely different data, suggest running a new \
-query from the main input.
+**How to respond:**
+You have two response modes. Choose the right one for every reply:
+
+1. **respond_with_revision** — use this whenever your response involves SQL. \
+This includes fixing data quality issues, adding/removing columns, changing \
+filters, adjusting sorting, correcting joins, or any other SQL improvement. \
+Bundle your explanation (message) and the revised SQL together in one call. \
+**Proactively use this if you notice the SQL could be improved.**
+2. **Plain text** — use for responses that don't involve SQL changes.
+
+You can no longer run new queries. If the question requires completely \
+different data, suggest running a new query from the main input.
+
+**Guidelines:**
+- Act, don't ask: Do NOT say "would you like me to…" or "shall I revise?" — \
+just respond with the appropriate mode.
+- When writing revised SQL, always produce a complete, executable query — \
+not a diff or fragment. Base it on the current SQL shown in the data context.
+- **Never write SQL in a plain text response.** If your response includes SQL, \
+you must use respond_with_revision.
 - **Only write SELECT queries.** Never produce INSERT, UPDATE, DELETE, DROP, \
 CREATE, ALTER, or any other data-modifying statement.
 
@@ -573,13 +591,14 @@ def stream_chat_agentic(
                 f"[remaining={tools_remaining}]"
             )
 
-            if tool_name == "suggest_revision":
+            if tool_name == "respond_with_revision":
+                rev_message = tool_args.get("message", "")
                 revised_sql = tool_args.get("revised_sql", "")
                 explanation = tool_args.get("explanation", "")
 
-                logger.debug("[chat-agent] suggest_revision emitted")
+                logger.debug("[chat-agent] respond_with_revision emitted")
 
-                # Yield suggest_revision event to frontend
+                # Yield revision event to frontend (same SSE type)
                 yield {
                     "type": "suggest_revision",
                     "revised_sql": revised_sql,
@@ -588,24 +607,19 @@ def stream_chat_agentic(
 
                 # Do NOT increment tool call counter (lightweight, no DB call)
 
-                # Build a ToolMessage to inform the LLM the suggestion was shown
-                tool_result_text = (
-                    "The revised SQL has been shown to the user for review. "
-                    "They will decide whether to execute it. "
-                    "Provide a brief summary of the changes you proposed."
-                )
+                # The message IS the final response — no follow-up LLM turn
+                history.add_message(AIMessage(content=rev_message))
 
-                # Append to messages for next iteration
-                messages.append(response)
-                messages.append(
-                    ToolMessage(
-                        content=tool_result_text,
-                        tool_call_id=tool_call_id,
-                    )
-                )
-
-                # Continue loop — LLM will summarize the suggestion
-                continue
+                yield {"type": "token", "content": rev_message}
+                yield {
+                    "type": "complete",
+                    "content": rev_message,
+                    "suggest_new_query": False,
+                    "suggested_query": None,
+                    "tool_calls_remaining": _get_tool_calls_remaining(session_id),
+                }
+                logger.debug("[chat-agent] Agentic loop finished (respond_with_revision)")
+                return
 
             elif tool_name == "run_query" and tools_remaining > 0:
                 query_text = tool_args.get("query", "")
@@ -835,12 +849,12 @@ def stream_chat_agentic(
 # ---------------------------------------------------------------------------
 
 NARRATIVE_USER_PROMPT = (
-    "Please provide a brief summary of these query results in the context of "
-    "the original question. Highlight key findings, notable patterns, "
-    "and any important numbers. Keep it concise — 2-4 sentences. "
-    "If you notice a data quality issue with the SQL (e.g., Cartesian products "
-    "from multi-table joins, missing filters, incorrect joins), use the "
-    "suggest_revision tool to propose a corrected query."
+    "Summarize these query results in the context of the original question. "
+    "Highlight key findings, notable patterns, and important numbers. "
+    "Keep it concise — 2-4 sentences. "
+    "If you notice a data quality issue with the SQL (e.g., Cartesian products, "
+    "missing filters, incorrect joins, or results that don't match the question), "
+    "use respond_with_revision to provide your summary AND a corrected query together."
 )
 
 
@@ -855,11 +869,11 @@ def _get_chat_llm_for_narrative():
 def generate_narrative(data_context: str, session_id: str) -> dict:
     """Generate a one-shot narrative summary of query results.
 
-    Calls the LLM once (non-streaming) with suggest_revision tool bound,
+    Calls the LLM once (non-streaming) with respond_with_revision tool bound,
     and seeds the conversation history so follow-up chat messages have context.
 
-    If the LLM spots a data quality issue, it may call suggest_revision
-    to propose a corrected query alongside the narrative.
+    If the LLM spots a data quality issue, it may call respond_with_revision
+    to provide both the narrative and a corrected query in one call.
 
     Args:
         data_context: Pre-built context string from prepare_data_context.
@@ -881,19 +895,22 @@ def generate_narrative(data_context: str, session_id: str) -> dict:
 
     response = bound_llm.invoke(messages)
 
-    # Check for tool calls (suggest_revision)
+    # Check for tool calls (respond_with_revision)
     revision = None
+    tool_narrative = ""
     tool_calls = getattr(response, "tool_calls", None)
     if tool_calls:
         for tc in tool_calls:
-            if tc.get("name") == "suggest_revision":
+            if tc.get("name") == "respond_with_revision":
                 revision = {
                     "revised_sql": tc["args"].get("revised_sql", ""),
                     "explanation": tc["args"].get("explanation", ""),
                 }
+                # The message field IS the narrative
+                tool_narrative = tc["args"].get("message", "")
                 break
 
-    # Extract narrative text from the response
+    # Extract narrative text from the response content
     narrative = ""
     if hasattr(response, "content") and response.content:
         if isinstance(response.content, str):
@@ -906,8 +923,11 @@ def generate_narrative(data_context: str, session_id: str) -> dict:
             ]
             narrative = "\n".join(text_blocks)
 
-    # If LLM only called a tool with no text, ask for the narrative
-    if not narrative.strip() and tool_calls:
+    # Prefer the tool message as the narrative (it was written for this purpose)
+    if tool_narrative.strip():
+        narrative = tool_narrative
+    elif not narrative.strip() and tool_calls:
+        # Tool called but no message or content — ask for a follow-up
         tool_call_id = tool_calls[0].get("id", "")
         messages.append(response)
         messages.append(

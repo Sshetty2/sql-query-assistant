@@ -2,7 +2,7 @@
 
 Defines tools that the chat agent can invoke during conversation,
 enabling it to re-run queries when the user's question cannot be
-answered from the current result set, or to suggest SQL revisions
+answered from the current result set, or to respond with SQL revisions
 for the user to review before execution.
 """
 
@@ -27,22 +27,27 @@ def run_query(query: str) -> str:
 
 
 @tool
-def suggest_revision(revised_sql: str, explanation: str) -> str:
-    """Suggest a revised SQL query for the user to review before execution.
+def respond_with_revision(message: str, revised_sql: str, explanation: str) -> str:
+    """Respond to the user with a SQL revision suggestion.
 
-    Use this when the user asks to modify, tweak, or improve the current
-    SQL query — e.g., add/remove columns, change filters, adjust sorting,
-    or fix an issue. The revised SQL will be shown to the user for approval
-    before it is executed. Do NOT use run_query for query modifications.
+    Use this instead of a plain text response whenever your answer involves
+    a SQL improvement, fix, or modification. Your message text will be shown
+    to the user, and the revised SQL will appear in a reviewable card with
+    Execute/Dismiss buttons.
+
+    Prefer this over a plain text response whenever you can improve the SQL —
+    e.g., fix a data quality issue, add missing filters, correct joins,
+    adjust sorting, add/remove columns, or optimize the query.
 
     Args:
-        revised_sql: The complete revised SQL query (ready to execute as-is)
-        explanation: Brief explanation of what changed and why
+        message: Your response text to the user (markdown). Summarize findings and explain changes.
+        revised_sql: Complete revised SQL query (ready to execute as-is, SELECT only)
+        explanation: One-line summary of what changed (shown in the revision card header)
     """
     # Execution is handled by the agentic loop in chat_agent.py,
     # not by this function body.
     pass
 
 
-CHAT_TOOLS = [run_query, suggest_revision]
-SUGGEST_ONLY_TOOLS = [suggest_revision]
+CHAT_TOOLS = [run_query, respond_with_revision]
+SUGGEST_ONLY_TOOLS = [respond_with_revision]
