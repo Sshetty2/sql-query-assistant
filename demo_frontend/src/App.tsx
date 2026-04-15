@@ -343,7 +343,7 @@ function App() {
               activeDbId={db.activeDbId}
             />
 
-            {steps.length > 0 && (
+            {(status === "streaming" || steps.length > 0) && (
               <WorkflowProgress steps={steps} isStreaming={status === "streaming" || chat.status === "tool_running"} />
             )}
 

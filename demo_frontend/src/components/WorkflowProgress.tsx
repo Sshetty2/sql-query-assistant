@@ -39,6 +39,7 @@ const NODE_LABELS: Record<string, string> = {
 
 // Nodes to hide (implementation details)
 const HIDDEN_NODES = new Set([
+  "request_received",
   "initialize_connection",
   "format_schema_markdown",
   "check_clarification",
@@ -399,7 +400,7 @@ export function WorkflowProgress({ steps, isStreaming }: WorkflowProgressProps) 
     if (isStreaming) setIsOpen(true);
   }, [isStreaming]);
 
-  if (visibleSteps.length === 0) return null;
+  if (visibleSteps.length === 0 && !isStreaming) return null;
 
   return (
     <Card className="overflow-hidden">

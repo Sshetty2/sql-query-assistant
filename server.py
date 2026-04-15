@@ -386,6 +386,15 @@ async def stream_query(request: QueryRequest, raw_request: Request):
 
         cancel_event = register_session(page_session) if page_session else None
         try:
+            # Emit immediate acknowledgment so the frontend shows progress instantly
+            ack = json.dumps({
+                "type": "status",
+                "node_name": "request_received",
+                "node_status": "completed",
+                "node_message": "Query received",
+            })
+            yield f"event: status\ndata: {ack}\n\n"
+
             stream = query_database(
                 request.prompt,
                 sort_order=request.sort_order,
@@ -452,6 +461,14 @@ async def patch_query(request: PatchRequest, raw_request: Request):
 
         cancel_event = register_session(page_session) if page_session else None
         try:
+            ack = json.dumps({
+                "type": "status",
+                "node_name": "request_received",
+                "node_status": "completed",
+                "node_message": "Query received",
+            })
+            yield f"event: status\ndata: {ack}\n\n"
+
             stream = query_database(
                 request.user_question,
                 patch_operation=request.patch_operation,
