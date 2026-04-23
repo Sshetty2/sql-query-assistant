@@ -66,6 +66,7 @@ func stateToResponse(st *agent.State, threadID, queryID string) QueryResponse {
 		DataSummary:              st.DataSummary,
 		ModificationOptions:      st.ModificationOptions,
 		QueryNarrative:           st.QueryNarrative,
+		NarrativeRevision:        st.NarrativeRevision,
 	}
 }
 

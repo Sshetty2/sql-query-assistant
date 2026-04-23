@@ -9,7 +9,7 @@ Full-feature Go reimplementation of the SQL Query Assistant API. Endpoint-equiva
 - `POST /query` — sync natural-language query
 - `POST /query/stream` — SSE-streamed query execution
 - `POST /query/patch` — interactive plan modification (add/remove columns, change ORDER BY, adjust LIMIT)
-- `POST /query/chat` — agentic chat with `run_query` and `respond_with_revision` tools
+- `POST /query/chat` — agentic chat with `run_query` and `respond` tools (respond takes optional `revised_sql` + `explanation` for inline SQL revisions)
 - `POST /query/chat/reset` — clear chat session
 - `POST /query/execute-sql` — direct SELECT execution
 - `POST /cancel` — cancel an in-flight workflow

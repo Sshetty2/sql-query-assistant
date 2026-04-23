@@ -280,9 +280,14 @@ func RunQuery(ctx context.Context, st *State, status StatusFn) *State {
 				st.Errors = append(st.Errors, "generate_query_narrative: "+err.Error())
 				emit("generate_query_narrative", "error", err.Error(), nil)
 			} else {
-				st.QueryNarrative = narrative
+				st.QueryNarrative = narrative.Narrative
+				st.NarrativeRevision = narrative.Revision
+				meta := map[string]any{"narrative_preview": preview(narrative.Narrative, 300)}
+				if narrative.Revision != nil {
+					meta["narrative_revision"] = true
+				}
 				emit("generate_query_narrative", "completed", "",
-					withPrompt(map[string]any{"narrative_preview": preview(narrative, 300)}, narrPrompt))
+					withPrompt(meta, narrPrompt))
 			}
 		}
 

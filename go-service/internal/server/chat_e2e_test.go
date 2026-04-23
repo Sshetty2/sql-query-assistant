@@ -157,8 +157,8 @@ func truncateForLog(s string, n int) string {
 // follow-up like "I can't see the artist..", which then ran the full pipeline
 // against vague text and crashed at generate_query with "plan has no selections".
 //
-// Expected behavior: respond_with_revision (suggest adding the missing column)
-// or a plain-text reply explaining the column situation. NEVER run_query.
+// Expected behavior: the agent calls `respond` (with or without a
+// revised_sql) — never run_query — for a commentary follow-up.
 func TestChat_LiveE2E_CantSeeColumnDoesNotRunNewQuery(t *testing.T) {
 	loadRepoEnv(t)
 	if testing.Short() {
@@ -238,13 +238,13 @@ ORDER BY [tracks].[UnitPrice] DESC`,
 }
 
 // TestChat_LiveE2E_RevisionGoesToSuggestTool catches the regression where
-// "can you revise" used to fire run_query instead of respond_with_revision —
+// "can you revise" used to fire run_query instead of the respond tool —
 // the model would launch a fresh pipeline against ambiguous text, the planner
 // would return decision="clarify" with no selections, and generate_query
 // would error out with "plan has no selections".
 //
 // Now: revision-style requests should produce a `suggest_revision` event
-// from respond_with_revision and never touch the SQL pipeline.
+// from `respond(revised_sql=...)` and never touch the SQL pipeline.
 func TestChat_LiveE2E_RevisionGoesToSuggestTool(t *testing.T) {
 	loadRepoEnv(t)
 	if testing.Short() {

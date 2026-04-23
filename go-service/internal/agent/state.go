@@ -79,5 +79,6 @@ type State struct {
 	DataSummary         *models.DataSummary
 	ModificationOptions *models.ModificationOptions
 	QueryNarrative      string
+	NarrativeRevision   *models.NarrativeRevision
 	ChatSessionID       string
 }

@@ -41,6 +41,7 @@ type QueryResponse struct {
 	DataSummary              *models.DataSummary       `json:"data_summary,omitempty"`
 	ModificationOptions      *models.ModificationOptions `json:"modification_options,omitempty"`
 	QueryNarrative           string                    `json:"query_narrative,omitempty"`
+	NarrativeRevision        *models.NarrativeRevision `json:"narrative_revision,omitempty"`
 }
 
 // SSEStatusEvent is the payload of a `status` SSE event. Field set matches

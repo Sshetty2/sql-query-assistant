@@ -1,9 +1,9 @@
 """Tool definitions for the conversational data assistant.
 
-Defines tools that the chat agent can invoke during conversation,
-enabling it to re-run queries when the user's question cannot be
-answered from the current result set, or to respond with SQL revisions
-for the user to review before execution.
+Every chat reply is a `respond` tool call. The optional `revised_sql` +
+`explanation` fields let the agent bundle a SQL revision into the same
+call whenever the reply involves SQL changes. `run_query` is separate —
+it re-runs the pipeline end-to-end for genuinely new questions.
 """
 
 from langchain_core.tools import tool
@@ -27,27 +27,35 @@ def run_query(query: str) -> str:
 
 
 @tool
-def respond_with_revision(message: str, revised_sql: str, explanation: str) -> str:
-    """Respond to the user with a SQL revision suggestion.
+def respond(
+    message: str,
+    revised_sql: str | None = None,
+    explanation: str | None = None,
+) -> str:
+    """Reply to the user. This is the ONLY way to respond — every turn ends with a respond call.
 
-    Use this instead of a plain text response whenever your answer involves
-    a SQL improvement, fix, or modification. Your message text will be shown
-    to the user, and the revised SQL will appear in a reviewable card with
-    Execute/Dismiss buttons.
+    Always set `message` to your user-facing reply (markdown).
 
-    Prefer this over a plain text response whenever you can improve the SQL —
-    e.g., fix a data quality issue, add missing filters, correct joins,
-    adjust sorting, add/remove columns, or optimize the query.
+    Include `revised_sql` + `explanation` WHENEVER the reply involves or could involve
+    a SQL change — fixing a data-quality issue, adding/removing a column, changing a
+    filter, correcting a join, adjusting sorting, or proposing any other SQL improvement.
+    Never describe a problem with the SQL without proposing the fix in the same call.
+    If you include `revised_sql`, you must also include `explanation`.
+
+    Omit `revised_sql` and `explanation` only for pure-commentary replies that don't
+    touch the SQL (answering a question from the data, acknowledgments, etc.).
 
     Args:
         message: Your response text to the user (markdown). Summarize findings and explain changes.
-        revised_sql: Complete revised SQL query (ready to execute as-is, SELECT only)
-        explanation: One-line summary of what changed (shown in the revision card header)
+        revised_sql: Optional — a complete revised SELECT query, ready to execute as-is.
+            Required iff the reply involves a SQL change.
+        explanation: Optional — one-line summary of what changed in the SQL.
+            Required iff revised_sql is set.
     """
     # Execution is handled by the agentic loop in chat_agent.py,
     # not by this function body.
     pass
 
 
-CHAT_TOOLS = [run_query, respond_with_revision]
-SUGGEST_ONLY_TOOLS = [respond_with_revision]
+CHAT_TOOLS = [run_query, respond]
+RESPOND_ONLY_TOOLS = [respond]

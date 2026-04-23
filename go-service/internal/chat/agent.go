@@ -174,7 +174,7 @@ func (a *Agent) StreamChat(ctx context.Context, sessionID, userMsg string, dataC
 
 		tools := AllTools()
 		if sess.ToolCallCount >= maxToolCalls() {
-			tools = SuggestOnlyTools()
+			tools = RespondOnlyTools()
 		}
 		toolNames := make([]string, len(tools))
 		for i, t := range tools {
@@ -202,10 +202,25 @@ func (a *Agent) StreamChat(ctx context.Context, sessionID, userMsg string, dataC
 			"tool_calls_picked", pickedTools,
 		)
 
-		// Append the assistant's reply (text only — we don't persist tool_use
-		// blocks because we don't loop). The user's next message will pick up
-		// from this point.
-		if resp.Content != "" {
+		// If the model calls `respond`, its `message` field is the user-facing
+		// reply — any loose text on resp.Content is preamble we should suppress.
+		// Otherwise fall back to resp.Content (legacy plain-text path; also the
+		// safety net if the model ignored the contract).
+		respondMessage := ""
+		respondCalled := false
+		for _, tc := range resp.ToolCalls {
+			if tc.Name == RespondToolName {
+				respondCalled = true
+				var args struct {
+					Message string `json:"message"`
+				}
+				_ = json.Unmarshal(tc.Input, &args)
+				respondMessage = args.Message
+				break
+			}
+		}
+
+		if !respondCalled && resp.Content != "" {
 			sess.Messages = append(sess.Messages, llm.Message{
 				Role:    llm.RoleAssistant,
 				Content: resp.Content,
@@ -214,6 +229,10 @@ func (a *Agent) StreamChat(ctx context.Context, sessionID, userMsg string, dataC
 		}
 
 		// Process each tool call in order. Each one fires its own SSE events.
+		// We track whether run_query fired AND captured rows so we can
+		// synthesize a fallback respond below if the model forgot to.
+		runQueryFired := false
+		var runQuerySummary string
 		for _, tc := range resp.ToolCalls {
 			log.Info("chat tool dispatch",
 				"tool", tc.Name,
@@ -221,12 +240,19 @@ func (a *Agent) StreamChat(ctx context.Context, sessionID, userMsg string, dataC
 			)
 			switch tc.Name {
 			case RunQueryToolName:
+				runQueryFired = true
 				if !a.handleRunQuery(ctx, tc, sess, dataCtx, out) {
 					return
 				}
 				sess.ToolCallCount++
-			case RespondWithRevisionToolName:
-				a.handleRespondWithRevision(tc, sess, out)
+				// Pull the most recent row count off the session to seed
+				// the fallback message. handleRunQuery appends a synthetic
+				// assistant message describing the run; reuse its text.
+				if n := len(sess.Messages); n > 0 {
+					runQuerySummary = sess.Messages[n-1].Content
+				}
+			case RespondToolName:
+				a.handleRespond(tc, sess, out)
 				// Doesn't increment ToolCallCount — matches Python.
 			default:
 				log.Warn("unknown tool requested", "tool", tc.Name)
@@ -234,14 +260,35 @@ func (a *Agent) StreamChat(ctx context.Context, sessionID, userMsg string, dataC
 			}
 		}
 
+		// Fallback: when run_query fired without an accompanying respond, the
+		// user would otherwise see the new SQL/rows but no chat message. Emit
+		// a synthetic respond so the chat thread isn't dead-air. The proper
+		// fix is multi-turn tool conversations (see POST_MVP); this keeps the
+		// UX intact in the meantime.
+		if runQueryFired && !respondCalled {
+			fallback := runQuerySummary
+			if fallback == "" {
+				fallback = "Ran a follow-up query — see the SQL and rows above."
+			}
+			a.emitSyntheticRespond(fallback, sess, out)
+			respondMessage = fallback
+			respondCalled = true
+		}
+
+		completeContent := resp.Content
+		if respondCalled {
+			completeContent = respondMessage
+		}
+
 		log.Info("chat turn complete",
 			"new_tool_call_count", sess.ToolCallCount,
-			"text_emitted", resp.Content != "",
+			"respond_called", respondCalled,
+			"text_emitted", completeContent != "",
 			"tools_dispatched", len(resp.ToolCalls),
 		)
 		out <- Event{
 			Type:               "complete",
-			Content:            resp.Content,
+			Content:            completeContent,
 			ToolCallsRemaining: maxToolCalls() - sess.ToolCallCount,
 		}
 	}()
@@ -295,9 +342,12 @@ func (a *Agent) handleRunQuery(ctx context.Context, tc llm.ToolCall, sess *Sessi
 	return true
 }
 
-// handleRespondWithRevision emits the revision event and appends a synthetic
-// assistant message capturing the suggestion so future turns see it.
-func (a *Agent) handleRespondWithRevision(tc llm.ToolCall, sess *Session, out chan<- Event) {
+// handleRespond processes the terminal `respond` tool call. When revised_sql
+// is present it also emits a `suggest_revision` event so the frontend renders
+// the revision card; the `message` text is always appended to session history
+// and streamed back to the user via a token event emitted separately by the
+// main loop (we also ensure it lands in the `complete` event's Content).
+func (a *Agent) handleRespond(tc llm.ToolCall, sess *Session, out chan<- Event) {
 	var args struct {
 		Message     string `json:"message"`
 		RevisedSQL  string `json:"revised_sql"`
@@ -307,15 +357,44 @@ func (a *Agent) handleRespondWithRevision(tc llm.ToolCall, sess *Session, out ch
 		out <- Event{Type: "tool_error", Tool: tc.Name, Detail: "invalid args: " + err.Error()}
 		return
 	}
-	out <- Event{
-		Type:        "suggest_revision",
-		Content:     args.Message,
-		RevisedSQL:  args.RevisedSQL,
-		Explanation: args.Explanation,
+
+	// If the model gave us SQL without an explanation, synthesize one so the
+	// revision card still renders — better than swallowing the SQL.
+	if args.RevisedSQL != "" && args.Explanation == "" {
+		args.Explanation = "SQL revision"
 	}
+
+	if args.RevisedSQL != "" {
+		out <- Event{
+			Type:        "suggest_revision",
+			Content:     args.Message,
+			RevisedSQL:  args.RevisedSQL,
+			Explanation: args.Explanation,
+		}
+	}
+
+	// Stream the message as a token event for typewriter parity with the
+	// previous plain-text path. The main loop's terminal `complete` event
+	// will repeat the content, matching the Python service.
+	if args.Message != "" {
+		out <- Event{Type: "token", Content: args.Message}
+	}
+
 	sess.Messages = append(sess.Messages, llm.Message{
 		Role:    llm.RoleAssistant,
 		Content: args.Message,
+	})
+}
+
+// emitSyntheticRespond produces the same wire events handleRespond would for
+// a model that fired run_query but skipped the terminal respond call. Used
+// as a safety net so the chat thread isn't dead-air. The text is also
+// appended to session history so the next user turn sees it.
+func (a *Agent) emitSyntheticRespond(message string, sess *Session, out chan<- Event) {
+	out <- Event{Type: "token", Content: message}
+	sess.Messages = append(sess.Messages, llm.Message{
+		Role:    llm.RoleAssistant,
+		Content: message,
 	})
 }
 
@@ -336,39 +415,41 @@ func chatSystemPrompt(dc DataContext) string {
 
 	return fmt.Sprintf(`You are a friendly data analyst chatting about a SQL query result.
 
-# Tool selection — read carefully
+# How to respond — read carefully
 
-You have two tools, but **most user messages need NEITHER tool — just reply in plain text.**
+Every chat turn ends with exactly one call to the ` + "`respond`" + ` tool. There is no plain-text reply mode — text emitted outside of ` + "`respond`" + ` will not reach the user.
 
-Default to plain-text replies for:
-- Observations or complaints about the existing result ("I can't see X", "where is the Y column?", "this looks wrong")
-- Questions you can answer from the data already shown ("which one is biggest?", "how many rows?")
-- Greetings, acknowledgments, follow-up questions about meaning
-- Anything ambiguous
+## respond(message, revised_sql?, explanation?)
+- ` + "`message`" + ` (required): your reply, in markdown. 2-4 sentences. Concrete with numbers, grounded in the data shown.
+- ` + "`revised_sql`" + ` (optional): a complete revised SELECT query.
+- ` + "`explanation`" + ` (optional, required when ` + "`revised_sql`" + ` is set): one-line summary of what changed in the SQL.
 
-**Only use a tool when one of these applies:**
-
-## respond_with_revision (suggest new SQL — do NOT execute)
-Use when the user wants the SQL itself to change. Trigger phrases:
+**Include ` + "`revised_sql`" + ` + ` + "`explanation`" + ` whenever the reply involves — or could involve — a SQL change.** That covers:
 - "revise/fix/change/adjust/rewrite/improve the query"
 - "add a column for X", "remove the Y column", "filter by Z"
 - "what would the query look like if…"
 - "I want to also see the artist's name" (implies adding a column)
-- "I can't see X" → if X is a column that COULD plausibly be added to the query, suggest adding it via respond_with_revision
+- "I can't see X" → if X is a column that could plausibly be added, include the revision
 
-Arguments: *message* (friendly explanation), *revised_sql* (the new SQL), *explanation* (one-line diff).
+**Never describe a SQL problem without proposing the fix in the same call.** If you notice the query is wrong, revise it — don't just complain about it.
 
-## run_query (run a brand new query end-to-end)
-Use ONLY when the user asks for data that's COMPLETELY different from what's on screen — different question, different aggregation, different table the current SQL doesn't touch.
+Omit ` + "`revised_sql`" + ` / ` + "`explanation`" + ` only for pure-commentary replies that don't touch the SQL: answering a question from the data, acknowledgments, greetings.
+
+## run_query(query)
+Use ONLY when the user asks for data that's COMPLETELY different from what's on screen — different question, different aggregation, a table the current SQL doesn't touch.
 Trigger phrases:
 - "how many tracks are in the database?" (count not on screen)
 - "what about for USA customers?" (different filter than the run query)
 - "show me the genres instead" (different table)
 
-**Hard rule:** If the user's intent could be satisfied by tweaking the current SQL, use respond_with_revision — never run_query.
+After ` + "`run_query`" + ` returns, summarize the new results by calling ` + "`respond`" + `.
 
-# Response style
-Plain-text replies: 2-4 sentences. Be concrete with numbers. Reference the SQL or rows shown when relevant.
+**Hard rule:** If the user's intent could be satisfied by tweaking the current SQL, use ` + "`respond`" + ` with a ` + "`revised_sql`" + ` — never ` + "`run_query`" + `.
+
+# Revised SQL rules
+- Produce a complete, executable query — not a diff or fragment.
+- Base it on the current SQL shown in the data context.
+- Only SELECT — never INSERT, UPDATE, DELETE, DROP, CREATE, or ALTER.
 
 # CONTEXT
 
