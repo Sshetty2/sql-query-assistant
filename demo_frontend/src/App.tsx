@@ -11,6 +11,7 @@ import { ResultsTable } from "@/components/ResultsTable";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DatabaseSelector } from "@/components/DatabaseSelector";
 import { SchemaERD } from "@/components/SchemaERD";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Card, CardContent } from "@/components/ui/card";
 import { AlertCircle } from "lucide-react";
 import { streamExecuteSQL } from "@/api/client";
@@ -330,10 +331,12 @@ function App() {
             )}
 
             {db.databases.length > 0 && db.schema.length > 0 && (
-              <SchemaERD
-                schema={db.schema}
-                dbName={db.databases.find((d) => d.id === db.activeDbId)?.name ?? ""}
-              />
+              <ErrorBoundary section="Schema diagram">
+                <SchemaERD
+                  schema={db.schema}
+                  dbName={db.databases.find((d) => d.id === db.activeDbId)?.name ?? ""}
+                />
+              </ErrorBoundary>
             )}
 
             <QueryInput
@@ -344,7 +347,9 @@ function App() {
             />
 
             {(status === "streaming" || steps.length > 0) && (
-              <WorkflowProgress steps={steps} isStreaming={status === "streaming" || chat.status === "tool_running"} />
+              <ErrorBoundary section="Workflow progress">
+                <WorkflowProgress steps={steps} isStreaming={status === "streaming" || chat.status === "tool_running"} />
+              </ErrorBoundary>
             )}
 
             {error && (
@@ -357,11 +362,15 @@ function App() {
 
             {result && (
               <div className="space-y-4">
-                <SqlViewer sql={result.query} />
-                <ResultsTable
-                  data={result.result}
-                  totalRecords={result.total_records_available}
-                />
+                <ErrorBoundary section="SQL viewer">
+                  <SqlViewer sql={result.query} />
+                </ErrorBoundary>
+                <ErrorBoundary section="Results table">
+                  <ResultsTable
+                    data={result.result}
+                    totalRecords={result.total_records_available}
+                  />
+                </ErrorBoundary>
               </div>
             )}
           </div>
@@ -379,34 +388,47 @@ function App() {
         className="flex-shrink-0 overflow-hidden"
         style={{ width: `${chatWidthPct}%` }}
       >
-        <ChatPanel
-          threadId={result?.thread_id ?? null}
-          queryId={result?.query_id ?? null}
-          sessionId={convs.activeId ?? ""}
-          dbId={db.activeDbId}
-          messages={chat.messages}
-          streamingContent={chat.streamingContent}
-          status={chat.status}
-          error={chat.error}
-          suggestedQuery={chat.suggestedQuery}
-          pendingRevision={chat.pendingRevision}
-          onSend={chat.send}
-          onNewQuery={handleNewQuery}
-          onReset={handleResetConversation}
-          onResultClick={handleResultClick}
-          onExecuteRevision={handleExecuteRevision}
-          onDismissRevision={handleDismissRevision}
-          conversations={convs.conversations}
-          activeConversationId={convs.activeId}
-          onNewConversation={handleNewConversation}
-          onSwitchConversation={handleSwitchConversation}
-          onDeleteConversation={handleDeleteConversation}
-          onRenameConversation={convs.rename}
-          onClearAllConversations={handleClearAllConversations}
-        />
+        <ErrorBoundary section="Chat panel">
+          <ChatPanel
+            threadId={result?.thread_id ?? null}
+            queryId={result?.query_id ?? null}
+            sessionId={convs.activeId ?? ""}
+            dbId={db.activeDbId}
+            messages={chat.messages}
+            streamingContent={chat.streamingContent}
+            status={chat.status}
+            error={chat.error}
+            suggestedQuery={chat.suggestedQuery}
+            pendingRevision={chat.pendingRevision}
+            onSend={chat.send}
+            onNewQuery={handleNewQuery}
+            onReset={handleResetConversation}
+            onResultClick={handleResultClick}
+            onExecuteRevision={handleExecuteRevision}
+            onDismissRevision={handleDismissRevision}
+            conversations={convs.conversations}
+            activeConversationId={convs.activeId}
+            onNewConversation={handleNewConversation}
+            onSwitchConversation={handleSwitchConversation}
+            onDeleteConversation={handleDeleteConversation}
+            onRenameConversation={convs.rename}
+            onClearAllConversations={handleClearAllConversations}
+          />
+        </ErrorBoundary>
       </div>
     </div>
   );
 }
 
-export default App;
+// AppWithBoundary wraps App in a page-level ErrorBoundary so any uncaught
+// render error in App itself (or in a non-section subtree like the
+// resize handle) shows a friendly takeover instead of a blank screen.
+function AppWithBoundary() {
+  return (
+    <ErrorBoundary section="application" variant="page">
+      <App />
+    </ErrorBoundary>
+  );
+}
+
+export default AppWithBoundary;

@@ -5,7 +5,7 @@ import threading
 import time as _time
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Literal, List, Any, Dict
 from dotenv import load_dotenv
@@ -893,6 +893,79 @@ async def cancel_running(request: CancelRequest):
         f"{'found' if found else 'not found'}"
     )
     return {"status": "cancelled" if found else "not_found"}
+
+
+# ---------------------------------------------------------------------------
+# Frontend render-error telemetry
+# ---------------------------------------------------------------------------
+
+
+# 16 KB cap to match go-service/internal/server/render_error_handler.go.
+# Same rationale: long enough for a real React component stack, short
+# enough that a misbehaving (or hostile) browser can't flood logs.
+MAX_RENDER_ERROR_BYTES = 16 * 1024
+
+
+def _truncate_for_render_log(s: str | None, n: int) -> str:
+    """Cap a string for log emission. The frontend already truncates at the
+    boundary; this is a second guard."""
+    if not s:
+        return ""
+    if len(s) <= n:
+        return s
+    return s[:n] + "…"
+
+
+class RenderErrorRequest(BaseModel):
+    """Payload from the React ErrorBoundary when a component render crashes.
+
+    Mirrors RenderErrorRequest in go-service/internal/server/render_error_handler.go
+    field-for-field so the same frontend code talks to either backend.
+    """
+
+    section: str = Field(..., max_length=120, description="UI section that crashed (e.g. 'Results table').")
+    error_message: str = Field(..., max_length=2000, description="The thrown error's message.")
+    error_stack: Optional[str] = Field(default=None, description="Full JS stack trace.")
+    component_stack: Optional[str] = Field(default=None, description="React component stack from ErrorInfo.")
+    user_agent: Optional[str] = Field(default=None, description="navigator.userAgent at the time of crash.")
+    url: Optional[str] = Field(default=None, description="window.location.href when the crash happened.")
+    thread_id: Optional[str] = Field(default=None, description="Thread the user was on, when known.")
+    query_id: Optional[str] = Field(default=None, description="Query the user was on, when known.")
+
+
+@app.post("/log/render-error", summary="Log a frontend render-time error")
+async def log_render_error(request: Request):
+    """Receive a render-error report from the React ErrorBoundary.
+
+    Returns 204 No Content — the frontend fires this and forgets it. We log
+    at WARN because render crashes are real bugs that should surface in
+    dashboards but are already absorbed by the boundary, so they're not
+    outage-level. Body capped at 16 KB to prevent log flooding.
+    """
+    raw = await request.body()
+    if len(raw) > MAX_RENDER_ERROR_BYTES:
+        raise HTTPException(status_code=413, detail="render error payload too large")
+
+    try:
+        payload = RenderErrorRequest.model_validate_json(raw)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    logger.warning(
+        "render error reported by frontend",
+        extra={
+            "section": payload.section,
+            "error_message": payload.error_message,
+            "error_stack": _truncate_for_render_log(payload.error_stack, 1500),
+            "component_stack": _truncate_for_render_log(payload.component_stack, 1500),
+            "user_agent": payload.user_agent or "",
+            "url": payload.url or "",
+            "thread_id": payload.thread_id or "",
+            "query_id": payload.query_id or "",
+            "remote_ip": request.client.host if request.client else "",
+        },
+    )
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------

@@ -59,6 +59,7 @@ func (s *Server) registerRoutes() {
 	s.engine.POST("/query/patch", s.patchHandler)
 	s.engine.POST("/query/chat", s.chatHandler)
 	s.engine.POST("/query/chat/reset", s.chatResetHandler)
+	s.engine.POST("/log/render-error", s.renderErrorHandler)
 }
 
 func (s *Server) healthCheck(c *gin.Context) {
