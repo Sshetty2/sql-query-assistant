@@ -14,9 +14,11 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // Mirror the production proxy: /api/* → backend
+      // Mirror the production proxy: /api/* → backend.
+      // Default target is the Go service on :8001 (matches demo_frontend/server.js).
+      // Override with `VITE_API_URL=http://localhost:8000 npm run dev` to hit the Python service instead.
       "/api": {
-        target: "http://localhost:8000",
+        target: process.env.VITE_API_URL || "http://localhost:8001",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },

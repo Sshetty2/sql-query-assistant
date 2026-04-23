@@ -19,7 +19,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 const PORT = process.env.PORT || 8080;
-const API_URL = process.env.API_URL || "http://localhost:8000";
+const API_URL = process.env.API_URL || "http://localhost:8001";
 
 // Trust the first proxy (Railway / reverse proxy) for correct IP detection
 app.set("trust proxy", 1);

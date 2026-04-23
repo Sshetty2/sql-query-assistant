@@ -1,0 +1,37 @@
+# NOTE: Comments must be on their own lines — gitignore treats anything
+# after the pattern as part of the pattern.
+
+# --- Go binaries ---
+# `go build` puts the binary in the package directory by default; CI/local
+# builds may use any name. Catch all platforms.
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+sql-go-service
+sql-go-service.exe
+
+# --- Go test artifacts ---
+# `go test -c` produces a `*.test` binary.
+*.test
+# Coverage profiles from `go test -coverprofile`.
+*.out
+coverage.html
+coverage.txt
+
+# --- Go workspace files ---
+# Per-developer multi-module workspace; not needed for module-mode builds.
+go.work
+go.work.sum
+
+# --- IDE ---
+# Root .gitignore already covers /.vscode globally; this catches IntelliJ/Goland.
+.idea/
+
+# --- What we DO commit (FYI for future maintainers) ---
+#   go.mod, go.sum         module + dependency lockfile, required for builds
+#   cmd/, internal/        all source
+#   Dockerfile, scripts/   build + ops
+#   testdata/              fixture inputs for tests (Go convention; ALWAYS tracked)
+#   *.md                   README, PARITY, POST_MVP, TEST_COVERAGE
