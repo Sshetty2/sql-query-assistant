@@ -62,9 +62,16 @@ interface ChatPanelProps {
 }
 
 function ColumnStats({ summary }: { summary: DataSummary }) {
+  // Defend against `summary.columns` being null/undefined despite the type.
+  // Object.entries(null/undefined) throws and would crash the chat panel.
+  // The Go service always populates this, but a partial response (e.g.
+  // truncated by a proxy, or a future API change) shouldn't take down the UI.
+  // eslint-disable-next-line no-restricted-syntax -- guarded by `summary.columns ?` above
+  const columnEntries = summary.columns ? Object.entries(summary.columns) : [];
+  if (columnEntries.length === 0) return null;
   return (
     <div className="mt-2 space-y-1.5">
-      {Object.entries(summary.columns).map(([name, col]) => (
+      {columnEntries.map(([name, col]) => (
         <div key={name} className="text-xs">
           <div className="flex items-center gap-1.5">
             <Badge variant="outline" className="text-[10px] font-mono px-1 py-0">

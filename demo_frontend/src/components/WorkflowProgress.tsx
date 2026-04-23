@@ -56,8 +56,16 @@ function getNodeLabel(nodeName: string): string {
 
 // ── Node-specific metadata renderers ──
 
+// safeStringArray coerces a backend metadata field that should be a string[]
+// into one. The TS cast `meta.foo as string[]` lies if foo is e.g. a string
+// or number — operations like .map then throw. This guards at runtime.
+function safeStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((x): x is string => typeof x === "string");
+}
+
 function FilterSchemaMetadata({ meta }: { meta: Record<string, unknown> }) {
-  const tables = (meta.selected_tables as string[]) || [];
+  const tables = safeStringArray(meta.selected_tables);
   return (
     <div className="space-y-1.5">
       <p className="text-xs text-muted-foreground">
@@ -96,7 +104,7 @@ function PrePlannerMetadata({ meta }: { meta: Record<string, unknown> }) {
 }
 
 function PlannerMetadata({ meta }: { meta: Record<string, unknown> }) {
-  const tables = (meta.tables as string[]) || [];
+  const tables = safeStringArray(meta.tables);
   return (
     <div className="space-y-1.5">
       {typeof meta.intent_summary === "string" && meta.intent_summary.length > 0 && (
@@ -139,7 +147,7 @@ function PlannerMetadata({ meta }: { meta: Record<string, unknown> }) {
 
 function PlanAuditMetadata({ meta }: { meta: Record<string, unknown> }) {
   const passed = meta.audit_passed as boolean;
-  const issues = (meta.issues_preview as string[]) || [];
+  const issues = safeStringArray(meta.issues_preview);
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2">
@@ -177,7 +185,7 @@ function GenerateQueryMetadata({ meta }: { meta: Record<string, unknown> }) {
 }
 
 function ExecuteQueryMetadata({ meta }: { meta: Record<string, unknown> }) {
-  const columns = (meta.columns as string[]) || [];
+  const columns = safeStringArray(meta.columns);
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap gap-1.5">
@@ -229,6 +237,11 @@ function RefineQueryMetadata({ meta }: { meta: Record<string, unknown> }) {
 }
 
 function GenericMetadata({ meta }: { meta: Record<string, unknown> }) {
+  // The TS type says Record<string, unknown> but Object.entries(non-object)
+  // throws. Defend explicitly so a backend that ever sends a string/number
+  // metadata payload doesn't crash this row of the timeline.
+  if (meta == null || typeof meta !== "object") return null;
+  // eslint-disable-next-line no-restricted-syntax -- meta narrowed to non-null object by the guard above
   const entries = Object.entries(meta).filter(
     ([, v]) => v != null && typeof v !== "object"
   );
@@ -272,6 +285,7 @@ function TimelineStep({ step, isLast }: TimelineStepProps) {
   const promptContext = meta?.prompt_context as PromptContext | undefined;
   // Consider metadata present if there are keys other than prompt_context
   const metaKeysWithoutPrompt = meta
+    // eslint-disable-next-line no-restricted-syntax -- ternary on the previous line guards `meta`
     ? Object.keys(meta).filter((k) => k !== "prompt_context")
     : [];
   const hasMetadata = metaKeysWithoutPrompt.length > 0;
@@ -335,7 +349,11 @@ function TimelineStep({ step, isLast }: TimelineStepProps) {
               )}
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-1.5 pl-5">
-              <MetadataRenderer meta={meta!} />
+              {/* meta is non-null here because hasMetadata guards on
+                  metaKeysWithoutPrompt.length above. Pass it as a fresh
+                  empty object on the off-chance React invokes this between
+                  renders — the renderer already guards too. */}
+              <MetadataRenderer meta={meta ?? {}} />
             </CollapsibleContent>
           </Collapsible>
         ) : (
