@@ -25,3 +25,4 @@ thread_states.json
 
 *.xlsx
 TEST_QUERIES_CWPR.md
+/.vscode

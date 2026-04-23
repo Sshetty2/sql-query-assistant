@@ -2,6 +2,17 @@
 
 Convert natural language to SQL — powered by LangGraph, deterministic SQLGlot generation, and multi-provider LLM support.
 
+## Two implementations, one frontend
+
+This repo ships **two parallel backends** with identical HTTP+SSE contracts. The React frontend in `demo_frontend/` works against either by switching one env var.
+
+| Backend | Where | Stack | Default port |
+|---|---|---|---|
+| **Python (original)** | `agent/`, `models/`, `database/`, `utils/`, `server.py` | FastAPI + LangGraph + LangChain + SQLGlot + Chroma | `:8000` |
+| **Go (rewrite)** | `go-service/` | gin + hand-rolled state machine + hand-rolled T-SQL emitter + pure-Go cosine-sim store + official OpenAI/Anthropic/Ollama SDKs | `:8001` |
+
+The Go service is feature-equivalent — same endpoints, same SSE event shapes, same `thread_states.json` and `databases/registry.json`. See **[go-service/PARITY.md](go-service/PARITY.md)** for the matrix and **[go-service/README.md](go-service/README.md)** for build/run details. **Future major changes must land in both** — see `CLAUDE.md` for the workflow.
+
 ## Overview
 
 SQL Query Assistant transforms natural language questions into SQL queries and executes them against your database. It uses a **hybrid architecture** where LLMs handle the reasoning (understanding your question, selecting tables, planning joins) while SQL generation is entirely **deterministic** via SQLGlot — producing reliable queries with zero LLM cost and under 10ms latency.
@@ -147,6 +158,7 @@ USE_TEST_DB=true
 
 ### Run
 
+**Python backend (port 8000):**
 ```bash
 # Streamlit UI (interactive)
 streamlit run streamlit_app.py
@@ -155,6 +167,15 @@ streamlit run streamlit_app.py
 uvicorn server:app --host 0.0.0.0 --port 8000
 # API docs: http://localhost:8000/docs
 ```
+
+**Go backend (port 8001) — equivalent feature set:**
+```bash
+cd go-service
+go build -o sql-go-service.exe ./cmd/server
+USE_TEST_DB=true PORT=8001 ./sql-go-service.exe
+```
+
+The two backends can run side by side. The frontend's `vite.config.ts` defaults the proxy to `:8001` (Go); override with `VITE_API_URL=http://localhost:8000 npm run dev` to point at Python instead.
 
 ## Usage
 
@@ -275,19 +296,49 @@ sql-query-assistant/
   requirements.txt                  # Python dependencies (56 packages)
   Dockerfile                        # Container configuration
   .env.example                      # Environment variable template
+
+  go-service/                       # Go reimplementation — feature-equivalent to Python
+    cmd/server/main.go              #   Entry point (gin + slog)
+    internal/server/                #   gin handlers + SSE for all 10 endpoints
+    internal/agent/                 #   Hand-rolled state machine + 18 workflow nodes
+    internal/chat/                  #   Agentic chat loop + sessions + tools
+    internal/llm/                   #   OpenAI + Anthropic + Ollama clients
+    internal/sql/                   #   T-SQL + SQLite emitter (replaces SQLGlot)
+    internal/{vector,fk,cancel,...} #   Supporting packages
+    PARITY.md                       #   Endpoint + node feature matrix
+    POST_MVP.md                     #   Remaining deferred items
+    TEST_COVERAGE.md                #   Go test inventory mapped to Python tests
+    Dockerfile                      #   Multi-stage distroless (~30 MB image)
 ```
 
 ## Development
 
+> **Two-backend rule:** Major feature changes (new endpoint, new workflow node, schema changes, new SSE event types, new SQL emitter features, new LLM provider) MUST land in BOTH the Python service and the Go service. See `CLAUDE.md` for the workflow and the file-by-file mapping.
+
 ### Testing
 
+**Python:**
 ```bash
 pytest                                     # Run all tests
 pytest tests/unit/test_plan_audit.py -v    # Run specific test file
 pytest -v                                  # Verbose output
 ```
 
-Tests cover SQL generation, plan auditing, schema filtering, plan patching, dialect compatibility, reserved keyword handling, ORDER BY/LIMIT, and more.
+**Go:**
+```bash
+cd go-service
+go test -short ./...                       # Unit + structural tests (fast)
+go test ./...                              # Includes live LLM/SQLite e2e tests
+```
+
+**Cross-service parity check:**
+```bash
+# With Python on :8000 and Go on :8001 both running:
+./go-service/scripts/parity_check.sh
+```
+Replays prompts against both services and diffs the SSE event sequence + final SQL/row counts.
+
+Tests cover SQL generation, plan auditing, schema filtering, plan patching, dialect compatibility, reserved keyword handling, ORDER BY/LIMIT, and more — see `go-service/TEST_COVERAGE.md` for the file-by-file mapping between Python and Go test suites.
 
 ### Linting
 

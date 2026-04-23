@@ -2,9 +2,53 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ⚠️ Dual-Implementation Project — Read This First
+
+This repository contains **TWO parallel implementations** of the same service. They share the same demo databases, `.env`, `thread_states.json`, frontend, and React UI, and they expose identical HTTP+SSE contracts. The frontend can target either backend by switching one env var.
+
+| Implementation | Location | Stack |
+|---|---|---|
+| **Python (original)** | `agent/`, `models/`, `database/`, `utils/`, `server.py` | FastAPI + LangGraph + LangChain + SQLGlot + Chroma |
+| **Go (rewrite)** | `go-service/` (everything in `cmd/` and `internal/`) | gin + hand-rolled state machine + hand-rolled T-SQL emitter + pure-Go cosine vector store + `microsoft/go-mssqldb` / `modernc.org/sqlite` + official OpenAI/Anthropic/Ollama SDKs |
+
+Both serve the React frontend in `demo_frontend/`. Endpoint shapes and SSE event vocabularies are intentionally identical — see `go-service/PARITY.md` for the full matrix.
+
+### **Parity rule: any new feature ships in BOTH services**
+
+When adding new functionality, you MUST make the change in both Python and Go. This is non-negotiable — the rewrite was done specifically so we can switch backends, and that only stays true if both services keep evolving together.
+
+**What counts as "major" (parity required):**
+- New HTTP endpoints or changes to existing ones
+- New workflow nodes or changes to node behavior
+- Changes to `PlannerOutput`, `DataSummary`, `ModificationOptions`, or any wire model
+- New SQL emitter features (window functions, dialects, etc.)
+- New LLM provider integrations
+- New SSE event types or shape changes to existing events
+- Changes to the patch operations or the chat tool surface
+- Authentication / authorization changes
+
+**What's OK to do in one place only:**
+- Implementation-specific refactors that don't change behavior
+- Bug fixes for issues only one implementation has
+- Test additions that mirror existing coverage
+- Documentation that's specific to one stack's quirks
+
+**Workflow when adding a feature:**
+1. Implement and test in one implementation (usually whichever is easier given context)
+2. Port to the other (use the existing implementation as the spec)
+3. Add equivalent tests in both
+4. Update `go-service/PARITY.md` if a previously-unequal feature is now matched
+5. Update `go-service/POST_MVP.md` if you're checking a deferred item off the list
+
+The Go service is the source-of-truth-equivalent now — not a prototype. Drift between the two should be treated as a bug.
+
+See **[go-service/README.md](go-service/README.md)**, **[go-service/PARITY.md](go-service/PARITY.md)**, and **[go-service/POST_MVP.md](go-service/POST_MVP.md)** for the Go-side details.
+
 ## Project Overview
 
 This is a **SQL Query Assistant** that converts natural language queries into SQL and executes them against a SQL Server database. It uses **LangGraph** for workflow orchestration, **LangChain** with **OpenAI/Anthropic/Ollama** for query planning, **SQLGlot** for deterministic SQL generation, and provides both a **Streamlit UI** and **FastAPI** backend.
+
+The Go reimplementation in `go-service/` is feature-equivalent (see [Dual Implementation](#-dual-implementation-project--read-this-first) above).
 
 ### Key Features
 
@@ -109,22 +153,50 @@ uvicorn server:app --host 0.0.0.0 --port 8000
 http://localhost:8000/docs
 ```
 
+**Go Service (parallel implementation):**
+```bash
+cd go-service
+go build -o sql-go-service.exe ./cmd/server
+USE_TEST_DB=true PORT=8001 ./sql-go-service.exe
+```
+
+The Go service binds to port 8001 by default (Python uses 8000) so both can run side by side. The frontend's `vite.config.ts` defaults to `:8001`; override with `VITE_API_URL=http://localhost:8000 npm run dev` to hit the Python service instead.
+
 ### Testing
 
-**Run all tests:**
+**Python — run all tests:**
 ```bash
 pytest
 ```
 
-**Run specific test file:**
+**Python — run specific test file:**
 ```bash
 pytest tests/unit/test_plan_audit.py
 ```
 
-**Run with verbose output:**
+**Python — run with verbose output:**
 ```bash
 pytest -v
 ```
+
+**Go — run unit + structural tests (fast):**
+```bash
+cd go-service
+go test -short ./...
+```
+
+**Go — include live LLM/SQLite e2e tests (needs `../.env` with API keys):**
+```bash
+cd go-service
+go test ./...
+```
+
+**Cross-service parity check:**
+```bash
+# Run Python service on :8000 and Go service on :8001 in separate terminals, then:
+./go-service/scripts/parity_check.sh
+```
+Replays prompts against both services and diffs SSE event sequence + final SQL/row counts. See `go-service/scripts/parity_prompts.txt` to add cases.
 
 ### Linting
 
@@ -572,6 +644,64 @@ tests/
     ├── test_openai_schema_validation.py  # OpenAI schema compatibility tests
     ├── test_order_by_limit.py            # ORDER BY/LIMIT tests
     └── test_sqlglot_generation.py        # SQLGlot generation tests
+
+go-service/                               # Go reimplementation — full feature parity
+├── cmd/server/main.go                    # Entry point: env, logger, gin server
+├── internal/
+│   ├── server/                           # gin handlers + SSE
+│   │   ├── server.go                     # engine, route registration, middleware
+│   │   ├── middleware.go                 # request logger
+│   │   ├── sse.go                        # SSE helpers (flush, Content-Type)
+│   │   ├── models.go                     # QueryRequest/Response, SSE event types
+│   │   ├── query_handler.go              # POST /query, /query/stream, /databases
+│   │   ├── chat_handler.go               # POST /query/chat, /query/chat/reset
+│   │   ├── patch_handler.go              # POST /query/patch
+│   │   ├── exec_sql_handler.go           # POST /query/execute-sql
+│   │   └── cancel_handler.go             # POST /cancel
+│   ├── agent/
+│   │   ├── graph.go                      # Hand-rolled state machine (RunQuery, RunPatch)
+│   │   ├── state.go                      # Workflow State struct
+│   │   └── nodes/                        # All workflow nodes
+│   │       ├── prompt_context.go         # PromptContext type for LLM transparency
+│   │       ├── schema.go                 # AnalyzeSchema, FormatSchemaMarkdown
+│   │       ├── filter_schema.go          # 3-stage filter (vector + LLM + FK)
+│   │       ├── infer_fk.go               # Optional FK inference node
+│   │       ├── planning.go               # PrePlanner, Planner, PlanAudit, CheckClarification
+│   │       ├── feedback.go               # HandleError, RefineQuery
+│   │       ├── execution.go              # GenerateQuery, ExecuteQuery
+│   │       ├── data_summary.go           # ComputeDataSummary
+│   │       ├── modification_options.go   # GenerateModificationOptions
+│   │       ├── narrative.go              # GenerateQueryNarrative (LLM)
+│   │       └── transform_plan.go         # ApplyPatch (4 ops)
+│   ├── chat/                             # Agentic chat: sessions, tools, loop
+│   │   ├── session.go                    # In-memory session storage with TTL
+│   │   ├── tools.go                      # run_query, respond_with_revision
+│   │   └── agent.go                      # StreamChat agentic loop
+│   ├── llm/                              # OpenAI + Anthropic + Ollama clients
+│   │   ├── client.go                     # Client interface, ResolveModel, ModelForStage
+│   │   ├── openai.go                     # OpenAI: Chat, StructuredOutput, Stream, Embed, ChatWithTools
+│   │   ├── anthropic.go                  # Anthropic: same surface via tool-use
+│   │   └── ollama.go                     # Ollama: chat + JSON mode (no tools)
+│   ├── sql/                              # T-SQL/SQLite emitter (replaces SQLGlot)
+│   │   ├── emit.go                       # Main emitter
+│   │   ├── dialect.go                    # Dialect interface + TSQL/SQLite impls
+│   │   └── validate.go                   # IsSelectOnly guard for /execute-sql
+│   ├── schema/introspect.go              # SQLite + SQL Server pragma/INFORMATION_SCHEMA
+│   ├── vector/store.go                   # Pure-Go cosine-sim vector store
+│   ├── fk/                               # FK pattern detection + matcher
+│   ├── cancel/registry.go                # Per-session cancel-func registry
+│   ├── db/                               # Connection management + demo registry
+│   ├── thread/store.go                   # thread_states.json reader/writer (compatible with Python)
+│   ├── models/                           # Wire format types (PlannerOutput, DataSummary, etc.)
+│   └── logger/logger.go                  # slog wrapper with ctx-scoped fields
+├── scripts/
+│   ├── parity_check.sh                   # Diff Python vs Go for the same prompt
+│   └── parity_prompts.txt                # Prompts the parity script replays
+├── README.md                             # Build, run, env vars
+├── PARITY.md                             # Endpoint + node feature matrix vs Python
+├── POST_MVP.md                           # Remaining deferred items
+├── TEST_COVERAGE.md                      # Go test inventory mapped to Python tests
+└── Dockerfile                            # Multi-stage distroless build (~30 MB)
 ```
 
 ## Important Patterns
@@ -720,6 +850,12 @@ pytest tests/unit/test_openai_schema_validation.py -v
 - **[JOIN_SYNTHESIZER.md](JOIN_SYNTHESIZER.md)**: Detailed SQL generation architecture and join synthesis
 - **[CHAT_ARCHITECTURE.md](CHAT_ARCHITECTURE.md)**: Conversational data assistant — agentic loop, tool calling, session management, frontend integration
 
+### Go Service Documentation
+- **[go-service/README.md](go-service/README.md)**: Go service overview, build & run instructions, env vars
+- **[go-service/PARITY.md](go-service/PARITY.md)**: Endpoint + node feature matrix vs Python
+- **[go-service/POST_MVP.md](go-service/POST_MVP.md)**: Remaining deferred items (CTEs, planner tiers, optional Eino migration)
+- **[go-service/TEST_COVERAGE.md](go-service/TEST_COVERAGE.md)**: Go test inventory mapped to Python tests
+
 ### Specialized Topics
 - **[domain_specific_guidance/README.md](domain_specific_guidance/README.md)**: Configuration guide for domain-specific customization
 
@@ -735,16 +871,28 @@ pytest tests/unit/test_openai_schema_validation.py -v
 
 ## Common Development Tasks
 
+> **Reminder:** All "major" tasks below MUST land in both Python and Go. See [Dual Implementation](#-dual-implementation-project--read-this-first) at the top for the full parity rule.
+
 ### Adding a New Planner Feature
 
+**Python:**
 1. Update Pydantic model in `models/planner_output.py` (and minimal/standard variants)
 2. Update planner prompt in `agent/planner.py`
 3. Update join synthesizer in `agent/generate_query.py` to handle new feature
 4. Add unit tests in `tests/unit/`
 5. Update documentation in `WORKFLOW_DIAGRAM.md` and `JOIN_SYNTHESIZER.md`
 
+**Go (mirror the change):**
+1. Update the `PlannerOutput` struct in `go-service/internal/models/planner_output.go`
+2. Regenerate the JSON schema by re-running tests — `invopop/jsonschema` reflects from the struct automatically
+3. Update planner prompt in `go-service/internal/agent/nodes/planning.go` to match Python's prompt changes
+4. Update T-SQL emitter in `go-service/internal/sql/emit.go`
+5. Add unit tests in `go-service/internal/sql/emit_*_test.go`
+6. Update `go-service/PARITY.md` matrix entry
+
 ### Adding a New Workflow Node
 
+**Python:**
 1. Create node function in `agent/your_node.py`
 2. Add node to workflow in `agent/create_agent.py`:
    ```python
@@ -752,7 +900,31 @@ pytest tests/unit/test_openai_schema_validation.py -v
    workflow.add_edge("previous_node", "your_node")
    ```
 3. Update `State` TypedDict in `agent/state.py` if needed
-4. Add tests and update `WORKFLOW_DIAGRAM.md`
+4. If the node calls an LLM, emit `prompt_context` via `emit_node_status(metadata={"prompt_context": {...}})` so the frontend's `PromptViewer` can render it
+5. Add tests and update `WORKFLOW_DIAGRAM.md`
+
+**Go (mirror the change):**
+1. Create node function in `go-service/internal/agent/nodes/your_node.go`. If it uses an LLM, return `(*PromptContext, error)` alongside the result — see `nodes/planning.go:PrePlanner` for the pattern.
+2. Add node to the orchestrator in `go-service/internal/agent/graph.go:RunQuery`
+3. Update `State` struct in `go-service/internal/agent/state.go` if needed
+4. Pipe `prompt_context` through the `emit(...)` metadata using the `withPrompt(...)` helper in `graph.go`
+5. If the node has wire-format output, add a struct in `go-service/internal/models/` and an `omitempty` field on `QueryResponse` in `go-service/internal/server/models.go`
+6. Add unit tests in `go-service/internal/agent/nodes/`
+
+### Adding a New Endpoint
+
+**Python:**
+1. Add request/response Pydantic models in `server.py`
+2. Add route handler in `server.py`
+3. Add tests under `tests/`
+
+**Go (mirror the change):**
+1. Add a new `*_handler.go` file in `go-service/internal/server/` (one file per logical endpoint group)
+2. Register the route in `go-service/internal/server/server.go:registerRoutes`
+3. Add request/response structs to `go-service/internal/server/models.go` — match the Python JSON shape exactly (including `json:"omitempty"` patterns)
+4. If the endpoint streams SSE, follow the pattern in `query_handler.go:queryStreamHandler` (channel + goroutine + per-event `sendSSE`)
+5. Add a live e2e test under `go-service/internal/server/*_e2e_test.go`
+6. Update `go-service/PARITY.md` with the new endpoint row
 
 ### Debugging Workflow Issues
 
