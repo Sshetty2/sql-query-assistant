@@ -37,16 +37,17 @@ const NODE_LABELS: Record<string, string> = {
   cleanup: "Finishing up",
 };
 
-// Nodes to hide (implementation details)
+// Nodes to hide (implementation details). The post-execute summary nodes
+// (data_summary, modification_options, narrative) are intentionally LEFT
+// VISIBLE so the user sees the workflow keep progressing after execute_query
+// completes — otherwise they see a green checkmark + a pause until the
+// `complete` event fires, which feels like the UI froze.
 const HIDDEN_NODES = new Set([
   "request_received",
   "initialize_connection",
   "format_schema_markdown",
   "check_clarification",
   "cleanup",
-  "generate_modification_options",
-  "generate_data_summary",
-  "generate_query_narrative",
 ]);
 
 function getNodeLabel(nodeName: string): string {
