@@ -13,6 +13,7 @@ import type {
   DemoDatabase,
   SchemaTable,
 } from "./types";
+import { validateQueryResult } from "./schemas";
 
 // All API calls go through the /api proxy on the same origin.
 // In production, the Node server proxies /api/* to the backend via Railway private networking.
@@ -225,7 +226,7 @@ function streamSSE(
               callbacks.onStatus(parsed as StatusEvent);
             } else if (event.type === "complete") {
               receivedComplete = true;
-              callbacks.onComplete(parsed as QueryResult);
+              callbacks.onComplete(validateQueryResult(parsed) as QueryResult);
             } else if (event.type === "error") {
               callbacks.onError(parsed.detail || "Unknown error");
             }
@@ -245,7 +246,7 @@ function streamSSE(
             const parsed = JSON.parse(event.data);
             if (event.type === "complete") {
               receivedComplete = true;
-              callbacks.onComplete(parsed as QueryResult);
+              callbacks.onComplete(validateQueryResult(parsed) as QueryResult);
             } else if (event.type === "error") {
               callbacks.onError(parsed.detail || "Unknown error");
             }
@@ -441,7 +442,7 @@ export function streamChat(
             } else if (event.type === "tool_start") {
               callbacks.onToolStart?.(parsed as ChatToolStartEvent);
             } else if (event.type === "tool_result") {
-              callbacks.onToolResult?.(parsed as QueryResult);
+              callbacks.onToolResult?.(validateQueryResult(parsed) as QueryResult);
             } else if (event.type === "tool_error") {
               callbacks.onToolError?.(parsed as ChatToolErrorEvent);
             } else if (event.type === "suggest_revision") {
@@ -471,7 +472,7 @@ export function streamChat(
             } else if (event.type === "token") {
               callbacks.onToken(parsed as ChatTokenEvent);
             } else if (event.type === "tool_result") {
-              callbacks.onToolResult?.(parsed as QueryResult);
+              callbacks.onToolResult?.(validateQueryResult(parsed) as QueryResult);
             } else if (event.type === "suggest_revision") {
               callbacks.onSuggestRevision?.(parsed as ChatSuggestRevisionEvent);
             }
